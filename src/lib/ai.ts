@@ -70,7 +70,7 @@ export async function generatePanelPrompts(
   return prompts.prompts;
 }
 
-export async function generateImage(prompt: string, fileName: string, aspectRatio: string): Promise<string> {
+export async function generateImage(prompt: string, fileName: string, aspectRatio: string, ): Promise<string> {
   const res = await fetch("/api/generate-panel-image", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

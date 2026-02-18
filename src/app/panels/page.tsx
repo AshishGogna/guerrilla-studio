@@ -26,6 +26,36 @@ export default function PanelsPage() {
   const [generatingPanelIndex, setGeneratingPanelIndex] = useState<number | null>(null);
   const [characters, setCharacters] = useState<{name: string; imagePrompt: string; image?: string}[]>([{name: "", imagePrompt: ""}]);
   const [generatingCharacterIndex, setGeneratingCharacterIndex] = useState<number | null>(null);
+  // Convert File objects to base64 strings for storage
+  const convertFilesToBase64 = (files: File[]): Promise<string[]> => {
+    return Promise.all(files.map(file => 
+      new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.readAsDataURL(file);
+      })
+    ));
+  };
+
+  // Convert base64 strings back to File objects for UI
+  const convertBase64ToFiles = async (base64Strings: string[], originalFiles?: File[]): Promise<File[]> => {
+    return Promise.all(base64Strings.map((base64, index) => 
+      new Promise((resolve) => {
+        if (originalFiles?.[index]) {
+          resolve(originalFiles[index]);
+          return;
+        }
+        fetch(base64)
+          .then(res => res.blob())
+          .then(blob => {
+            const fileName = `attached-image-${index}.png`;
+            resolve(new File([blob], fileName, 'image/png'));
+          });
+      })
+    ));
+  };
+
+  const [attachedImages, setAttachedImages] = useState<{[key: number]: {fileName: string; filePath: string}[]}>({});
 
   useEffect(() => {
     const data = loadPanelData(PROJECT_ID);
@@ -36,6 +66,7 @@ export default function PanelsPage() {
     setPanelPrompts(data.panelPrompts);
     setPanelImages(data.panelImages);
     setCharacters(data.characters || [{name: "", imagePrompt: ""}]);
+    setAttachedImages(data.attachedImages || {});
   }, []);
 
   useEffect(() => {
@@ -47,7 +78,8 @@ export default function PanelsPage() {
         systemPromptScript,
         panelPrompts,
         panelImages,
-        characters
+        characters,
+        attachedImages: attachedImages,
       });
       console.log("Saved Project!");
     }, 400);
@@ -59,7 +91,8 @@ export default function PanelsPage() {
     systemPromptScript,
     panelPrompts,
     panelImages,
-    characters
+    characters,
+    attachedImages
   ]);
 
   return (
@@ -410,6 +443,73 @@ export default function PanelsPage() {
                           "Generate Panel"
                         )}
                       </button>
+                    </div>
+                    {/* Image attachments */}
+                    <div className="px-2 py-2">
+                      <div className="flex gap-2 overflow-x-auto">
+                        {attachedImages[index]?.map((attachment, fileIndex) => (
+                          <div key={fileIndex} className="flex items-center gap-2 p-2 border border-foreground/10 rounded bg-background/50">
+                            <span className="text-xs text-foreground/70 truncate max-w-[100px]">
+                              {attachment.fileName}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newAttachedImages = {...attachedImages};
+                                newAttachedImages[index] = newAttachedImages[index].filter((_, i) => i !== fileIndex);
+                                setAttachedImages(newAttachedImages);
+                              }}
+                              className="text-foreground/60 hover:text-foreground transition"
+                              title="Remove image"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                        <label className="flex items-center gap-2 px-3 py-2 border border-foreground/20 rounded text-xs text-foreground/60 hover:text-foreground hover:border-foreground/40 transition cursor-pointer">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="17 8 12 3 7 8" />
+                            <line x1="12" y1="3" x2="12" y2="15" />
+                          </svg>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            onChange={async (e) => {
+                              const files = Array.from(e.target.files || []);
+                              if (files.length > 0) {
+                                const currentImages = attachedImages[index] || [];
+                                const newAttachments = [];
+                                
+                                for (const file of files) {
+                                  const formData = new FormData();
+                                  formData.append("file", file);
+                                  formData.append("projectId", PROJECT_ID);
+                                  formData.append("panelIndex", index.toString());
+                                  
+                                  try {
+                                    const response = await fetch("/api/upload-attachment", {
+                                      method: "POST",
+                                      body: formData,
+                                    });
+                                    
+                                    if (response.ok) {
+                                      const result = await response.json();
+                                      newAttachments.push(result);
+                                    }
+                                  } catch (error) {
+                                    console.error("Upload failed:", error);
+                                  }
+                                }
+                                
+                                setAttachedImages({...attachedImages, [index]: [...currentImages, ...newAttachments]});
+                              }
+                            }}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
                     </div>
                     <div className="p-2 h-[176px]">
                       <textarea

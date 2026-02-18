@@ -12,6 +12,7 @@ export interface PanelData {
   panelPrompts: string[];
   panelImages: string[];
   characters: {name: string; imagePrompt: string; image?: string}[];
+  attachedImages: {[key: number]: {fileName: string; filePath: string}[]};
 };
 
 export function loadPanelData(projectId: string): PanelData {
@@ -27,8 +28,9 @@ export function loadPanelData(projectId: string): PanelData {
       localStorage.getItem(getStorageKey(projectId, "panel-prompts")) ?? "";
     const panelImages =
       localStorage.getItem(getStorageKey(projectId, "panel-images")) ?? "";
-    const characters =
-      localStorage.getItem(getStorageKey(projectId, "characters")) ?? "";
+    const characters = JSON.parse(localStorage.getItem(getStorageKey(projectId, "characters")) ?? "[]");
+    const attachedImages = JSON.parse(localStorage.getItem(getStorageKey(projectId, "attached-images")) ?? "{}");
+
     return {
       script,
       worldAndCharacters,
@@ -36,7 +38,8 @@ export function loadPanelData(projectId: string): PanelData {
       systemPromptScript,
       panelPrompts: JSON.parse(panelPrompts),
       panelImages: JSON.parse(panelImages),
-      characters: JSON.parse(characters),
+      characters,
+      attachedImages,
     };
   } catch {
     return {
@@ -47,6 +50,7 @@ export function loadPanelData(projectId: string): PanelData {
       panelPrompts: [],
       panelImages: [],
       characters: [{name: "", imagePrompt: ""}],
+      attachedImages: {},
     };
   }
 }
@@ -77,6 +81,10 @@ export function savePanelData(projectId: string, data: PanelData): void {
     localStorage.setItem(
       getStorageKey(projectId, "characters"),
       JSON.stringify(data.characters)
+    );
+    localStorage.setItem(
+      getStorageKey(projectId, "attached-images"),
+      JSON.stringify(data.attachedImages)
     );
   } catch {
     // ignore
