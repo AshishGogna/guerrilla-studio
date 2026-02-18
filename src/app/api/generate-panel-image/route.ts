@@ -11,7 +11,7 @@ export async function POST(request: Request) {
     );
   }
 
-  let body: { prompt?: string; model?: string; projectId?: string; imageNumber?: number };
+  let body: { prompt?: string; model?: string; outputFileName?: string, aspectRatio?: string };
   try {
     body = await request.json();
   } catch {
@@ -29,13 +29,17 @@ export async function POST(request: Request) {
     );
   }
 
-  const projectId = typeof body.projectId === "string" ? body.projectId : "default";
-  const imageNumber = typeof body.imageNumber === "number" ? body.imageNumber : 0;
+  const outputFileName = typeof body.outputFileName === "string" ? body.outputFileName : 0;
 
   const model =
     typeof body.model === "string" && body.model.trim()
       ? body.model.trim()
       : "gemini-2.5-flash-image";
+
+  const aspectRatio =
+    typeof body.aspectRatio === "string" && body.aspectRatio.trim()
+      ? body.aspectRatio.trim()
+      : "16:9";
 
   try {
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
@@ -51,7 +55,7 @@ export async function POST(request: Request) {
           }]
         }],
         generationConfig: {
-          imageConfig: {"aspectRatio": "16:9"}
+          imageConfig: {"aspectRatio": aspectRatio}
         }
       }),
     });
@@ -104,7 +108,7 @@ export async function POST(request: Request) {
     }
 
     // Generate filename and save
-    const filename = `${projectId}-P${imageNumber}.${extension}`;
+    const filename = `${outputFileName}.${extension}`;
     const filePath = join(imagesDir, filename);
     
     // Convert base64 to buffer and save

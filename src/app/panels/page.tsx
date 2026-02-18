@@ -1,14 +1,17 @@
 "use client";
 
-import { generatePanelPrompts, generateScript, generatePanelImage } from "@/lib/ai";
+import { generatePanelPrompts, generateScript, generateImage } from "@/lib/ai";
 import { loadPanelData, savePanelData } from "@/lib/panels-storage";
 import { useEffect, useState } from "react";
+import TopBar from "@/components/TopBar";
 
 const PROJECT_ID = "X";
 
 export default function PanelsPage() {
   const [scriptOpen, setScriptOpen] = useState(true);
   const [secondPanelOpen, setSecondPanelOpen] = useState(true);
+  const [charactersOpen, setCharactersOpen] = useState(false);
+  const [worldView, setWorldView] = useState<"world" | "characters">("world");
   const [script, setScript] = useState("");
   const [worldAndCharacters, setWorldAndCharacters] = useState("");
   const [systemPromptWorldAndCharacters, setSystemPromptWorldAndCharacters] = useState("");
@@ -21,6 +24,7 @@ export default function PanelsPage() {
   const [panelPrompts, setPanelPrompts] = useState<string[]>([]);
   const [panelImages, setPanelImages] = useState<(string)[]>([]);
   const [generatingPanelIndex, setGeneratingPanelIndex] = useState<number | null>(null);
+  const [characters, setCharacters] = useState<{name: string; imagePrompt: string}[]>([{name: "", imagePrompt: ""}]);
 
   useEffect(() => {
     const data = loadPanelData(PROJECT_ID);
@@ -30,6 +34,7 @@ export default function PanelsPage() {
     setSystemPromptScript(data.systemPromptScript);
     setPanelPrompts(data.panelPrompts);
     setPanelImages(data.panelImages);
+    setCharacters(data.characters || [{name: "", imagePrompt: ""}]);
   }, []);
 
   useEffect(() => {
@@ -40,7 +45,8 @@ export default function PanelsPage() {
         systemPromptWorldAndCharacters,
         systemPromptScript,
         panelPrompts,
-        panelImages
+        panelImages,
+        characters
       });
       console.log("Saved Project!");
     }, 400);
@@ -51,11 +57,14 @@ export default function PanelsPage() {
     systemPromptWorldAndCharacters,
     systemPromptScript,
     panelPrompts,
-    panelImages
+    panelImages,
+    characters
   ]);
 
   return (
-    <div className="flex min-h-screen bg-background text-foreground">
+    <div className="flex min-h-screen bg-background text-foreground flex-col">
+      <TopBar title="Panels" />
+      <div className="flex flex-1 overflow-hidden">
       {/* World and Characters toggle strip */}
       <div className="flex w-8 shrink-0 flex-col items-center gap-1 border-r border-foreground/10 bg-background py-2">
         <button
@@ -66,6 +75,37 @@ export default function PanelsPage() {
           aria-label={secondPanelOpen ? "Collapse World and Characters" : "Expand World and Characters"}
         >
           {secondPanelOpen ? "◀" : "▶"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setWorldView("world")}
+          className={`flex w-8 items-center justify-center transition ${
+            worldView === "world" ? "text-foreground" : "text-foreground/50 hover:text-foreground/80"
+          }`}
+          title="World"
+          aria-label="World"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <circle cx="12" cy="12" r="10" />
+            <path d="M2 12h20" />
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={() => setWorldView("characters")}
+          className={`flex w-8 items-center justify-center transition ${
+            worldView === "characters" ? "text-foreground" : "text-foreground/50 hover:text-foreground/80"
+          }`}
+          title="Characters"
+          aria-label="Characters"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+            <circle cx="9" cy="7" r="4" />
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+          </svg>
         </button>
         <button
           type="button"
@@ -89,22 +129,25 @@ export default function PanelsPage() {
         className="flex shrink-0 flex-col overflow-hidden border-r border-foreground/10 transition-[width] duration-200 ease-out"
         style={{ width: secondPanelOpen ? "20%" : 0 }}
       >
-        <label
-          htmlFor="world-and-characters"
-          className="shrink-0 border-b border-foreground/10 px-4 py-2 font-mono text-sm uppercase tracking-wider text-foreground/70"
-        >
-          World and Characters
-        </label>
-        <textarea
-          id="world-and-characters"
-          name="world-and-characters"
-          value={worldAndCharacters}
-          onChange={(e) => setWorldAndCharacters(e.target.value)}
-          placeholder="…"
-          className="min-h-0 min-w-[200px] flex-1 resize-none border-0 bg-transparent px-4 py-3 font-mono text-[12pt] leading-relaxed text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-0"
-          style={{ fontFamily: "Cursor, var(--font-mono), ui-monospace, monospace" }}
-        />
-        <div className="shrink-0 border-t border-foreground/10 p-3">
+        {worldView === "world" ? (
+          <>
+            <label
+              htmlFor="world-and-characters"
+              className="shrink-0 border-b border-foreground/10 px-4 py-2 font-mono text-sm uppercase tracking-wider text-foreground/70"
+            >
+              World
+            </label>
+            <textarea
+              id="world-and-characters"
+              name="world-and-characters"
+              value={worldAndCharacters}
+              onChange={(e) => setWorldAndCharacters(e.target.value)}
+              placeholder="…"
+              className="min-h-0 min-w-[200px] flex-1 resize-none border-0 bg-transparent px-4 py-3 font-mono text-[12pt] leading-relaxed text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-0"
+              style={{ fontFamily: "Cursor, var(--font-mono), ui-monospace, monospace" }}
+            />
+
+                    <div className="shrink-0 border-t border-foreground/10 p-3">
           <button
             type="button"
             disabled={isGeneratingScript}
@@ -134,6 +177,78 @@ export default function PanelsPage() {
             )}
           </button>
         </div>
+
+          </>
+        ) : (
+          <>
+            <label
+              htmlFor="characters"
+              className="shrink-0 border-b border-foreground/10 px-4 py-2 font-mono text-sm uppercase tracking-wider text-foreground/70"
+            >
+              Characters
+            </label>
+            <div className="flex-1 overflow-y-auto p-3">
+              {characters.map((character, index) => (
+                <div key={index} className="mb-3 border border-foreground/10 rounded bg-background/50 p-2">
+                  <div className="flex gap-2 mb-2">
+                    <input
+                      type="text"
+                      value={character.name}
+                      onChange={(e) => {
+                        const newCharacters = [...characters];
+                        newCharacters[index] = {...newCharacters[index], name: e.target.value};
+                        setCharacters(newCharacters);
+                      }}
+                      placeholder="Character name..."
+                      className="w-full p-y-6 border-b border-foreground/10 bg-transparent font-mono text-[12px] leading-relaxed text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-0 mb-2"
+                      style={{ fontFamily: "Cursor, var(--font-mono), ui-monospace, monospace" }}
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (characters.length > 1) {
+                          const newCharacters = characters.filter((_, i) => i !== index);
+                          setCharacters(newCharacters);
+                        }
+                      }}
+                      className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded border border-foreground/20 text-foreground/60 hover:text-foreground hover:border-foreground/40 transition"
+                      title="Delete character"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div className="mb-2">
+                    <textarea
+                      value={character.imagePrompt}
+                      onChange={(e) => {
+                        const newCharacters = [...characters];
+                        newCharacters[index] = {...newCharacters[index], imagePrompt: e.target.value};
+                        setCharacters(newCharacters);
+                      }}
+                      placeholder="Character image prompt..."
+                      className="w-full min-h-[60px] resize-none border-0 bg-transparent font-mono text-[12px] leading-relaxed text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-0"
+                      style={{ fontFamily: "Cursor, var(--font-mono), ui-monospace, monospace" }}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-center gap-2 rounded bg-accent px-2 py-1 text-xs font-semibold text-background transition hover:bg-accent-muted"
+                  >
+                    GENERATE CHARACTER
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => setCharacters([...characters, {name: "", imagePrompt: ""}])}
+                className="flex w-full items-center justify-center gap-2 rounded border border-foreground/20 px-2 py-1 text-xs font-medium text-foreground/60 hover:text-foreground hover:border-foreground/40 transition"
+              >
+                + Add Character
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Script toggle strip */}
@@ -243,7 +358,7 @@ export default function PanelsPage() {
                         onClick={async () => {
                           setGeneratingPanelIndex(index);
                           try {
-                            const image = await generatePanelImage(prompt, PROJECT_ID, index);
+                            const image = await generateImage(prompt, PROJECT_ID, `P-${index}`, "16:9");
                             const newImages = [...panelImages];
                             newImages[index] = image;
                             setPanelImages(newImages);
@@ -328,6 +443,7 @@ export default function PanelsPage() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

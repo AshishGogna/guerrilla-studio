@@ -4,13 +4,14 @@ function getStorageKey(projectId: string, panel: string): string {
   return `${STORAGE_PREFIX}-${projectId}:${panel}`;
 }
 
-export type PanelData = {
+export interface PanelData {
   script: string;
   worldAndCharacters: string;
   systemPromptWorldAndCharacters: string;
   systemPromptScript: string;
   panelPrompts: string[];
   panelImages: string[];
+  characters: {name: string; imagePrompt: string}[];
 };
 
 export function loadPanelData(projectId: string): PanelData {
@@ -26,6 +27,8 @@ export function loadPanelData(projectId: string): PanelData {
       localStorage.getItem(getStorageKey(projectId, "panel-prompts")) ?? "";
     const panelImages =
       localStorage.getItem(getStorageKey(projectId, "panel-images")) ?? "";
+    const characters =
+      localStorage.getItem(getStorageKey(projectId, "characters")) ?? "";
     return {
       script,
       worldAndCharacters,
@@ -33,6 +36,7 @@ export function loadPanelData(projectId: string): PanelData {
       systemPromptScript,
       panelPrompts: JSON.parse(panelPrompts),
       panelImages: JSON.parse(panelImages),
+      characters: JSON.parse(characters),
     };
   } catch {
     return {
@@ -42,6 +46,7 @@ export function loadPanelData(projectId: string): PanelData {
       systemPromptScript: "",
       panelPrompts: [],
       panelImages: [],
+      characters: [{name: "", imagePrompt: ""}],
     };
   }
 }
@@ -68,6 +73,10 @@ export function savePanelData(projectId: string, data: PanelData): void {
     localStorage.setItem(
       getStorageKey(projectId, "panel-images"),
       JSON.stringify(data.panelImages)
+    );
+    localStorage.setItem(
+      getStorageKey(projectId, "characters"),
+      JSON.stringify(data.characters)
     );
   } catch {
     // ignore
