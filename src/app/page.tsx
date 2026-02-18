@@ -7,6 +7,9 @@ export default function Home() {
             Studio
           </span>
           <nav className="flex gap-8 font-mono text-sm">
+            <a href="/panels" className="text-foreground/70 transition hover:text-accent">
+              Panels
+            </a>
             <a href="#work" className="text-foreground/70 transition hover:text-accent">
               Work
             </a>
