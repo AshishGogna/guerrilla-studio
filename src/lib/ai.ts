@@ -29,7 +29,20 @@ export async function generateScript(
 export async function generatePanelPrompts(
   script: string,
   systemPrompt: string
-): Promise<string> {
+): Promise<string[]> {
+
+  // return [
+  //   "SCENE 1",
+  //   "SCENE 2",
+  //   "SCENE 2",
+  //   "SCENE 2",
+  //   "SCENE 2",
+  //   "SCENE 2",
+  //   "SCENE 2",
+  //   "SCENE 2",
+  //   "SCENE 2",
+  // ];
+
   const res = await fetch("/api/generate-panel-prompts", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -52,8 +65,6 @@ export async function generatePanelPrompts(
     throw new Error("Invalid response from server");
   }
 
-  console.log('AI: generatePanelPrompts response:', data.content);
-
   const prompts = JSON.parse(data.content);
-  return data.content;
+  return prompts.prompts;
 }

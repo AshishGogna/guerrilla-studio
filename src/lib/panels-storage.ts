@@ -9,6 +9,7 @@ export type PanelData = {
   worldAndCharacters: string;
   systemPromptWorldAndCharacters: string;
   systemPromptScript: string;
+  panelPrompts: string[];
 };
 
 export function loadPanelData(projectId: string): PanelData {
@@ -20,11 +21,14 @@ export function loadPanelData(projectId: string): PanelData {
       localStorage.getItem(getStorageKey(projectId, "system-prompt:world-and-characters")) ?? "";
     const systemPromptScript =
       localStorage.getItem(getStorageKey(projectId, "system-prompt:script")) ?? "";
+    const panelPrompts =
+      localStorage.getItem(getStorageKey(projectId, "panel-prompts")) ?? "";
     return {
       script,
       worldAndCharacters,
       systemPromptWorldAndCharacters,
       systemPromptScript,
+      panelPrompts: JSON.parse(panelPrompts),
     };
   } catch {
     return {
@@ -32,6 +36,7 @@ export function loadPanelData(projectId: string): PanelData {
       worldAndCharacters: "",
       systemPromptWorldAndCharacters: "",
       systemPromptScript: "",
+      panelPrompts: [],
     };
   }
 }
@@ -50,6 +55,10 @@ export function savePanelData(projectId: string, data: PanelData): void {
     localStorage.setItem(
       getStorageKey(projectId, "system-prompt:script"),
       data.systemPromptScript
+    );
+    localStorage.setItem(
+      getStorageKey(projectId, "panel-prompts"),
+      JSON.stringify(data.panelPrompts)
     );
   } catch {
     // ignore

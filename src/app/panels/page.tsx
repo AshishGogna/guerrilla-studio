@@ -18,6 +18,7 @@ export default function PanelsPage() {
   >(null);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
   const [isGeneratingPanelPrompts, setIsGeneratingPanelPrompts] = useState(false);
+  const [panelPrompts, setPanelPrompts] = useState<string[]>([]);
 
   useEffect(() => {
     const data = loadPanelData(PROJECT_ID);
@@ -25,6 +26,7 @@ export default function PanelsPage() {
     setWorldAndCharacters(data.worldAndCharacters);
     setSystemPromptWorldAndCharacters(data.systemPromptWorldAndCharacters);
     setSystemPromptScript(data.systemPromptScript);
+    setPanelPrompts(data.panelPrompts);
   }, []);
 
   useEffect(() => {
@@ -34,7 +36,9 @@ export default function PanelsPage() {
         worldAndCharacters,
         systemPromptWorldAndCharacters,
         systemPromptScript,
+        panelPrompts
       });
+      console.log("Saved Project!");
     }, 400);
     return () => clearTimeout(t);
   }, [
@@ -42,6 +46,7 @@ export default function PanelsPage() {
     worldAndCharacters,
     systemPromptWorldAndCharacters,
     systemPromptScript,
+    panelPrompts
   ]);
 
   return (
@@ -181,7 +186,8 @@ export default function PanelsPage() {
             onClick={async () => {
               setIsGeneratingPanelPrompts(true);
               try {
-                await generatePanelPrompts(script, systemPromptScript);
+                const prompts = await generatePanelPrompts(script, systemPromptScript);
+                setPanelPrompts(prompts);
               } catch (err) {
                 alert(err instanceof Error ? err.message : "Failed to generate panel prompts");
               } finally {
@@ -203,7 +209,32 @@ export default function PanelsPage() {
       </div>
 
       {/* Main content area */}
-      <div className="min-w-0 flex-1" />
+      <div className="min-w-0 flex-1 overflow-auto flex flex-col">
+        <div className="flex-1" />
+        {panelPrompts.length > 0 && (
+          <div className="p-4">
+            <div className="flex gap-2 overflow-x-auto pb-2">
+              {panelPrompts.map((prompt, index) => (
+                <div
+                  key={index}
+                  className="flex-shrink-0 w-[300px] h-[200px] border border-foreground/20 bg-background/50 p-2 overflow-hidden"
+                >
+                  <textarea
+                    value={prompt}
+                    onChange={(e) => {
+                      const newPrompts = [...panelPrompts];
+                      newPrompts[index] = e.target.value;
+                      setPanelPrompts(newPrompts);
+                    }}
+                    className="w-full h-full resize-none border-0 bg-transparent font-mono text-[12px] leading-tight text-foreground/80 placeholder:text-foreground/40 focus:outline-none focus:ring-0"
+                    style={{ fontFamily: "Cursor, var(--font-mono), ui-monospace, monospace" }}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* System Prompt modal */}
       {systemPromptEditorPanel && (
