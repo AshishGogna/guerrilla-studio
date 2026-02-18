@@ -222,14 +222,16 @@ export default function PanelsPage() {
             <div className="flex gap-2 overflow-x-auto pb-2">
               {panelPrompts.map((prompt, index) => (
                 <div key={index} className="flex flex-col">
-                  {panelImages[index] && (
+                  {panelImages[index] ? (
                     <div className="shrink-0 mb-2">
                       <img 
                         src={panelImages[index]} 
                         alt={`Panel ${index + 1}`}
-                        className="w-[300px] h-32 object-contain"
+                        className="w-[300px] h-46 object-contain"
                       />
                     </div>
+                  ) : (
+                    <div className="flex-1"></div>
                   )}
                   <div
                     className="flex-shrink-0 w-[300px] border border-foreground/20 bg-background/50 overflow-hidden"

@@ -49,7 +49,10 @@ export async function POST(request: Request) {
           parts: [{
             text: `${prompt}`
           }]
-        }]
+        }],
+        generationConfig: {
+          imageConfig: {"aspectRatio": "16:9"}
+        }
       }),
     });
 
