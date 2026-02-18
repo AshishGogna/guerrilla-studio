@@ -218,8 +218,8 @@ export default function PanelsPage() {
       <div className="min-w-0 flex-1 overflow-auto flex flex-col">
         <div className="flex-1" />
         {panelPrompts.length > 0 && (
-          <div className="p-4">
-            <div className="flex gap-2 overflow-x-auto pb-2">
+          <div className="p-10">
+            <div className="flex gap-10 overflow-x-auto pb-2">
               {panelPrompts.map((prompt, index) => (
                 <div key={index} className="flex flex-col">
                   {panelImages[index] ? (
