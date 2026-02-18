@@ -1,6 +1,6 @@
 "use client";
 
-import { generatePanelPrompts, generateScript } from "@/lib/ai";
+import { generatePanelPrompts, generateScript, generatePanelImage } from "@/lib/ai";
 import { loadPanelData, savePanelData } from "@/lib/panels-storage";
 import { useEffect, useState } from "react";
 
@@ -19,6 +19,8 @@ export default function PanelsPage() {
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
   const [isGeneratingPanelPrompts, setIsGeneratingPanelPrompts] = useState(false);
   const [panelPrompts, setPanelPrompts] = useState<string[]>([]);
+  const [panelImages, setPanelImages] = useState<(string)[]>([]);
+  const [generatingPanelIndex, setGeneratingPanelIndex] = useState<number | null>(null);
 
   useEffect(() => {
     const data = loadPanelData(PROJECT_ID);
@@ -27,6 +29,7 @@ export default function PanelsPage() {
     setSystemPromptWorldAndCharacters(data.systemPromptWorldAndCharacters);
     setSystemPromptScript(data.systemPromptScript);
     setPanelPrompts(data.panelPrompts);
+    setPanelImages(data.panelImages);
   }, []);
 
   useEffect(() => {
@@ -36,7 +39,8 @@ export default function PanelsPage() {
         worldAndCharacters,
         systemPromptWorldAndCharacters,
         systemPromptScript,
-        panelPrompts
+        panelPrompts,
+        panelImages
       });
       console.log("Saved Project!");
     }, 400);
@@ -46,7 +50,8 @@ export default function PanelsPage() {
     worldAndCharacters,
     systemPromptWorldAndCharacters,
     systemPromptScript,
-    panelPrompts
+    panelPrompts,
+    panelImages
   ]);
 
   return (
@@ -188,6 +193,7 @@ export default function PanelsPage() {
               try {
                 const prompts = await generatePanelPrompts(script, systemPromptScript);
                 setPanelPrompts(prompts);
+                setPanelImages(new Array(prompts.length).fill(null));
               } catch (err) {
                 alert(err instanceof Error ? err.message : "Failed to generate panel prompts");
               } finally {
@@ -215,20 +221,61 @@ export default function PanelsPage() {
           <div className="p-4">
             <div className="flex gap-2 overflow-x-auto pb-2">
               {panelPrompts.map((prompt, index) => (
-                <div
-                  key={index}
-                  className="flex-shrink-0 w-[300px] h-[200px] border border-foreground/20 bg-background/50 p-2 overflow-hidden"
-                >
-                  <textarea
-                    value={prompt}
-                    onChange={(e) => {
-                      const newPrompts = [...panelPrompts];
-                      newPrompts[index] = e.target.value;
-                      setPanelPrompts(newPrompts);
-                    }}
-                    className="w-full h-full resize-none border-0 bg-transparent font-mono text-[12px] leading-tight text-foreground/80 placeholder:text-foreground/40 focus:outline-none focus:ring-0"
-                    style={{ fontFamily: "Cursor, var(--font-mono), ui-monospace, monospace" }}
-                  />
+                <div key={index} className="flex flex-col">
+                  {panelImages[index] && (
+                    <div className="shrink-0 mb-2">
+                      <img 
+                        src={panelImages[index]} 
+                        alt={`Panel ${index + 1}`}
+                        className="w-[300px] h-32 object-contain"
+                      />
+                    </div>
+                  )}
+                  <div
+                    className="flex-shrink-0 w-[300px] border border-foreground/20 bg-background/50 overflow-hidden"
+                  >
+                    <div className="shrink-0 border-b border-foreground/10 p-2">
+                      <button
+                        type="button"
+                        disabled={generatingPanelIndex === index}
+                        onClick={async () => {
+                          setGeneratingPanelIndex(index);
+                          try {
+                            const image = await generatePanelImage(prompt, PROJECT_ID, index);
+                            const newImages = [...panelImages];
+                            newImages[index] = image;
+                            setPanelImages(newImages);
+                          } catch (err) {
+                            alert(err instanceof Error ? err.message : "Failed to generate panel image");
+                          } finally {
+                            setGeneratingPanelIndex(null);
+                          }
+                        }}
+                        className="flex w-full items-center justify-center gap-2 rounded bg-accent px-3 py-2 text-sm font-semibold text-background transition hover:bg-accent-muted disabled:opacity-70"
+                      >
+                        {generatingPanelIndex === index ? (
+                          <>
+                            <span className="size-4 animate-spin rounded-full border-2 border-background border-t-transparent" />
+                            Generating…
+                          </>
+                        ) : (
+                          "Generate Panel"
+                        )}
+                      </button>
+                    </div>
+                    <div className="p-2 h-[176px]">
+                      <textarea
+                        value={prompt}
+                        onChange={(e) => {
+                          const newPrompts = [...panelPrompts];
+                          newPrompts[index] = e.target.value;
+                          setPanelPrompts(newPrompts);
+                        }}
+                        className="w-full h-full resize-none border-0 bg-transparent font-mono text-[12px] leading-tight text-foreground/80 placeholder:text-foreground/40 focus:outline-none focus:ring-0"
+                        style={{ fontFamily: "Cursor, var(--font-mono), ui-monospace, monospace" }}
+                      />
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>

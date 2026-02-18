@@ -1,4 +1,5 @@
 const MODEL = "gpt-5-mini-2025-08-07";
+const IMAGE_MODEL = "gemini-2.5-flash-image";
 
 export async function generateScript(
   world: string,
@@ -67,4 +68,26 @@ export async function generatePanelPrompts(
 
   const prompts = JSON.parse(data.content);
   return prompts.prompts;
+}
+
+export async function generatePanelImage(prompt: string, projectId: string, imageNumber: number): Promise<string> {
+  const res = await fetch("/api/generate-panel-image", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt, model: IMAGE_MODEL, projectId, imageNumber }),
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    const message = typeof data?.error === "string" ? data.error : "Failed to generate panel image";
+    throw new Error(message);
+  }
+
+  if (typeof data?.content !== "string") {
+    throw new Error("Invalid response from server");
+  }
+
+  console.log('AI: generatePanelImage response:', data.content);
+  return data.content;
 }
