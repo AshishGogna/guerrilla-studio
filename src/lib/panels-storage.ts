@@ -12,7 +12,7 @@ export interface PanelData {
   panelPrompts: string[];
   panelImages: string[];
   characters: {name: string; imagePrompt: string; image?: string}[];
-  attachedImages: {[key: number]: {fileName: string; filePath: string}[]};
+  attachedImages: {[key: number]: {fileName: string; base64: string}[]}; // Store both fileName and base64
 };
 
 export function loadPanelData(projectId: string): PanelData {

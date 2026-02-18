@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
+import { readFile } from "fs/promises";
 
 export async function POST(request: Request) {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -11,7 +12,7 @@ export async function POST(request: Request) {
     );
   }
 
-  let body: { prompt?: string; model?: string; outputFileName?: string, aspectRatio?: string };
+  let body: { prompt?: string; model?: string; outputFileName?: string, aspectRatio?: string, attachedImages?: {fileName: string; base64: string}[] };
   try {
     body = await request.json();
   } catch {
@@ -41,6 +42,21 @@ export async function POST(request: Request) {
       ? body.aspectRatio.trim()
       : "16:9";
 
+  // Process attached images
+  const attachedImages = body.attachedImages || [];
+  const refParts: any[] = [{ text: prompt }];
+
+  for (const attachment of attachedImages) {
+    // Extract the actual base64 data (remove data:image/png;base64, prefix)
+    const base64Data = attachment.base64.split(',')[1];
+    refParts.push({
+      inline_data: {
+        mime_type: "image/png",
+        data: base64Data
+      }
+    });
+  }
+
   try {
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: "POST",
@@ -50,9 +66,7 @@ export async function POST(request: Request) {
       },
       body: JSON.stringify({
         contents: [{
-          parts: [{
-            text: `${prompt}`
-          }]
+          parts: refParts
         }],
         generationConfig: {
           imageConfig: {"aspectRatio": aspectRatio}

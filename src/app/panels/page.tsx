@@ -55,7 +55,7 @@ export default function PanelsPage() {
     ));
   };
 
-  const [attachedImages, setAttachedImages] = useState<{[key: number]: {fileName: string; filePath: string}[]}>({});
+  const [attachedImages, setAttachedImages] = useState<{[key: number]: {fileName: string; base64: string}[]}>({});
 
   useEffect(() => {
     const data = loadPanelData(PROJECT_ID);
@@ -422,7 +422,7 @@ export default function PanelsPage() {
                         onClick={async () => {
                           setGeneratingPanelIndex(index);
                           try {
-                            const image = await generateImage(prompt, `P-${index}`, "16:9");
+                            const image = await generateImage(prompt, `P-${index}`, "16:9", attachedImages[index] || []);
                             const newImages = [...panelImages];
                             newImages[index] = image;
                             setPanelImages(newImages);
@@ -449,6 +449,11 @@ export default function PanelsPage() {
                       <div className="flex gap-2 overflow-x-auto">
                         {attachedImages[index]?.map((attachment, fileIndex) => (
                           <div key={fileIndex} className="flex items-center gap-2 p-2 border border-foreground/10 rounded bg-background/50">
+                            <img 
+                              src={attachment.base64} 
+                              alt={attachment.fileName} 
+                              className="w-8 h-8 object-cover rounded"
+                            />
                             <span className="text-xs text-foreground/70 truncate max-w-[100px]">
                               {attachment.fileName}
                             </span>
@@ -483,24 +488,12 @@ export default function PanelsPage() {
                                 const newAttachments = [];
                                 
                                 for (const file of files) {
-                                  const formData = new FormData();
-                                  formData.append("file", file);
-                                  formData.append("projectId", PROJECT_ID);
-                                  formData.append("panelIndex", index.toString());
-                                  
-                                  try {
-                                    const response = await fetch("/api/upload-attachment", {
-                                      method: "POST",
-                                      body: formData,
-                                    });
-                                    
-                                    if (response.ok) {
-                                      const result = await response.json();
-                                      newAttachments.push(result);
-                                    }
-                                  } catch (error) {
-                                    console.error("Upload failed:", error);
-                                  }
+                                  const base64String = await new Promise<string>((resolve) => {
+                                    const reader = new FileReader();
+                                    reader.onload = () => resolve(reader.result as string);
+                                    reader.readAsDataURL(file);
+                                  });
+                                  newAttachments.push({fileName: file.name, base64: base64String});
                                 }
                                 
                                 setAttachedImages({...attachedImages, [index]: [...currentImages, ...newAttachments]});
