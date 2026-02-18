@@ -16,6 +16,9 @@ function extractTextFromResponsesOutput(output: unknown): string | null {
   return parts.join("");
 }
 
+const DEFAULT_SYSTEM_PROMPT =
+  "You are a storyboard assistant. Given a script, output a JSON array of panel prompts: one short visual/action prompt per panel. Output only valid JSON, no other text. Example: [{\"panel\": 1, \"prompt\": \"...\"}, {\"panel\": 2, \"prompt\": \"...\"}].";
+
 export async function POST(request: Request) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -25,7 +28,7 @@ export async function POST(request: Request) {
     );
   }
 
-  let body: { world?: string; systemPrompt?: string; model?: string };
+  let body: { script?: string; systemPrompt?: string; model?: string };
   try {
     body = await request.json();
   } catch {
@@ -35,10 +38,10 @@ export async function POST(request: Request) {
     );
   }
 
-  const world = typeof body.world === "string" ? body.world : "";
-  if (!world.trim()) {
+  const script = typeof body.script === "string" ? body.script : "";
+  if (!script.trim()) {
     return NextResponse.json(
-      { error: "world is required" },
+      { error: "script is required" },
       { status: 400 }
     );
   }
@@ -46,7 +49,7 @@ export async function POST(request: Request) {
   const systemPrompt =
     typeof body.systemPrompt === "string" && body.systemPrompt.trim()
       ? body.systemPrompt.trim()
-      : "You are a scriptwriter. Generate a script based on the user's world and characters description. Output only the script text, no meta commentary.";
+      : DEFAULT_SYSTEM_PROMPT;
 
   const model =
     typeof body.model === "string" && body.model.trim()
@@ -63,7 +66,7 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         model,
         instructions: systemPrompt,
-        input: world,
+        input: script,
       }),
     });
 

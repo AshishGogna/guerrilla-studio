@@ -1,6 +1,6 @@
 "use client";
 
-import { generateScript } from "@/lib/ai";
+import { generatePanelPrompts, generateScript } from "@/lib/ai";
 import { loadPanelData, savePanelData } from "@/lib/panels-storage";
 import { useEffect, useState } from "react";
 
@@ -17,6 +17,7 @@ export default function PanelsPage() {
     null | "world-and-characters" | "script"
   >(null);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
+  const [isGeneratingPanelPrompts, setIsGeneratingPanelPrompts] = useState(false);
 
   useEffect(() => {
     const data = loadPanelData(PROJECT_ID);
@@ -176,9 +177,27 @@ export default function PanelsPage() {
         <div className="shrink-0 border-t border-foreground/10 p-3">
           <button
             type="button"
-            className="w-full rounded bg-accent px-3 py-2 text-sm font-semibold text-background transition hover:bg-accent-muted"
+            disabled={isGeneratingPanelPrompts}
+            onClick={async () => {
+              setIsGeneratingPanelPrompts(true);
+              try {
+                await generatePanelPrompts(script, systemPromptScript);
+              } catch (err) {
+                alert(err instanceof Error ? err.message : "Failed to generate panel prompts");
+              } finally {
+                setIsGeneratingPanelPrompts(false);
+              }
+            }}
+            className="flex w-full items-center justify-center gap-2 rounded bg-accent px-3 py-2 text-sm font-semibold text-background transition hover:bg-accent-muted disabled:opacity-70"
           >
-            Generate Panel Prompts
+            {isGeneratingPanelPrompts ? (
+              <>
+                <span className="size-4 animate-spin rounded-full border-2 border-background border-t-transparent" />
+                Generating…
+              </>
+            ) : (
+              "Generate Panel Prompts"
+            )}
           </button>
         </div>
       </div>
