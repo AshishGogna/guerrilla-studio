@@ -24,7 +24,8 @@ export default function PanelsPage() {
   const [panelPrompts, setPanelPrompts] = useState<string[]>([]);
   const [panelImages, setPanelImages] = useState<(string)[]>([]);
   const [generatingPanelIndex, setGeneratingPanelIndex] = useState<number | null>(null);
-  const [characters, setCharacters] = useState<{name: string; imagePrompt: string}[]>([{name: "", imagePrompt: ""}]);
+  const [characters, setCharacters] = useState<{name: string; imagePrompt: string; image?: string}[]>([{name: "", imagePrompt: ""}]);
+  const [generatingCharacterIndex, setGeneratingCharacterIndex] = useState<number | null>(null);
 
   useEffect(() => {
     const data = loadPanelData(PROJECT_ID);
@@ -218,6 +219,15 @@ export default function PanelsPage() {
                       ×
                     </button>
                   </div>
+                  {character.image && (
+                    <div className="mb-2">
+                      <img 
+                        src={character.image} 
+                        alt={character.name || `Character ${index + 1}`}
+                        className="w-full h-auto rounded border border-foreground/10"
+                      />
+                    </div>
+                  )}
                   <div className="mb-2">
                     <textarea
                       value={character.imagePrompt}
@@ -233,9 +243,30 @@ export default function PanelsPage() {
                   </div>
                   <button
                     type="button"
-                    className="flex w-full items-center justify-center gap-2 rounded bg-accent px-2 py-1 text-xs font-semibold text-background transition hover:bg-accent-muted"
+                    disabled={generatingCharacterIndex === index}
+                    onClick={async () => {
+                      setGeneratingCharacterIndex(index);
+                      try {
+                        const image = await generateImage(character.imagePrompt, character.name || `character-${index}`, "1:1");
+                        const newCharacters = [...characters];
+                        newCharacters[index] = {...newCharacters[index], image};
+                        setCharacters(newCharacters);
+                      } catch (err) {
+                        alert(err instanceof Error ? err.message : "Failed to generate character image");
+                      } finally {
+                        setGeneratingCharacterIndex(null);
+                      }
+                    }}
+                    className="flex w-full items-center justify-center gap-2 rounded bg-accent px-2 py-1 text-xs font-semibold text-background transition hover:bg-accent-muted disabled:opacity-70"
                   >
-                    GENERATE CHARACTER
+                    {generatingCharacterIndex === index ? (
+                      <>
+                        <span className="size-3 animate-spin rounded-full border-2 border-background border-t-transparent" />
+                        Generating…
+                      </>
+                    ) : (
+                      "GENERATE CHARACTER"
+                    )}
                   </button>
                 </div>
               ))}
@@ -358,7 +389,7 @@ export default function PanelsPage() {
                         onClick={async () => {
                           setGeneratingPanelIndex(index);
                           try {
-                            const image = await generateImage(prompt, PROJECT_ID, `P-${index}`, "16:9");
+                            const image = await generateImage(prompt, `P-${index}`, "16:9");
                             const newImages = [...panelImages];
                             newImages[index] = image;
                             setPanelImages(newImages);

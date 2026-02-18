@@ -11,7 +11,7 @@ export interface PanelData {
   systemPromptScript: string;
   panelPrompts: string[];
   panelImages: string[];
-  characters: {name: string; imagePrompt: string}[];
+  characters: {name: string; imagePrompt: string; image?: string}[];
 };
 
 export function loadPanelData(projectId: string): PanelData {
