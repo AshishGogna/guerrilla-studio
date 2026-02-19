@@ -30,7 +30,7 @@ export async function generateScript(
 export async function generatePanelPrompts(
   script: string,
   systemPrompt: string
-): Promise<string[]> {
+): Promise<{script_part: string; panel_prompt: string; video_prompt: string}[]> {
 
   // return [
   //   "SCENE 1",
@@ -67,7 +67,9 @@ export async function generatePanelPrompts(
   }
 
   const prompts = JSON.parse(data.content);
-  return prompts.prompts; // Return the full array with script_part and panel_prompt
+  console.log("ZZZ***");
+  console.log(prompts);
+  return prompts.panels; // Return the full array with script_part and panel_prompt
 }
 
 export async function generateImage(prompt: string, fileName: string, aspectRatio: string, attachedImages?: {fileName: string; base64: string}[]): Promise<string> {
