@@ -9,10 +9,11 @@ export interface PanelData {
   worldAndCharacters: string;
   systemPromptWorldAndCharacters: string;
   systemPromptScript: string;
-  panelPrompts: string[];
+  panelPrompts: {script_part: string; panel_prompt: string}[];
   panelImages: string[];
   characters: {name: string; imagePrompt: string; image?: string}[];
-  attachedImages: {[key: number]: {fileName: string; base64: string}[]}; // Store both fileName and base64
+  attachedImages: {[key: number]: {fileName: string; base64: string}[]};
+  videoPrompts: {script_part: string; panel_prompt: string, panel_description: string, video_prompt: string}[];
 };
 
 export function loadPanelData(projectId: string): PanelData {
@@ -24,22 +25,25 @@ export function loadPanelData(projectId: string): PanelData {
       localStorage.getItem(getStorageKey(projectId, "system-prompt:world-and-characters")) ?? "";
     const systemPromptScript =
       localStorage.getItem(getStorageKey(projectId, "system-prompt:script")) ?? "";
-    const panelPrompts =
-      localStorage.getItem(getStorageKey(projectId, "panel-prompts")) ?? "";
-    const panelImages =
-      localStorage.getItem(getStorageKey(projectId, "panel-images")) ?? "";
+    const panelPrompts = JSON.parse(
+      localStorage.getItem(getStorageKey(projectId, "panel-prompts")) ?? "[]"
+    ) as {script_part: string; panel_prompt: string}[];
+    const panelImages = JSON.parse(
+      localStorage.getItem(getStorageKey(projectId, "panel-images")) ?? "[]"
+    ) as string[];
     const characters = JSON.parse(localStorage.getItem(getStorageKey(projectId, "characters")) ?? "[]");
     const attachedImages = JSON.parse(localStorage.getItem(getStorageKey(projectId, "attached-images")) ?? "{}");
-
+    const videoPrompts = JSON.parse(localStorage.getItem(getStorageKey(projectId, "video-prompts")) ?? "[]");
     return {
       script,
       worldAndCharacters,
       systemPromptWorldAndCharacters,
       systemPromptScript,
-      panelPrompts: JSON.parse(panelPrompts),
-      panelImages: JSON.parse(panelImages),
+      panelPrompts,
+      panelImages,
       characters,
       attachedImages,
+      videoPrompts
     };
   } catch {
     return {
@@ -47,10 +51,11 @@ export function loadPanelData(projectId: string): PanelData {
       worldAndCharacters: "",
       systemPromptWorldAndCharacters: "",
       systemPromptScript: "",
-      panelPrompts: [],
+      panelPrompts: [] as {script_part: string; panel_prompt: string}[],
       panelImages: [],
       characters: [{name: "", imagePrompt: ""}],
       attachedImages: {},
+      videoPrompts: [] as {script_part: string; panel_prompt: string; panel_description: string; video_prompt: string}[]
     };
   }
 }
@@ -85,6 +90,10 @@ export function savePanelData(projectId: string, data: PanelData): void {
     localStorage.setItem(
       getStorageKey(projectId, "attached-images"),
       JSON.stringify(data.attachedImages)
+    );
+    localStorage.setItem(
+      getStorageKey(projectId, "video-prompts"),
+      JSON.stringify(data.videoPrompts)
     );
   } catch {
     // ignore

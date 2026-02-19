@@ -67,7 +67,7 @@ export async function generatePanelPrompts(
   }
 
   const prompts = JSON.parse(data.content);
-  return prompts.prompts;
+  return prompts.prompts; // Return the full array with script_part and panel_prompt
 }
 
 export async function generateImage(prompt: string, fileName: string, aspectRatio: string, attachedImages?: {fileName: string; base64: string}[]): Promise<string> {

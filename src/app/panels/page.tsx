@@ -21,8 +21,9 @@ export default function PanelsPage() {
   >(null);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
   const [isGeneratingPanelPrompts, setIsGeneratingPanelPrompts] = useState(false);
-  const [panelPrompts, setPanelPrompts] = useState<string[]>([]);
+  const [panelPrompts, setPanelPrompts] = useState<{script_part: string; panel_prompt: string}[]>([]);
   const [panelImages, setPanelImages] = useState<(string)[]>([]);
+  const [videoPrompts, setVideoPrompts] = useState<{script_part: string; panel_prompt: string; panel_description: string; video_prompt: string}[]>([]);
   const [generatingPanelIndex, setGeneratingPanelIndex] = useState<number | null>(null);
   const [characters, setCharacters] = useState<{name: string; imagePrompt: string; image?: string}[]>([{name: "", imagePrompt: ""}]);
   const [generatingCharacterIndex, setGeneratingCharacterIndex] = useState<number | null>(null);
@@ -67,6 +68,7 @@ export default function PanelsPage() {
     setPanelImages(data.panelImages);
     setCharacters(data.characters || [{name: "", imagePrompt: ""}]);
     setAttachedImages(data.attachedImages || {});
+    setVideoPrompts(data.videoPrompts || []);
   }, []);
 
   useEffect(() => {
@@ -80,6 +82,7 @@ export default function PanelsPage() {
         panelImages,
         characters,
         attachedImages: attachedImages,
+        videoPrompts: videoPrompts
       });
       console.log("Saved Project!");
     }, 400);
@@ -92,7 +95,8 @@ export default function PanelsPage() {
     panelPrompts,
     panelImages,
     characters,
-    attachedImages
+    attachedImages,
+    videoPrompts
   ]);
 
   return (
@@ -373,6 +377,8 @@ export default function PanelsPage() {
                 const prompts = await generatePanelPrompts(script, systemPromptScript);
                 setPanelPrompts(prompts);
                 setPanelImages(new Array(prompts.length).fill(null));
+                setAttachedImages({});
+                setVideoPrompts(prompts.map((prompt) => ({ script_part: prompt.script_part, panel_prompt: prompt.panel_prompt, panel_description: "", video_prompt: "" })));
               } catch (err) {
                 alert(err instanceof Error ? err.message : "Failed to generate panel prompts");
               } finally {
@@ -399,124 +405,147 @@ export default function PanelsPage() {
         {panelPrompts.length > 0 && (
           <div className="p-10">
             <div className="flex gap-10 overflow-x-auto pb-2">
-              {panelPrompts.map((prompt, index) => (
-                <div key={index} className="flex flex-col">
-                  {panelImages[index] ? (
-                    <div className="shrink-0 mb-2">
-                      <img 
-                        src={panelImages[index]} 
+              {panelPrompts.map((panelPrompt, index) => (
+                <div key={index} className="flex flex-col gap-2 p-4">
+                  {videoPrompts[index] && (
+                    <div className="border border-foreground/20">
+                      <textarea
+                        value={videoPrompts[index].video_prompt}
+                        onChange={(e) => {
+                          const newVideoPrompts = [...videoPrompts];
+                          newVideoPrompts[index] = {...newVideoPrompts[index], video_prompt: e.target.value};
+                          setVideoPrompts(newVideoPrompts);
+                        }}
+                        placeholder="Describe the visual elements, camera angle, lighting, mood..."
+                        className="w-full h-50 resize-none border-0 bg-transparent px-2 py-1 text-xs text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-0"
+                      />
+                    </div> 
+                  )}                       
+                  {panelImages[index] && (
+                    <div className="relative">
+                      <img
+                        src={panelImages[index]}
                         alt={`Panel ${index + 1}`}
-                        className="w-[300px] h-46 object-contain"
+                        className="w-full h-48 object-cover rounded border border-foreground/10"
                       />
                     </div>
-                  ) : (
-                    <div className="flex-1"></div>
                   )}
-                  <div
-                    className="flex-shrink-0 w-[300px] border border-foreground/20 bg-background/50 overflow-hidden"
-                  >
-                    <div className="shrink-0 border-b border-foreground/10 p-2">
-                      <button
-                        type="button"
-                        disabled={generatingPanelIndex === index}
-                        onClick={async () => {
-                          setGeneratingPanelIndex(index);
-                          try {
-                            const image = await generateImage(prompt, `P-${index}`, "16:9", attachedImages[index] || []);
-                            const newImages = [...panelImages];
-                            newImages[index] = image;
-                            setPanelImages(newImages);
-                          } catch (err) {
-                            alert(err instanceof Error ? err.message : "Failed to generate panel image");
-                          } finally {
-                            setGeneratingPanelIndex(null);
-                          }
-                        }}
-                        className="flex w-full items-center justify-center gap-2 rounded bg-accent px-3 py-2 text-sm font-semibold text-background transition hover:bg-accent-muted disabled:opacity-70"
-                      >
-                        {generatingPanelIndex === index ? (
-                          <>
-                            <span className="size-4 animate-spin rounded-full border-2 border-background border-t-transparent" />
-                            Generating…
-                          </>
-                        ) : (
-                          "Generate Panel"
-                        )}
-                      </button>
-                    </div>
-                    {/* Image attachments */}
-                    <div className="px-2 py-2">
-                      <div className="flex gap-2 overflow-x-auto">
-                        {attachedImages[index]?.map((attachment, fileIndex) => (
-                          <div key={fileIndex} className="flex items-center gap-2 p-2 border border-foreground/10 rounded bg-background/50">
-                            <img 
-                              src={attachment.base64} 
-                              alt={attachment.fileName} 
-                              className="w-8 h-8 object-cover rounded"
-                            />
-                            <span className="text-xs text-foreground/70 truncate max-w-[100px]">
-                              {attachment.fileName}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const newAttachedImages = {...attachedImages};
-                                newAttachedImages[index] = newAttachedImages[index].filter((_, i) => i !== fileIndex);
-                                setAttachedImages(newAttachedImages);
-                              }}
-                              className="text-foreground/60 hover:text-foreground transition"
-                              title="Remove image"
-                            >
-                              ×
-                            </button>
-                          </div>
-                        ))}
-                        <label className="flex items-center gap-2 px-3 py-2 border border-foreground/20 rounded text-xs text-foreground/60 hover:text-foreground hover:border-foreground/40 transition cursor-pointer">
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                            <polyline points="17 8 12 3 7 8" />
-                            <line x1="12" y1="3" x2="12" y2="15" />
-                          </svg>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            multiple
-                            onChange={async (e) => {
-                              const files = Array.from(e.target.files || []);
-                              if (files.length > 0) {
-                                const currentImages = attachedImages[index] || [];
-                                const newAttachments = [];
-                                
-                                for (const file of files) {
-                                  const base64String = await new Promise<string>((resolve) => {
-                                    const reader = new FileReader();
-                                    reader.onload = () => resolve(reader.result as string);
-                                    reader.readAsDataURL(file);
-                                  });
-                                  newAttachments.push({fileName: file.name, base64: base64String});
-                                }
-                                
-                                setAttachedImages({...attachedImages, [index]: [...currentImages, ...newAttachments]});
-                              }
-                            }}
-                            className="hidden"
-                          />
-                        </label>
+                  <div className="flex gap-2">
+                    {panelImages[index] ? (
+                      <div className="flex-1"></div>
+                    ) : (
+                      <div className="flex-1"></div>
+                    )}
+                    <div
+                      className="flex-col w-[300px] p-4 border border-foreground/20 bg-background/50 overflow-hidden"
+                    >
+                      <div className="shrink-0 border-b border-foreground/10 p-2">
+                        <button
+                          type="button"
+                          disabled={generatingPanelIndex === index}
+                          onClick={async () => {
+                            setGeneratingPanelIndex(index);
+                            try {
+                              const image = await generateImage(panelPrompt.panel_prompt, `P-${index}`, "16:9", attachedImages[index] || []);
+                              const newImages = [...panelImages];
+                              newImages[index] = image;
+                              setPanelImages(newImages);
+                            } catch (err) {
+                              alert(err instanceof Error ? err.message : "Failed to generate panel image");
+                            } finally {
+                              setGeneratingPanelIndex(null);
+                            }
+                          }}
+                          className="flex w-full items-center justify-center gap-2 rounded bg-accent px-3 py-2 text-sm font-semibold text-background transition hover:bg-accent-muted disabled:opacity-70"
+                        >
+                          {generatingPanelIndex === index ? (
+                            <>
+                              <span className="size-4 animate-spin rounded-full border-2 border-background border-t-transparent" />
+                              Generating…
+                            </>
+                          ) : (
+                            "Generate Panel"
+                          )}
+                        </button>
                       </div>
-                    </div>
-                    <div className="p-2 h-[176px]">
+                      {/* Image attachments */}
+                      <div className="px-2 py-2">
+                        <div className="flex gap-2 overflow-x-auto">
+                          {attachedImages[index]?.map((attachment, fileIndex) => (
+                            <div key={fileIndex} className="flex items-center gap-2 p-2 border border-foreground/10 rounded bg-background/50">
+                              <img 
+                                src={attachment.base64} 
+                                alt={attachment.fileName} 
+                                className="w-8 h-8 object-cover rounded"
+                              />
+                              <span className="text-xs text-foreground/70 truncate max-w-[100px]">
+                                {attachment.fileName}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const newAttachedImages = {...attachedImages};
+                                  newAttachedImages[index] = newAttachedImages[index].filter((_, i) => i !== fileIndex);
+                                  setAttachedImages(newAttachedImages);
+                                }}
+                                className="text-foreground/60 hover:text-foreground transition"
+                                title="Remove image"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                          <div className="flex items-center gap-2">
+                            <label className="flex items-center gap-2 px-3 py-2 border border-foreground/20 rounded text-xs text-foreground/60 hover:text-foreground hover:border-foreground/40 transition cursor-pointer">
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                <polyline points="17 8 12 3 7 8" />
+                                <line x1="12" y1="3" x2="12" y2="15" />
+                              </svg>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                multiple
+                                onChange={async (e) => {
+                                  const files = Array.from(e.target.files || []);
+                                  if (files.length > 0) {
+                                    const currentImages = attachedImages[index] || [];
+                                    const newAttachments = [];
+                                    
+                                    for (const file of files) {
+                                      const base64String = await new Promise<string>((resolve) => {
+                                        const reader = new FileReader();
+                                        reader.onload = () => resolve(reader.result as string);
+                                        reader.readAsDataURL(file);
+                                      });
+                                      newAttachments.push({fileName: file.name, base64: base64String});
+                                    }
+                                    
+                                    setAttachedImages({...attachedImages, [index]: [...currentImages, ...newAttachments]});
+                                  }
+                                }}
+                                className="hidden"
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      </div>
                       <textarea
-                        value={prompt}
+                        value={panelPrompt.panel_prompt}
                         onChange={(e) => {
-                          const newPrompts = [...panelPrompts];
-                          newPrompts[index] = e.target.value;
-                          setPanelPrompts(newPrompts);
+                          const newPanelPrompts = [...panelPrompts];
+                          newPanelPrompts[index] = {...newPanelPrompts[index], panel_prompt: e.target.value};
+                          setPanelPrompts(newPanelPrompts);
                         }}
-                        className="w-full h-full resize-none border-0 bg-transparent font-mono text-[12px] leading-tight text-foreground/80 placeholder:text-foreground/40 focus:outline-none focus:ring-0"
-                        style={{ fontFamily: "Cursor, var(--font-mono), ui-monospace, monospace" }}
+                        placeholder="Describe the visual elements, camera angle, lighting, mood..."
+                        className="w-full h-50 resize-none border-0 bg-transparent px-2 py-1 text-xs text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-0"
                       />
                     </div>
                   </div>
+                      <div>
+                        {panelPrompt.script_part}
+                      </div>
+
                 </div>
               ))}
             </div>
