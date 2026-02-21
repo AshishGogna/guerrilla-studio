@@ -294,33 +294,86 @@ export default function PanelsPage() {
                       style={{ fontFamily: "Cursor, var(--font-mono), ui-monospace, monospace" }}
                     />
                   </div>
-                  <button
-                    type="button"
-                    disabled={generatingCharacterIndex === index}
-                    onClick={async () => {
-                      setGeneratingCharacterIndex(index);
-                      try {
-                        const image = await generateImage(character.imagePrompt, projectId, character.name || `character-${index}`, "1:1");
-                        const newCharacters = [...characters];
-                        newCharacters[index] = {...newCharacters[index], image};
-                        setCharacters(newCharacters);
-                      } catch (err) {
-                        alert(err instanceof Error ? err.message : "Failed to generate character image");
-                      } finally {
-                        setGeneratingCharacterIndex(null);
-                      }
-                    }}
-                    className="flex w-full items-center justify-center gap-2 rounded bg-accent px-2 py-1 text-xs font-semibold text-background transition hover:bg-accent-muted disabled:opacity-70"
-                  >
-                    {generatingCharacterIndex === index ? (
-                      <>
-                        <span className="size-3 animate-spin rounded-full border-2 border-background border-t-transparent" />
-                        Generating…
-                      </>
-                    ) : (
-                      "GENERATE CHARACTER"
-                    )}
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      disabled={generatingCharacterIndex === index}
+                      onClick={async () => {
+                        setGeneratingCharacterIndex(index);
+                        try {
+                          const image = await generateImage(character.imagePrompt, projectId, character.name || `character-${index}`, "1:1");
+                          const newCharacters = [...characters];
+                          newCharacters[index] = {...newCharacters[index], image};
+                          setCharacters(newCharacters);
+                        } catch (err) {
+                          alert(err instanceof Error ? err.message : "Failed to generate character image");
+                        } finally {
+                          setGeneratingCharacterIndex(null);
+                        }
+                      }}
+                      className="flex-1 items-center justify-center gap-2 rounded bg-accent px-2 py-1 text-xs font-semibold text-background transition hover:bg-accent-muted disabled:opacity-70"
+                    >
+                      {generatingCharacterIndex === index ? (
+                        <>
+                          <span className="size-3 animate-spin rounded-full border-2 border-background border-t-transparent" />
+                          Generating…
+                        </>
+                      ) : (
+                        "GENERATE CHARACTER"
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const input = document.createElement('input');
+                        input.type = 'file';
+                        input.accept = 'image/*';
+                        input.onchange = (e) => {
+                          const file = (e.target as HTMLInputElement).files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onload = async (e) => {
+                              const base64Image = e.target?.result as string;
+                              console.log("Character image uploaded, saving to server...");
+                              
+                              // Upload image to server
+                              const formData = new FormData();
+                              const blob = await fetch(base64Image).then(r => r.blob());
+                              formData.append('image', blob, character.name || `character-${index}.png`);
+                              formData.append('projectId', projectId);
+                              
+                              try {
+                                const response = await fetch('/api/upload-character-image', {
+                                  method: 'POST',
+                                  body: formData
+                                });
+                                
+                                if (!response.ok) {
+                                  throw new Error('Failed to upload image');
+                                }
+                                
+                                const data = await response.json();
+                                const imagePath = data.filePath;
+                                
+                                const newCharacters = [...characters];
+                                newCharacters[index] = {...newCharacters[index], image: imagePath};
+                                setCharacters(newCharacters);
+                                console.log("Character image saved as:", imagePath);
+                              } catch (error) {
+                                console.error("Failed to upload character image:", error);
+                                alert("Failed to upload character image");
+                              }
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        };
+                        input.click();
+                      }}
+                      className="flex-1 items-center justify-center gap-2 rounded border border-foreground/20 px-2 py-1 text-xs font-medium text-foreground/60 hover:text-foreground hover:border-foreground/40 transition"
+                    >
+                      UPLOAD
+                    </button>
+                  </div>
                 </div>
               ))}
               <button
@@ -720,7 +773,7 @@ export default function PanelsPage() {
                           setPanelPrompts(newPanelPrompts);
                         }}
                         placeholder="Describe the visual elements, camera angle, lighting, mood..."
-                        className="w-full h-50 resize-none border-0 bg-transparent px-2 py-1 text-xs text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-0"
+                        className="w-full h-50 resize-none border-0 bg-transparent px-2 py-1 text-s text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-0"
                       />
                     </div>
                   </div>

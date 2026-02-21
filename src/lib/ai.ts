@@ -76,7 +76,7 @@ export async function generateImage(prompt: string, projectId: string, fileName:
   const res = await fetch("/api/generate-panel-image", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, model: IMAGE_MODEL, outputFileName, aspectRatio, attachedImages }),
+    body: JSON.stringify({ prompt, model: IMAGE_MODEL, outputFileName, aspectRatio, attachedImages, projectId }),
   });
 
   const data = await res.json();

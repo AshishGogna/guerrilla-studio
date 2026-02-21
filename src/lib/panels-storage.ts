@@ -32,6 +32,7 @@ export function loadPanelData(projectId: string): PanelData {
       localStorage.getItem(getStorageKey(projectId, "panel-images")) ?? "[]"
     ) as string[];
     const characters = JSON.parse(localStorage.getItem(getStorageKey(projectId, "characters")) ?? "[]");
+    console.log("Loaded characters from storage:", characters);
     const attachedImages = JSON.parse(localStorage.getItem(getStorageKey(projectId, "attached-images")) ?? "{}");
     const locations = JSON.parse(localStorage.getItem(getStorageKey(projectId, "locations")) ?? "[]");
     return {
@@ -83,10 +84,12 @@ export function savePanelData(projectId: string, data: PanelData): void {
       getStorageKey(projectId, "panel-images"),
       JSON.stringify(data.panelImages)
     );
+    console.log("Saved characters to storage:", data.characters);
     localStorage.setItem(
       getStorageKey(projectId, "characters"),
       JSON.stringify(data.characters)
     );
+    console.log("XXX***");
     localStorage.setItem(
       getStorageKey(projectId, "attached-images"),
       JSON.stringify(data.attachedImages)

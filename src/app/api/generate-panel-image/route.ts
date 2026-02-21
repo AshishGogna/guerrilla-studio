@@ -12,7 +12,7 @@ export async function POST(request: Request) {
     );
   }
 
-  let body: { prompt?: string; model?: string; outputFileName?: string, aspectRatio?: string, attachedImages?: {fileName: string; base64: string}[] };
+  let body: { prompt?: string; model?: string; outputFileName?: string, aspectRatio?: string, attachedImages?: {fileName: string; base64: string}[], projectId?: string };
   try {
     body = await request.json();
   } catch {
@@ -30,7 +30,15 @@ export async function POST(request: Request) {
     );
   }
 
-  const outputFileName = typeof body.outputFileName === "string" ? body.outputFileName : 0;
+  const outputFileName = typeof body.outputFileName === "string" ? body.outputFileName : "";
+  const projectId = typeof body.projectId === "string" ? body.projectId : "default";
+
+  if (!outputFileName) {
+    return NextResponse.json(
+      { error: "outputFileName is required" },
+      { status: 400 }
+    );
+  }
 
   const model =
     typeof body.model === "string" && body.model.trim()
@@ -113,17 +121,17 @@ export async function POST(request: Request) {
     const mimeType = imagePart.inlineData.mimeType || "image/png";
     const extension = mimeType === "image/png" ? "png" : mimeType === "image/jpeg" ? "jpg" : "png";
     
-    // Create images directory if it doesn't exist
-    const imagesDir = join(process.cwd(), "public", "images");
+    // Create project directory if it doesn't exist
+    const projectDir = join(process.cwd(), "public", projectId);
     try {
-      await mkdir(imagesDir, { recursive: true });
+      await mkdir(projectDir, { recursive: true });
     } catch {
       // Directory already exists, ignore
     }
 
     // Generate filename and save
     const filename = `${outputFileName}.${extension}`;
-    const filePath = join(imagesDir, filename);
+    const filePath = join(projectDir, filename);
     
     // Convert base64 to buffer and save
     const base64Data = imageData.replace(/^data:image\/\w+;base64,/, "");
@@ -132,7 +140,7 @@ export async function POST(request: Request) {
 
     // Return the public path
     return NextResponse.json({ 
-      content: `/images/${filename}`
+      content: `/${projectId}/${filename}`
     });
 
   } catch (err) {
