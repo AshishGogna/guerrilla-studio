@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import { generatePanelPrompts, generateScript, generateImage } from "@/lib/ai";
 import { loadPanelData, savePanelData } from "@/lib/panels-storage";
 import { useEffect, useState } from "react";
@@ -515,11 +516,84 @@ export default function PanelsPage() {
       {/* Main content area */}
       <div className="min-w-0 flex-1 overflow-auto flex flex-col">
         <div className="flex-1" />
-        {panelPrompts.length > 0 && (
+        {panelPrompts.length > 0 ? (
           <div className="p-10">
             <div className="flex gap-10 overflow-x-auto pb-2">
               {panelPrompts.map((panelPrompt, index) => (
-                <div key={index} className="flex flex-col gap-2 p-4">
+                <React.Fragment key={index}>
+                  {/* Insert Button Before Panel */}
+                  {index > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newPanel = {
+                          script_part: "",
+                          panel_prompt: "",
+                          video_prompt: ""
+                        };
+                        const newPanelPrompts = [...panelPrompts];
+                        newPanelPrompts.splice(index, 0, newPanel);
+                        const newPanelImages = [...panelImages];
+                        newPanelImages.splice(index, 0, "");
+                        const newAttachedImages = {...attachedImages};
+                        const newAttachedKeys = Object.keys(newAttachedImages).map(k => parseInt(k)).sort((a, b) => a - b);
+                        newAttachedKeys.forEach(key => {
+                          if (key >= index) {
+                            newAttachedImages[key + 1] = newAttachedImages[key];
+                          }
+                        });
+                        newAttachedImages[index] = [];
+                        
+                        setPanelPrompts(newPanelPrompts);
+                        setPanelImages(newPanelImages);
+                        setAttachedImages(newAttachedImages);
+                      }}
+                      className="flex flex-col items-center justify-center p-2 rounded-lg border border-dashed border-foreground/10 bg-background/30 min-w-[60px] h-[400px] text-foreground/30 hover:border-accent/30 hover:text-accent/50 transition-all flex-shrink-0"
+                      title="Insert panel here"
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 5v14" />
+                        <path d="M5 12h14" />
+                      </svg>
+                    </button>
+                  )}
+                  
+                  {/* Panel */}
+                  <div key={index} className="flex flex-col gap-2 p-4">
+                    {/* Panel Header */}
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-mono text-xs text-foreground/40">
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (panelPrompts.length > 0) {
+                            const newPanelPrompts = panelPrompts.filter((_, i) => i !== index);
+                            const newPanelImages = panelImages.filter((_, i) => i !== index);
+                            const newAttachedImages = {...attachedImages};
+                            delete newAttachedImages[index];
+                            // Reindex attachedImages
+                            const reindexedAttachedImages: {[key: number]: {fileName: string; base64: string}[]} = {};
+                            Object.keys(newAttachedImages).sort((a, b) => parseInt(a) - parseInt(b)).forEach((key, newKey) => {
+                              reindexedAttachedImages[newKey] = newAttachedImages[parseInt(key)];
+                            });
+                            
+                            setPanelPrompts(newPanelPrompts);
+                            setPanelImages(newPanelImages);
+                            setAttachedImages(reindexedAttachedImages);
+                          }
+                        }}
+                        className="text-foreground/40 hover:text-foreground/60 transition-colors"
+                        title="Remove panel"
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M3 6h18" />
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                          <path d="M10 11v6" />
+                          <path d="M14 11v6" />
+                        </svg>
+                      </button>
+                    </div>
                   {panelPrompt.video_prompt && (
                     <div className="border border-foreground/20">
                       <textarea
@@ -655,7 +729,65 @@ export default function PanelsPage() {
                       </div>
 
                 </div>
+                </React.Fragment>
               ))}
+              {/* New Panel Button - Integrated at end of panel list */}
+              <button
+                type="button"
+                onClick={() => {
+                  const newPanel = {
+                    script_part: "",
+                    panel_prompt: "",
+                    video_prompt: ""
+                  };
+                  const newPanelPrompts = [...panelPrompts, newPanel];
+                  const newPanelImages = [...panelImages, ""];
+                  const newAttachedImages = {...attachedImages};
+                  newAttachedImages[panelPrompts.length] = [];
+                  
+                  setPanelPrompts(newPanelPrompts);
+                  setPanelImages(newPanelImages);
+                  setAttachedImages(newAttachedImages);
+                }}
+                className="flex flex-col items-center justify-center gap-2 p-4 rounded-lg border-2 border-dashed border-foreground/20 bg-background/50 min-w-[200px] h-[400px] text-foreground/40 hover:border-accent/50 hover:text-accent/60 transition-all flex-shrink-0"
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 5v14" />
+                  <path d="M5 12h14" />
+                </svg>
+                <span className="text-sm">Add Panel</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* No panels - show add button */
+          <div className="p-10">
+            <div className="flex gap-10 overflow-x-auto pb-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const newPanel = {
+                    script_part: "",
+                    panel_prompt: "",
+                    video_prompt: ""
+                  };
+                  const newPanelPrompts = [...panelPrompts, newPanel];
+                  const newPanelImages = [...panelImages, ""];
+                  const newAttachedImages = {...attachedImages};
+                  newAttachedImages[panelPrompts.length] = [];
+                  
+                  setPanelPrompts(newPanelPrompts);
+                  setPanelImages(newPanelImages);
+                  setAttachedImages(newAttachedImages);
+                }}
+                className="flex flex-col items-center justify-center gap-2 p-4 rounded-lg border-2 border-dashed border-foreground/20 bg-background/50 min-w-[200px] h-[400px] text-foreground/40 hover:border-accent/50 hover:text-accent/60 transition-all flex-shrink-0"
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 5v14" />
+                  <path d="M5 12h14" />
+                </svg>
+                <span className="text-sm">Add Panel</span>
+              </button>
             </div>
           </div>
         )}
