@@ -4,10 +4,11 @@ import { generatePanelPrompts, generateScript, generateImage } from "@/lib/ai";
 import { loadPanelData, savePanelData } from "@/lib/panels-storage";
 import { useEffect, useState } from "react";
 import TopBar from "@/components/TopBar";
-
-const PROJECT_ID = "X";
+import { useSearchParams } from "next/navigation";
 
 export default function PanelsPage() {
+  const searchParams = useSearchParams();
+  const projectId = searchParams.get("project") || "X";
   const [scriptOpen, setScriptOpen] = useState(true);
   const [secondPanelOpen, setSecondPanelOpen] = useState(true);
   const [charactersOpen, setCharactersOpen] = useState(false);
@@ -60,7 +61,7 @@ export default function PanelsPage() {
   const [attachedImages, setAttachedImages] = useState<{[key: number]: {fileName: string; base64: string}[]}>({});
 
   useEffect(() => {
-    const data = loadPanelData(PROJECT_ID);
+    const data = loadPanelData(projectId);
     setScript(data.script);
     setWorldAndCharacters(data.worldAndCharacters);
     setSystemPromptWorldAndCharacters(data.systemPromptWorldAndCharacters);
@@ -74,7 +75,7 @@ export default function PanelsPage() {
 
   useEffect(() => {
     const t = setTimeout(() => {
-      savePanelData(PROJECT_ID, {
+      savePanelData(projectId, {
         script,
         worldAndCharacters,
         systemPromptWorldAndCharacters,
@@ -298,7 +299,7 @@ export default function PanelsPage() {
                     onClick={async () => {
                       setGeneratingCharacterIndex(index);
                       try {
-                        const image = await generateImage(character.imagePrompt, character.name || `character-${index}`, "1:1");
+                        const image = await generateImage(character.imagePrompt, projectId, character.name || `character-${index}`, "1:1");
                         const newCharacters = [...characters];
                         newCharacters[index] = {...newCharacters[index], image};
                         setCharacters(newCharacters);
@@ -397,7 +398,7 @@ export default function PanelsPage() {
                     onClick={async () => {
                       setGeneratingLocationIndex(index);
                       try {
-                        const image = await generateImage(location.imagePrompt, location.name || `location-${index}`, "16:9");
+                        const image = await generateImage(location.imagePrompt, projectId, location.name || `location-${index}`, "16:9");
                         const newLocations = [...locations];
                         newLocations[index] = {...newLocations[index], image};
                         setLocations(newLocations);
@@ -558,7 +559,7 @@ export default function PanelsPage() {
                           onClick={async () => {
                             setGeneratingPanelIndex(index);
                             try {
-                              const image = await generateImage(panelPrompt.panel_prompt, `P-${index}`, "16:9", attachedImages[index] || []);
+                              const image = await generateImage(panelPrompt.panel_prompt, projectId, `P-${index}`, "16:9", attachedImages[index] || []);
                               const newImages = [...panelImages];
                               newImages[index] = image;
                               setPanelImages(newImages);
