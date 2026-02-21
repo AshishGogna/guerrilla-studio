@@ -261,7 +261,7 @@ export default function PanelsPage() {
                     <button
                       type="button"
                       onClick={() => {
-                        if (characters.length > 1) {
+                        if (characters.length > 0) {
                           const newCharacters = characters.filter((_, i) => i !== index);
                           setCharacters(newCharacters);
                         }
@@ -413,7 +413,7 @@ export default function PanelsPage() {
                     <button
                       type="button"
                       onClick={() => {
-                        if (locations.length > 1) {
+                        if (locations.length > 0) {
                           const newLocations = locations.filter((_, i) => i !== index);
                           setLocations(newLocations);
                         }
@@ -446,33 +446,86 @@ export default function PanelsPage() {
                       style={{ fontFamily: "Cursor, var(--font-mono), ui-monospace, monospace" }}
                     />
                   </div>
-                  <button
-                    type="button"
-                    disabled={generatingLocationIndex === index}
-                    onClick={async () => {
-                      setGeneratingLocationIndex(index);
-                      try {
-                        const image = await generateImage(location.imagePrompt, projectId, location.name || `location-${index}`, "16:9");
-                        const newLocations = [...locations];
-                        newLocations[index] = {...newLocations[index], image};
-                        setLocations(newLocations);
-                      } catch (err) {
-                        alert(err instanceof Error ? err.message : "Failed to generate location image");
-                      } finally {
-                        setGeneratingLocationIndex(null);
-                      }
-                    }}
-                    className="flex w-full items-center justify-center gap-2 rounded bg-accent px-2 py-1 text-xs font-semibold text-background transition hover:bg-accent-muted disabled:opacity-70"
-                  >
-                    {generatingLocationIndex === index ? (
-                      <>
-                        <span className="size-3 animate-spin rounded-full border-2 border-background border-t-transparent" />
-                        Generating…
-                      </>
-                    ) : (
-                      "GENERATE LOCATION"
-                    )}
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      disabled={generatingLocationIndex === index}
+                      onClick={async () => {
+                        setGeneratingLocationIndex(index);
+                        try {
+                          const image = await generateImage(location.imagePrompt, projectId, location.name || `location-${index}`, "16:9");
+                          const newLocations = [...locations];
+                          newLocations[index] = {...newLocations[index], image};
+                          setLocations(newLocations);
+                        } catch (err) {
+                          alert(err instanceof Error ? err.message : "Failed to generate location image");
+                        } finally {
+                          setGeneratingLocationIndex(null);
+                        }
+                      }}
+                      className="flex-1 items-center justify-center gap-2 rounded bg-accent px-2 py-1 text-xs font-semibold text-background transition hover:bg-accent-muted disabled:opacity-70"
+                    >
+                      {generatingLocationIndex === index ? (
+                        <>
+                          <span className="size-3 animate-spin rounded-full border-2 border-background border-t-transparent" />
+                          Generating…
+                        </>
+                      ) : (
+                        "GENERATE LOCATION"
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const input = document.createElement('input');
+                        input.type = 'file';
+                        input.accept = 'image/*';
+                        input.onchange = (e) => {
+                          const file = (e.target as HTMLInputElement).files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onload = async (e) => {
+                              const base64Image = e.target?.result as string;
+                              console.log("Location image uploaded, saving to server...");
+                              
+                              // Upload image to server
+                              const formData = new FormData();
+                              const blob = await fetch(base64Image).then(r => r.blob());
+                              formData.append('image', blob, location.name || `location-${index}.png`);
+                              formData.append('projectId', projectId);
+                              
+                              try {
+                                const response = await fetch('/api/upload-location-image', {
+                                  method: 'POST',
+                                  body: formData
+                                });
+                                
+                                if (!response.ok) {
+                                  throw new Error('Failed to upload image');
+                                }
+                                
+                                const data = await response.json();
+                                const imagePath = data.filePath;
+                                
+                                const newLocations = [...locations];
+                                newLocations[index] = {...newLocations[index], image: imagePath};
+                                setLocations(newLocations);
+                                console.log("Location image saved as:", imagePath);
+                              } catch (error) {
+                                console.error("Failed to upload location image:", error);
+                                alert("Failed to upload location image");
+                              }
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        };
+                        input.click();
+                      }}
+                      className="flex-1 items-center justify-center gap-2 rounded border border-foreground/20 px-2 py-1 text-xs font-medium text-foreground/60 hover:text-foreground hover:border-foreground/40 transition"
+                    >
+                      UPLOAD
+                    </button>
+                  </div>
                 </div>
               ))}
               <button

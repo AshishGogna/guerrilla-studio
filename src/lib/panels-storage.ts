@@ -84,12 +84,10 @@ export function savePanelData(projectId: string, data: PanelData): void {
       getStorageKey(projectId, "panel-images"),
       JSON.stringify(data.panelImages)
     );
-    console.log("Saved characters to storage:", data.characters);
     localStorage.setItem(
       getStorageKey(projectId, "characters"),
       JSON.stringify(data.characters)
     );
-    console.log("XXX***");
     localStorage.setItem(
       getStorageKey(projectId, "attached-images"),
       JSON.stringify(data.attachedImages)
