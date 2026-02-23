@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import ScriptingComponent from "./scripting";
+import StoryboardingComponent from "./storyboarding";
 
 export default function WorkspacePage() {
   const searchParams = useSearchParams();
@@ -43,7 +44,14 @@ export default function WorkspacePage() {
             >
               Scripting
             </button>
-            <button className="text-sm font-medium text-foreground/80 hover:text-foreground transition-colors">
+            <button 
+              onClick={() => setActiveView("storyboarding")}
+              className={`text-sm font-medium transition-colors ${
+                activeView === "storyboarding" 
+                  ? "text-foreground" 
+                  : "text-foreground/80 hover:text-foreground"
+              }`}
+            >
               Storyboarding
             </button>
             <button className="text-sm font-medium text-foreground/80 hover:text-foreground transition-colors">
@@ -64,6 +72,10 @@ export default function WorkspacePage() {
         <div className="h-[calc(100vh-3.5rem)]">
           <ScriptingComponent />
         </div>
+      ) : activeView === "storyboarding" ? (
+        <div className="h-[calc(100vh-3.5rem)]">
+          <StoryboardingComponent />
+        </div>
       ) : (
         <main className="max-w-7xl mx-auto p-4">
           <div className="text-center py-20">
@@ -71,7 +83,7 @@ export default function WorkspacePage() {
               Workspace for {projectId}
             </h2>
             <p className="text-foreground/60">
-              Click "Scripting" to start writing your script.
+              Click "Scripting" or "Storyboarding" to start working.
             </p>
           </div>
         </main>
