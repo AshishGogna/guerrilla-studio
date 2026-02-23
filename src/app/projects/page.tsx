@@ -126,7 +126,7 @@ export default function ProjectsPage() {
                     </p>
 
                     <Link
-                      href={`/panels?project=${project.id}`}
+                      href={`/workspace?projectId=${project.id}`}
                       className="mt-6 inline-flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-semibold text-background transition hover:bg-accent-muted group-hover:bg-accent/90"
                     >
                       Open Project
