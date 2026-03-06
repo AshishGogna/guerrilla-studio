@@ -432,11 +432,27 @@ export default function Storyboarding() {
               </div>
               <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-2">
                 {panel.imageUrl ? (
-                  <img
-                    src={panel.imageUrl}
-                    alt={`Panel ${index + 1}`}
-                    className="max-h-full max-w-full object-contain"
-                  />
+                  <div className="relative max-h-full max-w-full">
+                    <img
+                      src={panel.imageUrl}
+                      alt={`Panel ${index + 1}`}
+                      className="block max-h-full max-w-full object-contain"
+                    />
+                    {panel.mode === "image" && (
+                      <button
+                        type="button"
+                        onClick={() => updatePanel(index, { imageUrl: null })}
+                        className="absolute right-1.5 top-1.5 rounded-full bg-foreground/80 p-1.5 text-background transition hover:bg-foreground"
+                        title="Remove image"
+                        aria-label="Remove image"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M18 6 6 18" />
+                          <path d="m6 6 12 12" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
                 ) : (
                   <button
                     type="button"
