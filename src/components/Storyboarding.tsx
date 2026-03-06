@@ -1,9 +1,15 @@
 "use client";
 
 import { generateImage } from "@/lib/ai";
+import {
+  loadStoryboardState,
+  saveStoryboardState,
+  type StoryboardPanelPersisted,
+} from "@/lib/state-storage";
 import { createPortal } from "react-dom";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
+const STORYBOARD_PROJECT_ID = "X";
 const MIN_TEXTAREA_HEIGHT = 44;
 
 const IMAGE_MODELS = ["gemini-2.5-flash-image", "gemini-3-pro-image-preview"] as const;
@@ -17,6 +23,19 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
+/** Fetch same-origin image URL and return as data URL (for API). */
+async function fetchUrlAsBase64(url: string): Promise<string> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch image: ${url}`);
+  const blob = await res.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
 function resizeTextarea(el: HTMLTextAreaElement | null) {
   if (!el) return;
   el.style.height = "auto";
@@ -25,8 +44,8 @@ function resizeTextarea(el: HTMLTextAreaElement | null) {
 
 type PanelMode = "image" | "video";
 
+/** File URL from upload-attachment (or loaded from state). */
 interface RefImage {
-  file: File;
   url: string;
 }
 
@@ -48,12 +67,46 @@ const defaultPanel: PanelItem = {
   generating: false,
 };
 
+function persistedToPanel(p: StoryboardPanelPersisted): PanelItem {
+  return {
+    imageUrl: p.imageUrl,
+    prompt: p.prompt,
+    mode: p.mode === "video" ? "video" : "image",
+    imageModel: IMAGE_MODELS.includes(p.imageModel as (typeof IMAGE_MODELS)[number])
+      ? (p.imageModel as (typeof IMAGE_MODELS)[number])
+      : IMAGE_MODELS[0],
+    referenceImages: p.referenceImages.map((r) => ({ url: r.url })),
+    generating: false,
+  };
+}
+
+function panelToPersisted(panel: PanelItem): StoryboardPanelPersisted {
+  return {
+    imageUrl: panel.imageUrl?.startsWith("blob:") ? null : panel.imageUrl,
+    prompt: panel.prompt,
+    mode: panel.mode,
+    imageModel: panel.imageModel,
+    referenceImages: panel.referenceImages.map((r) => ({ url: r.url })),
+  };
+}
+
 export default function Storyboarding() {
-  const [panels, setPanels] = useState<PanelItem[]>([{ ...defaultPanel }]);
+  const [panels, setPanels] = useState<PanelItem[]>(() => {
+    if (typeof window === "undefined") return [{ ...defaultPanel }];
+    const saved = loadStoryboardState(STORYBOARD_PROJECT_ID);
+    if (!saved.panels?.length) return [{ ...defaultPanel }];
+    return saved.panels.map(persistedToPanel);
+  });
   const textareaRefs = useRef<(HTMLTextAreaElement | null)[]>([]);
 
   useEffect(() => {
     textareaRefs.current.forEach(resizeTextarea);
+  }, [panels]);
+
+  useEffect(() => {
+    saveStoryboardState(STORYBOARD_PROJECT_ID, {
+      panels: panels.map(panelToPersisted),
+    });
   }, [panels]);
 
   function updatePanel(index: number, updates: Partial<PanelItem>) {
@@ -71,7 +124,9 @@ export default function Storyboarding() {
   function removePanel(index: number) {
     setPanels((prev) => {
       const panel = prev[index];
-      panel.referenceImages.forEach((r) => URL.revokeObjectURL(r.url));
+      panel.referenceImages.forEach((r) => {
+        if (r.url.startsWith("blob:")) URL.revokeObjectURL(r.url);
+      });
       if (panel.imageUrl?.startsWith("blob:")) {
         URL.revokeObjectURL(panel.imageUrl);
       }
@@ -102,43 +157,59 @@ export default function Storyboarding() {
     });
   }, [modelDropdownIndex]);
 
-  function handleRefImages(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleRefImages(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
     if (!files?.length || attachPanelIndex == null) return;
-    const newRefs: RefImage[] = Array.from(files).map((f) => ({
-      file: f,
-      url: URL.createObjectURL(f),
-    }));
     const panelIndex = attachPanelIndex;
     setAttachPanelIndex(null);
-    setPanels((prev) => {
-      const next = [...prev];
-      next[panelIndex] = {
-        ...next[panelIndex],
-        referenceImages: [...next[panelIndex].referenceImages, ...newRefs],
-      };
-      return next;
-    });
+    const projectId = STORYBOARD_PROJECT_ID;
+    const newRefs: RefImage[] = [];
+    for (const file of Array.from(files)) {
+      const form = new FormData();
+      form.set("file", file);
+      form.set("projectId", projectId);
+      form.set("panelIndex", String(panelIndex));
+      const res = await fetch("/api/upload-attachment", { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data?.error ?? "Upload failed");
+        continue;
+      }
+      newRefs.push({ url: data.filePath });
+    }
+    if (newRefs.length > 0) {
+      setPanels((prev) => {
+        const next = [...prev];
+        next[panelIndex] = {
+          ...next[panelIndex],
+          referenceImages: [...next[panelIndex].referenceImages, ...newRefs],
+        };
+        return next;
+      });
+    }
     e.target.value = "";
   }
 
-  function handlePreviewImage(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handlePreviewImage(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file || previewUploadPanelIndex == null) return;
     const panelIndex = previewUploadPanelIndex;
     setPreviewUploadPanelIndex(null);
-    setPanels((prev) => {
-      const next = [...prev];
-      const prevUrl = next[panelIndex].imageUrl;
-      if (prevUrl?.startsWith("blob:")) {
-        URL.revokeObjectURL(prevUrl);
+    const form = new FormData();
+    form.set("file", file);
+    form.set("projectId", STORYBOARD_PROJECT_ID);
+    form.set("panelIndex", String(panelIndex));
+    try {
+      const res = await fetch("/api/upload-attachment", { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data?.error ?? "Upload failed");
+        return;
       }
-      next[panelIndex] = {
-        ...next[panelIndex],
-        imageUrl: URL.createObjectURL(file),
-      };
-      return next;
-    });
+      updatePanel(panelIndex, { imageUrl: data.filePath });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Upload failed");
+    }
     e.target.value = "";
   }
 
@@ -146,7 +217,8 @@ export default function Storyboarding() {
     setPanels((prev) => {
       const next = [...prev];
       const refs = next[panelIndex].referenceImages;
-      URL.revokeObjectURL(refs[refIndex].url);
+      const url = refs[refIndex].url;
+      if (url.startsWith("blob:")) URL.revokeObjectURL(url);
       next[panelIndex] = {
         ...next[panelIndex],
         referenceImages: refs.filter((_, i) => i !== refIndex),
@@ -163,9 +235,9 @@ export default function Storyboarding() {
       const attachedImages =
         panel.referenceImages.length > 0
           ? await Promise.all(
-              panel.referenceImages.map(async (ref) => ({
-                fileName: ref.file.name,
-                base64: await fileToBase64(ref.file),
+              panel.referenceImages.map(async (ref, i) => ({
+                fileName: `ref-${i}.png`,
+                base64: await fetchUrlAsBase64(ref.url),
               }))
             )
           : undefined;
