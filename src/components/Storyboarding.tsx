@@ -1,8 +1,21 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { generateImage } from "@/lib/ai";
+import { createPortal } from "react-dom";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 const MIN_TEXTAREA_HEIGHT = 44;
+
+const IMAGE_MODELS = ["gemini-2.5-flash-image", "gemini-3-pro-image-preview"] as const;
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 function resizeTextarea(el: HTMLTextAreaElement | null) {
   if (!el) return;
@@ -22,6 +35,8 @@ interface PanelItem {
   prompt: string;
   mode: PanelMode;
   referenceImages: RefImage[];
+  imageModel: (typeof IMAGE_MODELS)[number];
+  generating: boolean;
 }
 
 const defaultPanel: PanelItem = {
@@ -29,6 +44,8 @@ const defaultPanel: PanelItem = {
   prompt: "",
   mode: "image",
   referenceImages: [],
+  imageModel: IMAGE_MODELS[0],
+  generating: false,
 };
 
 export default function Storyboarding() {
@@ -55,12 +72,35 @@ export default function Storyboarding() {
     setPanels((prev) => {
       const panel = prev[index];
       panel.referenceImages.forEach((r) => URL.revokeObjectURL(r.url));
+      if (panel.imageUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(panel.imageUrl);
+      }
       return prev.filter((_, i) => i !== index);
     });
   }
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const previewImageInputRef = useRef<HTMLInputElement>(null);
   const [attachPanelIndex, setAttachPanelIndex] = useState<number | null>(null);
+  const [previewUploadPanelIndex, setPreviewUploadPanelIndex] = useState<number | null>(null);
+  const [modelDropdownIndex, setModelDropdownIndex] = useState<number | null>(null);
+  const modelDropdownTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const [modelDropdownRect, setModelDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if (modelDropdownIndex === null) {
+      setModelDropdownRect(null);
+      return;
+    }
+    const el = modelDropdownTriggerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setModelDropdownRect({
+      top: rect.bottom + 4,
+      left: rect.right - 180,
+      width: 180,
+    });
+  }, [modelDropdownIndex]);
 
   function handleRefImages(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
@@ -82,6 +122,26 @@ export default function Storyboarding() {
     e.target.value = "";
   }
 
+  function handlePreviewImage(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || previewUploadPanelIndex == null) return;
+    const panelIndex = previewUploadPanelIndex;
+    setPreviewUploadPanelIndex(null);
+    setPanels((prev) => {
+      const next = [...prev];
+      const prevUrl = next[panelIndex].imageUrl;
+      if (prevUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(prevUrl);
+      }
+      next[panelIndex] = {
+        ...next[panelIndex],
+        imageUrl: URL.createObjectURL(file),
+      };
+      return next;
+    });
+    e.target.value = "";
+  }
+
   function removeRefImage(panelIndex: number, refIndex: number) {
     setPanels((prev) => {
       const next = [...prev];
@@ -95,6 +155,38 @@ export default function Storyboarding() {
     });
   }
 
+  async function handleGenerateImage(panelIndex: number) {
+    const panel = panels[panelIndex];
+    if (panel.mode !== "image" || !panel.prompt.trim() || panel.generating) return;
+    updatePanel(panelIndex, { generating: true });
+    try {
+      const attachedImages =
+        panel.referenceImages.length > 0
+          ? await Promise.all(
+              panel.referenceImages.map(async (ref) => ({
+                fileName: ref.file.name,
+                base64: await fileToBase64(ref.file),
+              }))
+            )
+          : undefined;
+      const projectId = "panels";
+      const fileName = `panel-${panelIndex}-${Date.now()}`;
+      const imagePath = await generateImage(
+        panel.prompt.trim(),
+        projectId,
+        fileName,
+        "16:9",
+        attachedImages
+      );
+      updatePanel(panelIndex, { imageUrl: imagePath, generating: false });
+    } catch (err) {
+      updatePanel(panelIndex, { generating: false });
+      alert(err instanceof Error ? err.message : "Failed to generate image");
+    }
+  }
+
+  const openPanelForDropdown = modelDropdownIndex !== null ? panels[modelDropdownIndex] : null;
+
   return (
     <div className="flex flex-1 flex-col overflow-auto bg-background p-6 text-foreground">
       <input
@@ -105,65 +197,155 @@ export default function Storyboarding() {
         className="hidden"
         onChange={handleRefImages}
       />
+      <input
+        ref={previewImageInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handlePreviewImage}
+      />
       <div className="grid grid-cols-3 gap-6">
         {panels.map((panel, index) => (
           <div
             key={index}
             className="relative flex flex-col gap-3 rounded-lg"
           >
-            <button
-              type="button"
-              onClick={() => removePanel(index)}
-              className="absolute right-2 top-2 rounded p-1.5 text-foreground/50 hover:bg-foreground/10 hover:text-foreground"
-              title="Remove panel"
-              aria-label="Remove panel"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 6h18" />
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                <path d="M10 11v6" />
-                <path d="M14 11v6" />
-              </svg>
-            </button>
-
-            {/* Preview: image area with floating prompt */}
-            <div className="relative flex min-h-[300px] flex-col rounded-lg border border-foreground/10 bg-foreground/5">
-              <div className="absolute left-2 top-2 z-10 flex gap-1">
-                <button
-                  type="button"
-                  onClick={() => updatePanel(index, { mode: "image" })}
-                  className={`rounded p-1.5 transition ${
-                    panel.mode === "image"
-                      ? "bg-accent text-background"
-                      : "bg-foreground/10 text-foreground/60 hover:bg-foreground/20 hover:text-foreground/80"
-                  }`}
-                  title="Image mode"
-                  aria-label="Image mode"
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
-                    <circle cx="9" cy="9" r="2" />
-                    <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => updatePanel(index, { mode: "video" })}
-                  className={`rounded p-1.5 transition ${
-                    panel.mode === "video"
-                      ? "bg-accent text-background"
-                      : "bg-foreground/10 text-foreground/60 hover:bg-foreground/20 hover:text-foreground/80"
-                  }`}
-                  title="Video mode"
-                  aria-label="Video mode"
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polygon points="23 7 16 12 23 17 23 7" />
-                    <rect width="15" height="14" x="1" y="5" rx="2" ry="2" />
-                  </svg>
-                </button>
+            {/* Preview: image area with floating prompt (fixed height so container does not grow) */}
+            <div className="relative flex h-[300px] flex-col overflow-hidden rounded-lg border border-foreground/10 bg-foreground/5">
+              {/* Top bar: left = mode toggles; right = ref images, attach, generate, delete */}
+              <div className="absolute left-2 right-2 top-2 z-10 flex items-center justify-between gap-2">
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => updatePanel(index, { mode: "image" })}
+                    className={`rounded p-1.5 transition ${
+                      panel.mode === "image"
+                        ? "bg-accent text-background"
+                        : "bg-foreground/10 text-foreground/60 hover:bg-foreground/20 hover:text-foreground/80"
+                    }`}
+                    title="Image mode"
+                    aria-label="Image mode"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+                      <circle cx="9" cy="9" r="2" />
+                      <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updatePanel(index, { mode: "video" })}
+                    className={`rounded p-1.5 transition ${
+                      panel.mode === "video"
+                        ? "bg-accent text-background"
+                        : "bg-foreground/10 text-foreground/60 hover:bg-foreground/20 hover:text-foreground/80"
+                    }`}
+                    title="Video mode"
+                    aria-label="Video mode"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polygon points="23 7 16 12 23 17 23 7" />
+                      <rect width="15" height="14" x="1" y="5" rx="2" ry="2" />
+                    </svg>
+                  </button>
+                </div>
+                <div className="flex items-center gap-1">
+                  {panel.referenceImages.length > 0 && (
+                    <div className="flex items-center gap-0.5">
+                      {panel.referenceImages.map((ref, refIndex) => (
+                        <div key={refIndex} className="relative">
+                          <img src={ref.url} alt="" className="h-7 w-7 rounded object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => removeRefImage(index, refIndex)}
+                            className="absolute -right-0.5 -top-0.5 rounded-full bg-foreground/80 p-0.5 text-background hover:bg-foreground"
+                            title="Remove"
+                            aria-label="Remove reference image"
+                          >
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M18 6 6 18" />
+                              <path d="m6 6 12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAttachPanelIndex(index);
+                      fileInputRef.current?.click();
+                    }}
+                    className="rounded p-1.5 text-foreground/60 transition hover:bg-foreground/10 hover:text-foreground"
+                    title="Attach reference images"
+                    aria-label="Attach reference images"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+                      <circle cx="9" cy="9" r="2" />
+                      <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+                    </svg>
+                  </button>
+                  <div className="flex items-center rounded border border-foreground/20 bg-foreground/5 overflow-hidden">
+                    <button
+                      type="button"
+                      disabled={!panel.prompt.trim() || panel.generating}
+                      onClick={() => {
+                        if (panel.mode === "image") {
+                          handleGenerateImage(index);
+                        } else {
+                          // TODO: wire to video generation API
+                        }
+                      }}
+                      className="flex items-center gap-1.5 px-2 py-1.5 text-sm text-foreground/80 transition hover:bg-foreground/10 hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent"
+                      title={panel.mode === "image" ? "Generate Image" : "Generate Video"}
+                      aria-label={panel.mode === "image" ? "Generate Image" : "Generate Video"}
+                    >
+                      {panel.generating ? (
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-foreground/30 border-t-foreground" />
+                      ) : (
+                        "Generate"
+                      )}
+                    </button>
+                    {panel.mode === "image" && (
+                      <div className="border-l border-foreground/20">
+                        <button
+                          ref={modelDropdownIndex === index ? modelDropdownTriggerRef : null}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setModelDropdownIndex((prev) => (prev === index ? null : index));
+                          }}
+                          className="flex h-full items-center justify-center p-1.5 text-foreground/70 hover:bg-foreground/10 hover:text-foreground"
+                          title="Choose image model"
+                          aria-label="Choose image model"
+                          aria-expanded={modelDropdownIndex === index}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="m6 9 6 6 6-6" />
+                          </svg>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removePanel(index)}
+                    className="rounded p-1.5 text-foreground/50 hover:bg-foreground/10 hover:text-foreground"
+                    title="Remove panel"
+                    aria-label="Remove panel"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 6h18" />
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                      <path d="M10 11v6" />
+                      <path d="M14 11v6" />
+                    </svg>
+                  </button>
+                </div>
               </div>
-              <div className="flex min-h-0 flex-1 items-center justify-center p-2">
+              <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-2">
                 {panel.imageUrl ? (
                   <img
                     src={panel.imageUrl}
@@ -171,75 +353,40 @@ export default function Storyboarding() {
                     className="max-h-full max-w-full object-contain"
                   />
                 ) : (
-                  <span className="text-sm text-foreground/40"></span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPreviewUploadPanelIndex(index);
+                      previewImageInputRef.current?.click();
+                    }}
+                    className="flex flex-col items-center gap-2 rounded border border-dashed border-foreground/30 px-4 py-3 text-foreground/60 transition hover:border-foreground/50 hover:bg-foreground/5 hover:text-foreground/80"
+                    title="Upload image"
+                    aria-label="Upload image to preview"
+                  >
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" x2="12" y1="3" y2="15" />
+                    </svg>
+                    <span className="text-sm">Upload image</span>
+                  </button>
                 )}
               </div>
 
               {/* Floating prompt: always visible, no background or border */}
-              <div className="absolute bottom-0 left-0 right-0 z-10 flex items-end gap-1 p-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAttachPanelIndex(index);
-                    fileInputRef.current?.click();
-                  }}
-                  className="shrink-0 rounded p-1.5 text-foreground/60 transition hover:bg-foreground/10 hover:text-foreground"
-                  title="Attach reference images"
-                  aria-label="Attach reference images"
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
-                    <circle cx="9" cy="9" r="2" />
-                    <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
-                  </svg>
-                </button>
-                {panel.referenceImages.length > 0 && (
-                  <div className="flex shrink-0 items-center gap-0.5">
-                    {panel.referenceImages.map((ref, refIndex) => (
-                      <div key={refIndex} className="relative">
-                        <img src={ref.url} alt="" className="h-8 w-8 rounded object-cover" />
-                        <button
-                          type="button"
-                          onClick={() => removeRefImage(index, refIndex)}
-                          className="absolute -right-1 -top-1 rounded-full bg-foreground/80 p-0.5 text-background hover:bg-foreground"
-                          title="Remove"
-                          aria-label="Remove reference image"
-                        >
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M18 6 6 18" />
-                            <path d="m6 6 12 12" />
-                          </svg>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <textarea
-                  ref={(el) => {
-                    textareaRefs.current[index] = el;
-                  }}
-                  value={panel.prompt}
-                  onChange={(e) => updatePanel(index, { prompt: e.target.value })}
-                  placeholder={panel.mode === "image" ? "Image generation prompt" : "Video generation prompt"}
-                  className="min-h-[44px] min-w-0 flex-1 resize-none border-0 px-0 py-1 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-0 text-center overflow-hidden bg-transparent"
-                  rows={1}
-                />
-                <button
-                  type="button"
-                  disabled={!panel.prompt.trim()}
-                  onClick={() => {
-                    if (panel.mode === "image") {
-                      // TODO: wire to image generation API
-                    } else {
-                      // TODO: wire to video generation API
-                    }
-                  }}
-                  className="shrink-0 rounded p-1.5 text-foreground/70 transition hover:text-foreground disabled:opacity-40 mb-3"
-                  title={panel.mode === "image" ? "Generate Image" : "Generate Video"}
-                  aria-label={panel.mode === "image" ? "Generate Image" : "Generate Video"}
-                >
-                  Gen
-                </button>
+              <div className="absolute bottom-0 left-0 right-0 z-10 flex items-end p-2">
+                <div className="flex min-h-[44px] min-w-0 flex-1 flex-col justify-end">
+                  <textarea
+                    ref={(el) => {
+                      textareaRefs.current[index] = el;
+                    }}
+                    value={panel.prompt}
+                    onChange={(e) => updatePanel(index, { prompt: e.target.value })}
+                    placeholder={panel.mode === "image" ? "Image generation prompt" : "Video generation prompt"}
+                    className="min-h-[44px] w-full resize-none border-0 px-0 py-1 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-0 text-center overflow-hidden bg-transparent"
+                    rows={1}
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -254,6 +401,47 @@ export default function Storyboarding() {
           + Add panel
         </button>
       </div>
+
+      {typeof document !== "undefined" &&
+        modelDropdownIndex !== null &&
+        modelDropdownRect &&
+        openPanelForDropdown &&
+        createPortal(
+          <>
+            <div
+              className="fixed inset-0 z-[100]"
+              aria-hidden
+              onClick={() => setModelDropdownIndex(null)}
+            />
+            <div
+              className="fixed z-[101] min-w-[180px] rounded border border-foreground/20 bg-background py-1 shadow-lg"
+              style={{
+                top: modelDropdownRect.top,
+                left: modelDropdownRect.left,
+                width: modelDropdownRect.width,
+              }}
+            >
+              {IMAGE_MODELS.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => {
+                    updatePanel(modelDropdownIndex, { imageModel: m });
+                    setModelDropdownIndex(null);
+                  }}
+                  className={`block w-full px-3 py-1.5 text-left text-xs hover:bg-foreground/10 ${
+                    openPanelForDropdown.imageModel === m
+                      ? "bg-foreground/10 text-foreground"
+                      : "text-foreground/80"
+                  }`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          </>,
+          document.body
+        )}
     </div>
   );
 }
