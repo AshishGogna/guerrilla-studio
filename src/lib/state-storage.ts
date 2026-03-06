@@ -33,30 +33,44 @@ export interface StoryboardPanelPersisted {
   promptImage: string;
   promptVideo: string;
   mode: "image" | "video";
-  imageModel: string;
   referenceImages: { url: string }[];
 }
 
 export interface StoryboardStatePersisted {
+  imageModel: string;
+  aspectRatio: string;
+  scale: string;
   panels: StoryboardPanelPersisted[];
 }
 
 const STORYBOARD_SCOPE = "storyboard";
 const DEFAULT_STORYBOARD: StoryboardStatePersisted = {
+  imageModel: "gemini-2.5-flash-image",
+  aspectRatio: "16:9",
+  scale: "1x",
   panels: [
     {
       imageUrl: null,
       promptImage: "",
       promptVideo: "",
       mode: "image",
-      imageModel: "gemini-2.5-flash-image",
       referenceImages: [],
     },
   ],
 };
 
 export function loadStoryboardState(projectId: string): StoryboardStatePersisted {
-  return loadState(STORYBOARD_SCOPE, projectId, DEFAULT_STORYBOARD);
+  const loaded = loadState<Partial<StoryboardStatePersisted> & { panels?: StoryboardPanelPersisted[] }>(
+    STORYBOARD_SCOPE,
+    projectId,
+    {}
+  );
+  return {
+    imageModel: loaded.imageModel ?? DEFAULT_STORYBOARD.imageModel,
+    aspectRatio: loaded.aspectRatio ?? DEFAULT_STORYBOARD.aspectRatio,
+    scale: loaded.scale ?? DEFAULT_STORYBOARD.scale,
+    panels: loaded.panels?.length ? loaded.panels : DEFAULT_STORYBOARD.panels,
+  };
 }
 
 export function saveStoryboardState(

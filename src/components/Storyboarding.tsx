@@ -6,13 +6,14 @@ import {
   saveStoryboardState,
   type StoryboardPanelPersisted,
 } from "@/lib/state-storage";
-import { createPortal } from "react-dom";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const STORYBOARD_PROJECT_ID = "X";
 const MIN_TEXTAREA_HEIGHT = 44;
 
 const IMAGE_MODELS = ["gemini-2.5-flash-image", "gemini-3-pro-image-preview"] as const;
+const ASPECT_RATIOS = ["1:1", "16:9", "9:16"] as const;
+const SCALES = ["1x", "2x"] as const;
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -55,7 +56,6 @@ interface PanelItem {
   promptVideo: string;
   mode: PanelMode;
   referenceImages: RefImage[];
-  imageModel: (typeof IMAGE_MODELS)[number];
   generating: boolean;
 }
 
@@ -65,19 +65,15 @@ const defaultPanel: PanelItem = {
   promptVideo: "",
   mode: "image",
   referenceImages: [],
-  imageModel: IMAGE_MODELS[0],
   generating: false,
 };
 
-function persistedToPanel(p: StoryboardPanelPersisted & { prompt?: string }): PanelItem {
+function persistedToPanel(p: StoryboardPanelPersisted & { prompt?: string; imageModel?: string }): PanelItem {
   return {
     imageUrl: p.imageUrl,
     promptImage: p.promptImage ?? (p as { prompt?: string }).prompt ?? "",
     promptVideo: p.promptVideo ?? "",
     mode: p.mode === "video" ? "video" : "image",
-    imageModel: IMAGE_MODELS.includes(p.imageModel as (typeof IMAGE_MODELS)[number])
-      ? (p.imageModel as (typeof IMAGE_MODELS)[number])
-      : IMAGE_MODELS[0],
     referenceImages: p.referenceImages.map((r) => ({ url: r.url })),
     generating: false,
   };
@@ -89,7 +85,6 @@ function panelToPersisted(panel: PanelItem): StoryboardPanelPersisted {
     promptImage: panel.promptImage,
     promptVideo: panel.promptVideo,
     mode: panel.mode,
-    imageModel: panel.imageModel,
     referenceImages: panel.referenceImages.map((r) => ({ url: r.url })),
   };
 }
@@ -101,6 +96,21 @@ export default function Storyboarding() {
     if (!saved.panels?.length) return [{ ...defaultPanel }];
     return saved.panels.map(persistedToPanel);
   });
+  const [imageModel, setImageModel] = useState<string>(() => {
+    if (typeof window === "undefined") return IMAGE_MODELS[0];
+    const saved = loadStoryboardState(STORYBOARD_PROJECT_ID);
+    return saved.imageModel ?? IMAGE_MODELS[0];
+  });
+  const [aspectRatio, setAspectRatio] = useState<string>(() => {
+    if (typeof window === "undefined") return "16:9";
+    const saved = loadStoryboardState(STORYBOARD_PROJECT_ID);
+    return saved.aspectRatio ?? "16:9";
+  });
+  const [scale, setScale] = useState<string>(() => {
+    if (typeof window === "undefined") return "1x";
+    const saved = loadStoryboardState(STORYBOARD_PROJECT_ID);
+    return saved.scale ?? "1x";
+  });
   const textareaRefs = useRef<(HTMLTextAreaElement | null)[]>([]);
 
   useEffect(() => {
@@ -109,9 +119,12 @@ export default function Storyboarding() {
 
   useEffect(() => {
     saveStoryboardState(STORYBOARD_PROJECT_ID, {
+      imageModel,
+      aspectRatio,
+      scale,
       panels: panels.map(panelToPersisted),
     });
-  }, [panels]);
+  }, [panels, imageModel, aspectRatio, scale]);
 
   function updatePanel(index: number, updates: Partial<PanelItem>) {
     setPanels((prev) => {
@@ -142,24 +155,7 @@ export default function Storyboarding() {
   const previewImageInputRef = useRef<HTMLInputElement>(null);
   const [attachPanelIndex, setAttachPanelIndex] = useState<number | null>(null);
   const [previewUploadPanelIndex, setPreviewUploadPanelIndex] = useState<number | null>(null);
-  const [modelDropdownIndex, setModelDropdownIndex] = useState<number | null>(null);
-  const modelDropdownTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const [modelDropdownRect, setModelDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
-
-  useLayoutEffect(() => {
-    if (modelDropdownIndex === null) {
-      setModelDropdownRect(null);
-      return;
-    }
-    const el = modelDropdownTriggerRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    setModelDropdownRect({
-      top: rect.bottom + 4,
-      left: rect.right - 180,
-      width: 180,
-    });
-  }, [modelDropdownIndex]);
+  const [focusedPromptIndex, setFocusedPromptIndex] = useState<number | null>(null);
 
   async function handleRefImages(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
@@ -253,8 +249,9 @@ export default function Storyboarding() {
         panel.promptImage.trim(),
         projectId,
         fileName,
-        "16:9",
-        attachedImages
+        aspectRatio,
+        attachedImages,
+        imageModel
       );
       updatePanel(panelIndex, { imageUrl: imagePath, generating: false });
     } catch (err) {
@@ -263,10 +260,48 @@ export default function Storyboarding() {
     }
   }
 
-  const openPanelForDropdown = modelDropdownIndex !== null ? panels[modelDropdownIndex] : null;
-
   return (
-    <div className="flex flex-1 flex-col overflow-auto bg-background p-6 text-foreground">
+    <div className="flex flex-1 flex-col overflow-auto bg-background text-foreground">
+      {/* Top menu: Model, Aspect ratio, Scale */}
+      <div className="flex flex-wrap items-center gap-4 border-b border-foreground/10 bg-foreground/5 px-6 py-3">
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-medium text-foreground/60">Model</label>
+          <select
+            value={imageModel}
+            onChange={(e) => setImageModel(e.target.value)}
+            className="rounded border border-foreground/20 bg-transparent px-3 py-1.5 text-sm"
+          >
+            {IMAGE_MODELS.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-medium text-foreground/60">Aspect ratio</label>
+          <select
+            value={aspectRatio}
+            onChange={(e) => setAspectRatio(e.target.value)}
+            className="rounded border border-foreground/20 bg-transparent px-3 py-1.5 text-sm"
+          >
+            {ASPECT_RATIOS.map((a) => (
+              <option key={a} value={a}>{a}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-medium text-foreground/60">Scale</label>
+          <select
+            value={scale}
+            onChange={(e) => setScale(e.target.value)}
+            className="rounded border border-foreground/20 bg-transparent px-3 py-1.5 text-sm"
+          >
+            {SCALES.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div className="flex-1 p-6">
       <input
         ref={fileInputRef}
         type="file"
@@ -393,26 +428,6 @@ export default function Storyboarding() {
                         "Generate"
                       )}
                     </button>
-                    {panel.mode === "image" && (
-                      <div className="border-l border-foreground/20">
-                        <button
-                          ref={modelDropdownIndex === index ? modelDropdownTriggerRef : null}
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setModelDropdownIndex((prev) => (prev === index ? null : index));
-                          }}
-                          className="flex h-full items-center justify-center p-1.5 text-foreground/70 hover:bg-foreground/10 hover:text-foreground"
-                          title="Choose image model"
-                          aria-label="Choose image model"
-                          aria-expanded={modelDropdownIndex === index}
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="m6 9 6 6 6-6" />
-                          </svg>
-                        </button>
-                      </div>
-                    )}
                   </div>
                   <button
                     type="button"
@@ -432,11 +447,11 @@ export default function Storyboarding() {
               </div>
               <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-2">
                 {panel.imageUrl ? (
-                  <div className="relative max-h-full max-w-full">
+                  <div className="relative flex h-full min-h-0 w-full items-center justify-center overflow-hidden">
                     <img
                       src={panel.imageUrl}
                       alt={`Panel ${index + 1}`}
-                      className="block max-h-full max-w-full object-contain"
+                      className="max-h-full max-w-full object-contain"
                     />
                     {panel.mode === "image" && (
                       <button
@@ -474,7 +489,7 @@ export default function Storyboarding() {
                 )}
               </div>
 
-              {/* Floating prompt: separate inputs for image vs video mode */}
+              {/* Floating prompt: separate inputs for image vs video mode; single line + ellipsis when not focused */}
               <div className="absolute bottom-0 left-0 right-0 z-10 flex items-end p-2">
                 <div className="flex min-h-[44px] min-w-0 flex-1 flex-col justify-end">
                   {panel.mode === "image" ? (
@@ -484,9 +499,15 @@ export default function Storyboarding() {
                       }}
                       value={panel.promptImage}
                       onChange={(e) => updatePanel(index, { promptImage: e.target.value })}
+                      onFocus={() => setFocusedPromptIndex(index)}
+                      onBlur={() => setFocusedPromptIndex(null)}
                       placeholder="Image generation prompt"
-                      className="min-h-[44px] w-full resize-none border-0 px-0 py-1 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-0 text-center overflow-hidden bg-transparent"
-                      rows={1}
+                      className={`w-full resize-none border-0 px-0 py-1 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-0 text-center bg-transparent ${
+                        focusedPromptIndex === index
+                          ? "min-h-[44px] overflow-hidden"
+                          : "h-6 max-h-6 overflow-hidden text-ellipsis whitespace-nowrap"
+                      }`}
+                      rows={focusedPromptIndex === index ? 1 : 1}
                     />
                   ) : (
                     <textarea
@@ -495,9 +516,15 @@ export default function Storyboarding() {
                       }}
                       value={panel.promptVideo}
                       onChange={(e) => updatePanel(index, { promptVideo: e.target.value })}
+                      onFocus={() => setFocusedPromptIndex(index)}
+                      onBlur={() => setFocusedPromptIndex(null)}
                       placeholder="Video generation prompt"
-                      className="min-h-[44px] w-full resize-none border-0 px-0 py-1 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-0 text-center overflow-hidden bg-transparent"
-                      rows={1}
+                      className={`w-full resize-none border-0 px-0 py-1 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-0 text-center bg-transparent ${
+                        focusedPromptIndex === index
+                          ? "min-h-[44px] overflow-hidden"
+                          : "h-6 max-h-6 overflow-hidden text-ellipsis whitespace-nowrap"
+                      }`}
+                      rows={focusedPromptIndex === index ? 1 : 1}
                     />
                   )}
                 </div>
@@ -515,47 +542,7 @@ export default function Storyboarding() {
           + Add panel
         </button>
       </div>
-
-      {typeof document !== "undefined" &&
-        modelDropdownIndex !== null &&
-        modelDropdownRect &&
-        openPanelForDropdown &&
-        createPortal(
-          <>
-            <div
-              className="fixed inset-0 z-[100]"
-              aria-hidden
-              onClick={() => setModelDropdownIndex(null)}
-            />
-            <div
-              className="fixed z-[101] min-w-[180px] rounded border border-foreground/20 bg-background py-1 shadow-lg"
-              style={{
-                top: modelDropdownRect.top,
-                left: modelDropdownRect.left,
-                width: modelDropdownRect.width,
-              }}
-            >
-              {IMAGE_MODELS.map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => {
-                    updatePanel(modelDropdownIndex, { imageModel: m });
-                    setModelDropdownIndex(null);
-                  }}
-                  className={`block w-full px-3 py-1.5 text-left text-xs hover:bg-foreground/10 ${
-                    openPanelForDropdown.imageModel === m
-                      ? "bg-foreground/10 text-foreground"
-                      : "text-foreground/80"
-                  }`}
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
-          </>,
-          document.body
-        )}
+      </div>
     </div>
   );
 }
