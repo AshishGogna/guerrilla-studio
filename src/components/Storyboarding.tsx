@@ -161,6 +161,7 @@ export default function Storyboarding() {
     const files = e.target.files;
     if (!files?.length || attachPanelIndex == null) return;
     const panelIndex = attachPanelIndex;
+    const fileName = `upload-${panelIndex}-${Date.now()}`;
     setAttachPanelIndex(null);
     const projectId = STORYBOARD_PROJECT_ID;
     const newRefs: RefImage[] = [];
@@ -168,7 +169,7 @@ export default function Storyboarding() {
       const form = new FormData();
       form.set("file", file);
       form.set("projectId", projectId);
-      form.set("panelIndex", String(panelIndex));
+      form.set("fileName", fileName);
       const res = await fetch("/api/upload-attachment", { method: "POST", body: form });
       const data = await res.json();
       if (!res.ok) {
@@ -194,11 +195,12 @@ export default function Storyboarding() {
     const file = e.target.files?.[0];
     if (!file || previewUploadPanelIndex == null) return;
     const panelIndex = previewUploadPanelIndex;
+    const fileName = `upload-${panelIndex}-${Date.now()}`;
     setPreviewUploadPanelIndex(null);
     const form = new FormData();
     form.set("file", file);
     form.set("projectId", STORYBOARD_PROJECT_ID);
-    form.set("panelIndex", String(panelIndex));
+    form.set("fileName", fileName);
     try {
       const res = await fetch("/api/upload-attachment", { method: "POST", body: form });
       const data = await res.json();

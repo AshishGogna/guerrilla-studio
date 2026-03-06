@@ -7,7 +7,7 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const file = formData.get("file") as File;
     const projectId = formData.get("projectId") as string;
-    const panelIndex = formData.get("panelIndex") as string;
+    const fileName = formData.get("fileName") as string;
 
     if (!file) {
       return NextResponse.json(
@@ -16,21 +16,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!projectId || !panelIndex) {
+    if (!projectId || !fileName) {
       return NextResponse.json(
-        { error: "Missing projectId or panelIndex" },
+        { error: "Missing projectId or fileName" },
         { status: 400 }
       );
     }
 
     // Create uploads directory if it doesn't exist
-    const uploadsDir = join(process.cwd(), "public", "attachments", projectId);
+    const uploadsDir = join(process.cwd(), "public", "projects", projectId);
     await mkdir(uploadsDir, { recursive: true });
 
     // Generate unique filename
     const timestamp = Date.now();
     const fileExtension = file.name.split('.').pop() || 'png';
-    const fileName = `${projectId}-P${panelIndex}-${timestamp}.${fileExtension}`;
+    // const fileName = `${projectId}-P${panelIndex}-${timestamp}.${fileExtension}`;
     const filePath = join(uploadsDir, fileName);
 
     // Convert file to buffer and save
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
     await writeFile(filePath, buffer);
 
     // Return public path
-    const publicPath = `/attachments/${projectId}/${fileName}`;
+    const publicPath = `projects/${projectId}/${fileName}`;
 
     return NextResponse.json({
       fileName: file.name,
