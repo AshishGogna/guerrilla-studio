@@ -71,7 +71,7 @@ export async function generatePanelPrompts(
 }
 
 export async function generateImage(prompt: string, projectId: string, fileName: string, aspectRatio: string, attachedImages?: {fileName: string; base64: string}[]): Promise<string> {
-
+  console.log('AI: generateImage request:', prompt, projectId, fileName, aspectRatio, attachedImages);
   const outputFileName = `${projectId}-${fileName}`;
   const res = await fetch("/api/generate-panel-image", {
     method: "POST",

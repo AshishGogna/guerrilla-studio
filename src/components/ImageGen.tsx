@@ -1,6 +1,16 @@
 "use client";
 
+import { generateImage } from "@/lib/ai";
 import { useState } from "react";
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 const MODELS = ["gemini-2.5-flash-image", "gemini-3-pro-image-preview"] as const;
 const ASPECT_RATIOS = ["1:1", "16:9", "9:16"] as const;
@@ -13,6 +23,7 @@ export default function ImageGen() {
   const [referenceImages, setReferenceImages] = useState<Array<{ file: File; url: string }>>([]);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
 
   function handleRefImages(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
@@ -29,6 +40,33 @@ export default function ImageGen() {
       URL.revokeObjectURL(prev[index].url);
       return next;
     });
+  }
+
+  async function handleGenerate() {
+    if (!prompt.trim() || isGenerating) return;
+    setIsGenerating(true);
+    try {
+      const attachedImages = await Promise.all(
+        referenceImages.map(async (ref) => ({
+          fileName: ref.file.name,
+          base64: await fileToBase64(ref.file),
+        }))
+      );
+      const projectId = "image-gen";
+      const fileName = `img-${Date.now()}`;
+      const imagePath = await generateImage(
+        prompt.trim(),
+        projectId,
+        fileName,
+        aspectRatio,
+        attachedImages.length > 0 ? attachedImages : undefined
+      );
+      setPreviewUrl(imagePath);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to generate image");
+    } finally {
+      setIsGenerating(false);
+    }
   }
 
   return (
@@ -130,13 +168,18 @@ export default function ImageGen() {
           />
           <button
             type="button"
-            disabled={!prompt.trim()}
-            onClick={() => {
-              // TODO: wire to image generation API
-            }}
-            className="absolute right-3 bottom-3 rounded bg-accent px-4 py-2 text-sm font-semibold text-background transition hover:bg-accent-muted disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!prompt.trim() || isGenerating}
+            onClick={handleGenerate}
+            className="absolute right-3 bottom-3 flex items-center gap-2 rounded bg-accent px-4 py-2 text-sm font-semibold text-background transition hover:bg-accent-muted disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Generate
+            {isGenerating ? (
+              <>
+                <span className="size-4 animate-spin rounded-full border-2 border-background border-t-transparent" />
+                Generating…
+              </>
+            ) : (
+              "Generate"
+            )}
           </button>
         </div>
       </div>
