@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     const timestamp = Date.now();
     const fileExtension = file.name.split('.').pop() || 'png';
     // const fileName = `${projectId}-P${panelIndex}-${timestamp}.${fileExtension}`;
-    const filePath = join(uploadsDir, fileName);
+    const filePath = join(uploadsDir, `${fileName}.${fileExtension}`);
 
     // Convert file to buffer and save
     const bytes = await file.arrayBuffer();
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
     await writeFile(filePath, buffer);
 
     // Return public path
-    const publicPath = `projects/${projectId}/${fileName}`;
+    const publicPath = `projects/${projectId}/${fileName}.${fileExtension}`;
 
     return NextResponse.json({
       fileName: file.name,

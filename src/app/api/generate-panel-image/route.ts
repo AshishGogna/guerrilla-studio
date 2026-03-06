@@ -122,7 +122,7 @@ export async function POST(request: Request) {
     const extension = mimeType === "image/png" ? "png" : mimeType === "image/jpeg" ? "jpg" : "png";
     
     // Create project directory if it doesn't exist
-    const projectDir = join(process.cwd(), "public", projectId);
+    const projectDir = join(process.cwd(), "public", "projects", projectId);
     try {
       await mkdir(projectDir, { recursive: true });
     } catch {
@@ -138,9 +138,10 @@ export async function POST(request: Request) {
     const buffer = Buffer.from(base64Data, "base64");
     await writeFile(filePath, buffer);
 
-    // Return the public path
-    return NextResponse.json({ 
-      content: `/${projectId}/${filename}`
+    // Return the web-accessible URL path (files in public/ are served from root)
+    const publicPath = `/projects/${projectId}/${filename}`;
+    return NextResponse.json({
+      content: publicPath,
     });
 
   } catch (err) {

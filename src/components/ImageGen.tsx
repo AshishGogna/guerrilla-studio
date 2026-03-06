@@ -52,8 +52,8 @@ export default function ImageGen() {
           base64: await fileToBase64(ref.file),
         }))
       );
-      const projectId = "image-gen";
-      const fileName = `img-${Date.now()}`;
+      const projectId = "X";
+      const fileName = `img-gen-${Date.now()}`;
       const imagePath = await generateImage(
         prompt.trim(),
         projectId,
@@ -61,6 +61,7 @@ export default function ImageGen() {
         aspectRatio,
         attachedImages.length > 0 ? attachedImages : undefined
       );
+      console.log("ImageGen: imagePath:", imagePath);
       setPreviewUrl(imagePath);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to generate image");
