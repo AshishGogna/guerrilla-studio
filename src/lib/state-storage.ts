@@ -30,7 +30,8 @@ export function saveState<T>(scope: string, projectId: string, data: T): void {
 
 export interface StoryboardPanelPersisted {
   imageUrl: string | null;
-  prompt: string;
+  promptImage: string;
+  promptVideo: string;
   mode: "image" | "video";
   imageModel: string;
   referenceImages: { url: string }[];
@@ -45,7 +46,8 @@ const DEFAULT_STORYBOARD: StoryboardStatePersisted = {
   panels: [
     {
       imageUrl: null,
-      prompt: "",
+      promptImage: "",
+      promptVideo: "",
       mode: "image",
       imageModel: "gemini-2.5-flash-image",
       referenceImages: [],

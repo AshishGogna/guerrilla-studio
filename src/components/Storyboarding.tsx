@@ -51,7 +51,8 @@ interface RefImage {
 
 interface PanelItem {
   imageUrl: string | null;
-  prompt: string;
+  promptImage: string;
+  promptVideo: string;
   mode: PanelMode;
   referenceImages: RefImage[];
   imageModel: (typeof IMAGE_MODELS)[number];
@@ -60,17 +61,19 @@ interface PanelItem {
 
 const defaultPanel: PanelItem = {
   imageUrl: null,
-  prompt: "",
+  promptImage: "",
+  promptVideo: "",
   mode: "image",
   referenceImages: [],
   imageModel: IMAGE_MODELS[0],
   generating: false,
 };
 
-function persistedToPanel(p: StoryboardPanelPersisted): PanelItem {
+function persistedToPanel(p: StoryboardPanelPersisted & { prompt?: string }): PanelItem {
   return {
     imageUrl: p.imageUrl,
-    prompt: p.prompt,
+    promptImage: p.promptImage ?? (p as { prompt?: string }).prompt ?? "",
+    promptVideo: p.promptVideo ?? "",
     mode: p.mode === "video" ? "video" : "image",
     imageModel: IMAGE_MODELS.includes(p.imageModel as (typeof IMAGE_MODELS)[number])
       ? (p.imageModel as (typeof IMAGE_MODELS)[number])
@@ -83,7 +86,8 @@ function persistedToPanel(p: StoryboardPanelPersisted): PanelItem {
 function panelToPersisted(panel: PanelItem): StoryboardPanelPersisted {
   return {
     imageUrl: panel.imageUrl?.startsWith("blob:") ? null : panel.imageUrl,
-    prompt: panel.prompt,
+    promptImage: panel.promptImage,
+    promptVideo: panel.promptVideo,
     mode: panel.mode,
     imageModel: panel.imageModel,
     referenceImages: panel.referenceImages.map((r) => ({ url: r.url })),
@@ -231,7 +235,7 @@ export default function Storyboarding() {
 
   async function handleGenerateImage(panelIndex: number) {
     const panel = panels[panelIndex];
-    if (panel.mode !== "image" || !panel.prompt.trim() || panel.generating) return;
+    if (panel.mode !== "image" || !panel.promptImage.trim() || panel.generating) return;
     updatePanel(panelIndex, { generating: true });
     try {
       const attachedImages =
@@ -246,7 +250,7 @@ export default function Storyboarding() {
       const projectId = "panels";
       const fileName = `panel-${panelIndex}-${Date.now()}`;
       const imagePath = await generateImage(
-        panel.prompt.trim(),
+        panel.promptImage.trim(),
         projectId,
         fileName,
         "16:9",
@@ -324,47 +328,54 @@ export default function Storyboarding() {
                   </button>
                 </div>
                 <div className="flex items-center gap-1">
-                  {panel.referenceImages.length > 0 && (
-                    <div className="flex items-center gap-0.5">
-                      {panel.referenceImages.map((ref, refIndex) => (
-                        <div key={refIndex} className="relative">
-                          <img src={ref.url} alt="" className="h-7 w-7 rounded object-cover" />
-                          <button
-                            type="button"
-                            onClick={() => removeRefImage(index, refIndex)}
-                            className="absolute -right-0.5 -top-0.5 rounded-full bg-foreground/80 p-0.5 text-background hover:bg-foreground"
-                            title="Remove"
-                            aria-label="Remove reference image"
-                          >
-                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M18 6 6 18" />
-                              <path d="m6 6 12 12" />
-                            </svg>
-                          </button>
+                  {panel.mode === "image" && (
+                    <>
+                      {panel.referenceImages.length > 0 && (
+                        <div className="flex items-center gap-0.5">
+                          {panel.referenceImages.map((ref, refIndex) => (
+                            <div key={refIndex} className="relative">
+                              <img src={ref.url} alt="" className="h-7 w-7 rounded object-cover" />
+                              <button
+                                type="button"
+                                onClick={() => removeRefImage(index, refIndex)}
+                                className="absolute -right-0.5 -top-0.5 rounded-full bg-foreground/80 p-0.5 text-background hover:bg-foreground"
+                                title="Remove"
+                                aria-label="Remove reference image"
+                              >
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <path d="M18 6 6 18" />
+                                  <path d="m6 6 12 12" />
+                                </svg>
+                              </button>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAttachPanelIndex(index);
+                          fileInputRef.current?.click();
+                        }}
+                        className="rounded p-1.5 text-foreground/60 transition hover:bg-foreground/10 hover:text-foreground"
+                        title="Attach reference images"
+                        aria-label="Attach reference images"
+                      >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+                          <circle cx="9" cy="9" r="2" />
+                          <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+                        </svg>
+                      </button>
+                    </>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAttachPanelIndex(index);
-                      fileInputRef.current?.click();
-                    }}
-                    className="rounded p-1.5 text-foreground/60 transition hover:bg-foreground/10 hover:text-foreground"
-                    title="Attach reference images"
-                    aria-label="Attach reference images"
-                  >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
-                      <circle cx="9" cy="9" r="2" />
-                      <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
-                    </svg>
-                  </button>
                   <div className="flex items-center rounded border border-foreground/20 bg-foreground/5 overflow-hidden">
                     <button
                       type="button"
-                      disabled={!panel.prompt.trim() || panel.generating}
+                      disabled={
+                        (panel.mode === "image" ? !panel.promptImage.trim() : !panel.promptVideo.trim()) ||
+                        panel.generating
+                      }
                       onClick={() => {
                         if (panel.mode === "image") {
                           handleGenerateImage(index);
@@ -447,19 +458,32 @@ export default function Storyboarding() {
                 )}
               </div>
 
-              {/* Floating prompt: always visible, no background or border */}
+              {/* Floating prompt: separate inputs for image vs video mode */}
               <div className="absolute bottom-0 left-0 right-0 z-10 flex items-end p-2">
                 <div className="flex min-h-[44px] min-w-0 flex-1 flex-col justify-end">
-                  <textarea
-                    ref={(el) => {
-                      textareaRefs.current[index] = el;
-                    }}
-                    value={panel.prompt}
-                    onChange={(e) => updatePanel(index, { prompt: e.target.value })}
-                    placeholder={panel.mode === "image" ? "Image generation prompt" : "Video generation prompt"}
-                    className="min-h-[44px] w-full resize-none border-0 px-0 py-1 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-0 text-center overflow-hidden bg-transparent"
-                    rows={1}
-                  />
+                  {panel.mode === "image" ? (
+                    <textarea
+                      ref={(el) => {
+                        textareaRefs.current[index] = el;
+                      }}
+                      value={panel.promptImage}
+                      onChange={(e) => updatePanel(index, { promptImage: e.target.value })}
+                      placeholder="Image generation prompt"
+                      className="min-h-[44px] w-full resize-none border-0 px-0 py-1 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-0 text-center overflow-hidden bg-transparent"
+                      rows={1}
+                    />
+                  ) : (
+                    <textarea
+                      ref={(el) => {
+                        textareaRefs.current[index] = el;
+                      }}
+                      value={panel.promptVideo}
+                      onChange={(e) => updatePanel(index, { promptVideo: e.target.value })}
+                      placeholder="Video generation prompt"
+                      className="min-h-[44px] w-full resize-none border-0 px-0 py-1 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-0 text-center overflow-hidden bg-transparent"
+                      rows={1}
+                    />
+                  )}
                 </div>
               </div>
             </div>
