@@ -80,7 +80,7 @@ export async function generateImage(
 ): Promise<string> {
   const imageModel = model ?? IMAGE_MODEL;
   console.log("AI: generateImage request:", prompt, projectId, fileName, aspectRatio, imageModel, attachedImages);
-  const outputFileName = `${projectId}-${fileName}`;
+  const outputFileName = `${fileName}`;
   const res = await fetch("/api/generate-panel-image", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

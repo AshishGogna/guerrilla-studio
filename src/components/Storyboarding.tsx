@@ -313,7 +313,7 @@ export default function Storyboarding() {
             )
           : undefined;
       const projectId = "X";
-      const fileName = `panel-${panelIndex}-${Date.now()}`;
+      const fileName = `panel-${panelIndex}`;
       const imagePath = await generateImage(
         panel.promptImage.trim(),
         projectId,
