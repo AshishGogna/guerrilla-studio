@@ -6,7 +6,8 @@ import {
   saveStoryboardState,
   type StoryboardPanelPersisted,
 } from "@/lib/state-storage";
-import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 const STORYBOARD_PROJECT_ID = "X";
 const MIN_TEXTAREA_HEIGHT = 44;
@@ -168,6 +169,22 @@ export default function Storyboarding() {
   const [focusedPromptIndex, setFocusedPromptIndex] = useState<number | null>(null);
   const [selectPanelIndex, setSelectPanelIndex] = useState<number | null>(null);
   const [projectImages, setProjectImages] = useState<string[]>([]);
+  const [attachMenuPanelIndex, setAttachMenuPanelIndex] = useState<number | null>(null);
+  const [attachRefSelectImages, setAttachRefSelectImages] = useState<string[]>([]);
+  const [attachRefSelectMode, setAttachRefSelectMode] = useState(false);
+  const attachButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [attachMenuRect, setAttachMenuRect] = useState<{ top: number; left: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if (attachMenuPanelIndex === null) {
+      setAttachMenuRect(null);
+      return;
+    }
+    const el = attachButtonRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setAttachMenuRect({ top: rect.bottom + 4, left: rect.left });
+  }, [attachMenuPanelIndex, attachRefSelectMode]);
 
   async function openSelectForPanel(panelIndex: number) {
     setSelectPanelIndex(panelIndex);
@@ -182,12 +199,39 @@ export default function Storyboarding() {
     }
   }
 
+  async function openAttachRefSelect(panelIndex: number) {
+    setAttachRefSelectMode(true);
+    try {
+      const res = await fetch(
+        `/api/list-project-images?projectId=${encodeURIComponent(STORYBOARD_PROJECT_ID)}`
+      );
+      const data = await res.json();
+      setAttachRefSelectImages(Array.isArray(data.images) ? data.images : []);
+    } catch {
+      setAttachRefSelectImages([]);
+    }
+  }
+
+  function addRefImageFromProject(panelIndex: number, url: string) {
+    setPanels((prev) => {
+      const next = [...prev];
+      next[panelIndex] = {
+        ...next[panelIndex],
+        referenceImages: [...next[panelIndex].referenceImages, { url }],
+      };
+      return next;
+    });
+    setAttachMenuPanelIndex(null);
+    setAttachRefSelectMode(false);
+  }
+
   async function handleRefImages(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
     if (!files?.length || attachPanelIndex == null) return;
     const panelIndex = attachPanelIndex;
     const fileName = `upload-${panelIndex}-${Date.now()}`;
     setAttachPanelIndex(null);
+    setAttachMenuPanelIndex(null);
     const projectId = STORYBOARD_PROJECT_ID;
     const newRefs: RefImage[] = [];
     for (const file of Array.from(files)) {
@@ -342,6 +386,76 @@ export default function Storyboarding() {
         className="hidden"
         onChange={handlePreviewImage}
       />
+      {attachMenuPanelIndex !== null &&
+        attachMenuRect &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <>
+            <div
+              className="fixed inset-0 z-[100]"
+              aria-hidden
+              onClick={() => {
+                setAttachMenuPanelIndex(null);
+                setAttachRefSelectMode(false);
+              }}
+            />
+            <div
+              className="fixed z-[101] min-w-[140px] rounded border border-foreground/20 bg-background py-1 shadow-lg"
+              style={{ top: attachMenuRect.top, left: attachMenuRect.left }}
+            >
+              {!attachRefSelectMode ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAttachPanelIndex(attachMenuPanelIndex);
+                      fileInputRef.current?.click();
+                      setAttachMenuPanelIndex(null);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-foreground/10"
+                  >
+                    Upload
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openAttachRefSelect(attachMenuPanelIndex)}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-foreground/10"
+                  >
+                    Select
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setAttachRefSelectMode(false)}
+                    className="border-b border-foreground/10 px-3 py-1.5 text-left text-xs text-foreground/60 hover:bg-foreground/10"
+                  >
+                    ← Back
+                  </button>
+                  <div className="max-h-48 overflow-auto py-1">
+                    {attachRefSelectImages.length === 0 ? (
+                      <p className="px-3 py-2 text-xs text-foreground/60">No images in project</p>
+                    ) : (
+                      attachRefSelectImages.map((path) => (
+                        <button
+                          key={path}
+                          type="button"
+                          onClick={() => addRefImageFromProject(attachMenuPanelIndex, path)}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-foreground/10"
+                        >
+                          <img src={path} alt="" className="h-8 w-8 shrink-0 rounded object-cover" />
+                          <span className="truncate text-foreground/80">{path.split("/").pop()}</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </>,
+          document.body
+        )}
       <div className="grid grid-cols-3 gap-6">
         {panels.map((panel, index) => (
           <div
@@ -455,22 +569,31 @@ export default function Storyboarding() {
                           ))}
                         </div>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAttachPanelIndex(index);
-                          fileInputRef.current?.click();
-                        }}
-                        className="rounded p-1.5 text-foreground/60 transition hover:bg-foreground/10 hover:text-foreground"
-                        title="Attach reference images"
-                        aria-label="Attach reference images"
-                      >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
-                          <circle cx="9" cy="9" r="2" />
-                          <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
-                        </svg>
-                      </button>
+                      <div className="relative">
+                        <button
+                          ref={attachMenuPanelIndex === index ? attachButtonRef : null}
+                          type="button"
+                          onClick={() => {
+                            if (attachMenuPanelIndex === index) {
+                              setAttachMenuPanelIndex(null);
+                              setAttachRefSelectMode(false);
+                            } else {
+                              setAttachRefSelectMode(false);
+                              setAttachMenuPanelIndex(index);
+                            }
+                          }}
+                          className="rounded p-1.5 text-foreground/60 transition hover:bg-foreground/10 hover:text-foreground"
+                          title="Attach reference images"
+                          aria-label="Attach reference images"
+                          aria-expanded={attachMenuPanelIndex === index}
+                        >
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+                            <circle cx="9" cy="9" r="2" />
+                            <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+                          </svg>
+                        </button>
+                      </div>
                     </>
                   )}
                   <div className="flex items-center rounded border border-foreground/20 bg-foreground/5 overflow-hidden">
