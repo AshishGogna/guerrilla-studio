@@ -138,6 +138,16 @@ export default function Storyboarding() {
     setPanels((prev) => [...prev, { ...defaultPanel }]);
   }
 
+  function movePanel(fromIndex: number, toIndex: number) {
+    if (fromIndex === toIndex) return;
+    setPanels((prev) => {
+      const next = [...prev];
+      const [item] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, item);
+      return next;
+    });
+  }
+
   function removePanel(index: number) {
     setPanels((prev) => {
       const panel = prev[index];
@@ -337,12 +347,42 @@ export default function Storyboarding() {
           <div
             key={index}
             className="relative flex flex-col gap-3 rounded-lg p-4"
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              const from = Number(e.dataTransfer.getData("text/plain"));
+              if (!Number.isNaN(from)) movePanel(from, index);
+            }}
           >
             {/* Preview: image area with floating prompt (fixed height so container does not grow) */}
             <div className="relative flex h-[300px] flex-col overflow-hidden rounded-lg border border-foreground/10 bg-foreground/5">
-              {/* Top bar: left = mode toggles; right = ref images, attach, generate, delete */}
+              {/* Top bar: drag handle, mode toggles; right = ref images, attach, generate, delete */}
               <div className="absolute left-2 right-2 top-2 z-10 flex items-center justify-between gap-2">
-                <div className="flex gap-1">
+                <div className="flex items-center gap-1">
+                  <div
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.effectAllowed = "move";
+                      e.dataTransfer.setData("text/plain", String(index));
+                    }}
+                    className="cursor-grab rounded p-1.5 text-foreground/50 active:cursor-grabbing hover:bg-foreground/10 hover:text-foreground"
+                    title="Drag to reorder"
+                    role="button"
+                    tabIndex={0}
+                    aria-label="Drag to reorder panel"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="9" cy="5" r="1" />
+                      <circle cx="9" cy="12" r="1" />
+                      <circle cx="9" cy="19" r="1" />
+                      <circle cx="15" cy="5" r="1" />
+                      <circle cx="15" cy="12" r="1" />
+                      <circle cx="15" cy="19" r="1" />
+                    </svg>
+                  </div>
                   <button
                     type="button"
                     onClick={() => removePanel(index)}
