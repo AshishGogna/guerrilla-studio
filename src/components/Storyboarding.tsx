@@ -6,6 +6,7 @@ import {
   saveStoryboardState,
   type StoryboardPanelPersisted,
 } from "@/lib/state-storage";
+import JSZip from "jszip";
 import { createPortal } from "react-dom";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
@@ -174,6 +175,44 @@ export default function Storyboarding() {
   const [attachRefSelectMode, setAttachRefSelectMode] = useState(false);
   const attachButtonRef = useRef<HTMLButtonElement | null>(null);
   const [attachMenuRect, setAttachMenuRect] = useState<{ top: number; left: number } | null>(null);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [downloadingAll, setDownloadingAll] = useState(false);
+
+  async function handleDownloadAll() {
+    const urls = panels
+      .map((p) => p.imageUrl)
+      .filter((url): url is string => Boolean(url));
+    if (urls.length === 0) {
+      alert("No panel images to download.");
+      return;
+    }
+    setDownloadingAll(true);
+    try {
+      const zip = new JSZip();
+      const folder = zip.folder(STORYBOARD_PROJECT_ID);
+      if (!folder) throw new Error("Could not create zip folder");
+      for (let i = 0; i < urls.length; i++) {
+        const url = urls[i];
+        const fullUrl = url.startsWith("/") ? `${window.location.origin}${url}` : url;
+        const res = await fetch(fullUrl);
+        if (!res.ok) continue;
+        const blob = await res.blob();
+        const ext = url.split(".").pop()?.toLowerCase() || "png";
+        folder.file(`panel-${i}.${ext}`, blob);
+      }
+      const blob = await zip.generateAsync({ type: "blob" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${STORYBOARD_PROJECT_ID}.zip`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Download failed");
+    } finally {
+      setDownloadingAll(false);
+    }
+  }
 
   useLayoutEffect(() => {
     if (attachMenuPanelIndex === null) {
@@ -369,7 +408,97 @@ export default function Storyboarding() {
             ))}
           </select>
         </div>
+        <button
+          type="button"
+          onClick={() => setImportModalOpen(true)}
+          className="rounded border border-foreground/20 bg-transparent px-3 py-1.5 text-sm hover:bg-foreground/10"
+        >
+          Import
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (panels.length === 0) return;
+            if (typeof window !== "undefined" && !window.confirm("Remove all storyboard panels?")) return;
+            setPanels([]);
+          }}
+          className="rounded border border-foreground/20 bg-transparent px-3 py-1.5 text-sm hover:bg-foreground/10"
+        >
+          Clear
+        </button>
+        <button
+          type="button"
+          onClick={handleDownloadAll}
+          disabled={downloadingAll || panels.every((p) => !p.imageUrl)}
+          className="rounded border border-foreground/20 bg-transparent px-3 py-1.5 text-sm hover:bg-foreground/10 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {downloadingAll ? "Downloading…" : "Download All"}
+        </button>
       </div>
+      {/* Import modal */}
+      {importModalOpen && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-foreground/40 p-4"
+          onClick={() => {
+            setImportModalOpen(false);
+            setImportText("");
+          }}
+        >
+          <div
+            className="flex h-[80vh] w-full max-w-2xl flex-col rounded-lg border border-foreground/20 bg-background shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="import-modal-title"
+          >
+            <div className="border-b border-foreground/10 px-4 py-3">
+              <h2 id="import-modal-title" className="text-sm font-medium">Import panels</h2>
+              <p className="mt-0.5 text-xs text-foreground/60">One sentence per line. Each line becomes a storyboard panel.</p>
+            </div>
+            <textarea
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+              placeholder="Enter one prompt per line..."
+              className="min-h-0 flex-1 resize-none border-0 border-b border-foreground/10 bg-transparent p-4 text-sm outline-none focus:ring-0"
+              autoFocus
+            />
+            <div className="flex justify-end gap-2 border-t border-foreground/10 p-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setImportModalOpen(false);
+                  setImportText("");
+                }}
+                className="rounded border border-foreground/20 px-3 py-1.5 text-sm hover:bg-foreground/10"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!importText.trim()}
+                onClick={() => {
+                  const lines = importText
+                    .split(/\r?\n/)
+                    .map((s) => s.trim())
+                    .filter(Boolean);
+                  if (lines.length === 0) return;
+                  const newPanels: PanelItem[] = lines.map((line) => ({
+                    ...defaultPanel,
+                    promptImage: line,
+                    promptVideo: "",
+                  }));
+                  setPanels((prev) => [...prev, ...newPanels]);
+                  setImportModalOpen(false);
+                  setImportText("");
+                }}
+                className="rounded bg-accent px-3 py-1.5 text-sm text-background disabled:opacity-50 disabled:cursor-not-allowed hover:enabled:opacity-90"
+              >
+                Import
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="flex-1 p-6">
       <input
         ref={fileInputRef}
