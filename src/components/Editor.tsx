@@ -2,7 +2,7 @@
 
 import { renderMediaOnWeb } from "@remotion/web-renderer";
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Video } from "@remotion/media";
 import { AbsoluteFill, Sequence, useVideoConfig } from "remotion";
 
@@ -12,12 +12,28 @@ const RemotionPlayer = dynamic(
   { ssr: false }
 );
 
+type PlayerRefType = import("@remotion/player").PlayerRef;
+
 const FPS = 30;
 const COMP_WIDTH = 1920;
 const COMP_HEIGHT = 1080;
 const CLIP_WIDTH_PX_PER_SEC = 64;
 const TRACK_HEIGHT_PX = 48;
 const RULER_HEIGHT_PX = 36; // h-9 in Tailwind
+const TIMELINE_PADDING_PX = 16; // p-4 on scroll container
+
+/** Get a short display name for a clip from its src (filename or fallback). */
+function getClipDisplayName(clip: EditorClip): string {
+  try {
+    if (clip.src.startsWith("blob:")) return "Uploaded clip";
+    const u = new URL(clip.src, "file:");
+    const seg = u.pathname.split("/").filter(Boolean).pop();
+    if (seg) return decodeURIComponent(seg);
+  } catch {
+    // ignore
+  }
+  return clip.id;
+}
 
 /** Format seconds as HH:MM:SS (whole seconds). */
 function formatTimeHMS(seconds: number): string {
@@ -188,8 +204,10 @@ export default function Editor() {
   const [exportResX, setExportResX] = useState(COMP_WIDTH);
   const [exportResY, setExportResY] = useState(COMP_HEIGHT);
   const [timelinePxPerSec, setTimelinePxPerSec] = useState(CLIP_WIDTH_PX_PER_SEC);
+  const [playheadTimeSec, setPlayheadTimeSec] = useState(0);
   const [addUrl, setAddUrl] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const playerRef = useRef<PlayerRefType | null>(null);
 
   const totalDurationSec = Math.max(
     0.1,
@@ -391,6 +409,32 @@ export default function Editor() {
     return clientX - rect.left + el.scrollLeft;
   }, []);
 
+  const handlePlayheadDragStart = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const onMove = (e: MouseEvent) => {
+        const x = Math.max(0, getTimelineX(e.clientX) - TIMELINE_PADDING_PX);
+        const sec = Math.max(0, Math.min(totalDurationSec, x / timelinePxPerSec));
+        setPlayheadTimeSec(sec);
+        playerRef.current?.seekTo(Math.round(sec * FPS));
+      };
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        document.body.style.removeProperty("cursor");
+        document.body.style.removeProperty("user-select");
+      };
+      onMove(e.nativeEvent);
+      document.body.style.cursor = "ew-resize";
+      document.body.style.userSelect = "none";
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp, { once: true });
+    },
+    [getTimelineX, totalDurationSec, timelinePxPerSec]
+  );
+
   const handlePositionDragStart = useCallback(
     (
       id: string,
@@ -533,7 +577,11 @@ export default function Editor() {
       <div className="flex shrink-0 justify-center border-b border-foreground/10 bg-black/40 p-4"
       style={{ height: 300 }}>
         <div className="aspect-video w-full max-w-4xl overflow-hidden rounded-lg bg-black">
-          <RemotionPlayerPreview clips={clips} durationInFrames={durationInFrames} />
+          <RemotionPlayerPreview
+            ref={playerRef}
+            clips={clips}
+            durationInFrames={durationInFrames}
+          />
         </div>
       </div>
 
@@ -618,7 +666,7 @@ export default function Editor() {
         </div>
         <div ref={timelineRef} className="flex flex-1 flex-col overflow-auto p-4">
           <div
-            className="flex shrink-0 flex-col"
+            className="relative flex shrink-0 flex-col"
             style={{
               width: `${Math.max(1, totalDurationSec * timelinePxPerSec)}px`,
               minWidth: "100%",
@@ -718,6 +766,26 @@ export default function Editor() {
                   </div>
                 ));
               })()}
+            </div>
+            {/* Playhead: vertical line at current time, draggable from ruler */}
+            <div
+              className="absolute top-0 bottom-0 z-30 w-2 -translate-x-1/2"
+              style={{ left: `${playheadTimeSec * timelinePxPerSec}px` }}
+            >
+              <div
+                className="absolute inset-0 bg-red-500 pointer-events-none"
+                style={{ width: 2, marginLeft: -1 }}
+              />
+              <div
+                className="absolute left-0 top-0 cursor-ew-resize bg-red-500/80 hover:bg-red-500"
+                style={{
+                  width: 8,
+                  marginLeft: -4,
+                  height: RULER_HEIGHT_PX,
+                }}
+                onMouseDown={handlePlayheadDragStart}
+                title="Drag to seek"
+              />
             </div>
           </div>
         </div>
@@ -834,13 +902,10 @@ export default function Editor() {
   );
 }
 
-function RemotionPlayerPreview({
-  clips,
-  durationInFrames,
-}: {
-  clips: EditorClip[];
-  durationInFrames: number;
-}) {
+const RemotionPlayerPreview = React.forwardRef<
+  PlayerRefType | null,
+  { clips: EditorClip[]; durationInFrames: number }
+>(function RemotionPlayerPreview({ clips, durationInFrames }, ref) {
   const safeDurationInFrames = Math.max(1, Math.floor(toFinite(durationInFrames, 1)));
   const compWidth = toFinite(COMP_WIDTH, 1920);
   const compHeight = toFinite(COMP_HEIGHT, 1080);
@@ -863,6 +928,7 @@ function RemotionPlayerPreview({
   return (
     <div style={wrapperStyle}>
       <RemotionPlayer
+        ref={ref as React.Ref<PlayerRefType | null>}
         component={EditorCompositionWithProps}
         inputProps={{ clips }}
         durationInFrames={safeDurationInFrames}
@@ -875,7 +941,7 @@ function RemotionPlayerPreview({
       />
     </div>
   );
-}
+});
 
 const MIN_TRIM_DURATION_SEC = 0.1;
 
@@ -980,6 +1046,12 @@ function TimelineClipBlock({
         }}
       >
         <div className="absolute inset-0 bg-foreground/15" />
+        <span
+          className="absolute left-1 right-1 truncate text-[10px] font-medium text-foreground/90"
+          title={getClipDisplayName(clip)}
+        >
+          {getClipDisplayName(clip)}
+        </span>
         <div
           role="slider"
           aria-label="Trim start"
