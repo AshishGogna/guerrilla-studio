@@ -15,7 +15,17 @@ const RemotionPlayer = dynamic(
 const FPS = 30;
 const COMP_WIDTH = 1920;
 const COMP_HEIGHT = 1080;
-const CLIP_WIDTH_PX_PER_SEC = 24;
+const CLIP_WIDTH_PX_PER_SEC = 64;
+
+/** Format seconds as HH:MM:SS (whole seconds). */
+function formatTimeHMS(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(h)}:${pad(m)}:${pad(sec)}`;
+}
 
 /** Ensures a value is a finite number for CSS/props. Never returns NaN. */
 function toFinite(value: unknown, fallback: number): number {
@@ -152,6 +162,7 @@ export default function Editor() {
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportResX, setExportResX] = useState(COMP_WIDTH);
   const [exportResY, setExportResY] = useState(COMP_HEIGHT);
+  const [timelinePxPerSec, setTimelinePxPerSec] = useState(CLIP_WIDTH_PX_PER_SEC);
   const [addUrl, setAddUrl] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -355,7 +366,7 @@ export default function Editor() {
       const onMove = (e: MouseEvent) => {
         hasMoved = true;
         const currentTimelineX = getTimelineX(e.clientX);
-        const deltaSec = (currentTimelineX - initialTimelineX) / CLIP_WIDTH_PX_PER_SEC;
+        const deltaSec = (currentTimelineX - initialTimelineX) / timelinePxPerSec;
         const newStartSec = Math.max(0, initialStartTimeSec + deltaSec);
         setClips((prev) =>
           prev.map((c) => (c.id === id ? { ...c, startTimeSec: newStartSec } : c))
@@ -382,7 +393,7 @@ export default function Editor() {
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onEnd, { once: true });
     },
-    [getTimelineX, applyClipPositionAndTrimOverlaps]
+    [getTimelineX, applyClipPositionAndTrimOverlaps, timelinePxPerSec]
   );
 
   const handleExport = useCallback(
@@ -516,6 +527,37 @@ export default function Editor() {
             </button>
             <button
               type="button"
+              onClick={() => {
+                const zoom = Math.min(timelinePxPerSec + 8, 96);
+                console.log("zoom in:", zoom);
+                setTimelinePxPerSec((p) => zoom);
+              }}
+              title="Zoom in timeline"
+              className="rounded border border-foreground/20 bg-foreground/10 p-1.5 hover:bg-foreground/20"
+              aria-label="Zoom in timeline"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8" />
+                <path d="m21 21-4.35-4.35" />
+                <path d="M11 8v6" />
+                <path d="M8 11h6" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              onClick={() => setTimelinePxPerSec((p) => Math.max(p - 8, 8))}
+              title="Zoom out timeline"
+              className="rounded border border-foreground/20 bg-foreground/10 p-1.5 hover:bg-foreground/20"
+              aria-label="Zoom out timeline"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8" />
+                <path d="m21 21-4.35-4.35" />
+                <path d="M8 11h6" />
+              </svg>
+            </button>
+            <button
+              type="button"
               onClick={openExportModal}
               disabled={clips.length === 0}
               className="rounded bg-accent px-3 py-1.5 text-sm text-background hover:opacity-90 disabled:opacity-50"
@@ -524,23 +566,64 @@ export default function Editor() {
             </button>
           </div>
         </div>
-        <div ref={timelineRef} className="flex flex-1 overflow-x-auto overflow-y-hidden p-4">
+        <div ref={timelineRef} className="flex flex-1 flex-col overflow-x-auto overflow-y-hidden p-4">
           <div
-            className="relative h-12 min-w-full"
+            className="flex shrink-0 flex-col"
             style={{
-              width: `${Math.max(1, totalDurationSec * CLIP_WIDTH_PX_PER_SEC)}px`,
+              width: `${Math.max(1, totalDurationSec * timelinePxPerSec)}px`,
+              minWidth: "100%",
             }}
           >
+            {/* Time ruler */}
+            <div className="relative h-9 shrink-0 border-b border-foreground/20 bg-foreground/5">
+              {(() => {
+                const totalSec = Math.max(0, totalDurationSec);
+                const minorStep = 0.25;
+                const ticks: { sec: number; isMajor: boolean }[] = [];
+                for (let t = 0; t <= totalSec + 0.001; t += minorStep) {
+                  const isMajor = Math.abs(t - Math.round(t)) < 0.001;
+                  ticks.push({ sec: t, isMajor });
+                }
+                return ticks.map(({ sec, isMajor }) => {
+                  const leftPx = sec * timelinePxPerSec;
+                  return (
+                    <div
+                      key={`tick-${sec}`}
+                      className="absolute top-0 flex flex-col items-center"
+                      style={{ left: `${leftPx}px` }}
+                    >
+                      <div
+                        className={`shrink-0 bg-foreground/60 ${isMajor ? "w-0.5" : "w-px"} ${isMajor ? "h-5" : "h-2"}`}
+                        style={{ minWidth: isMajor ? 2 : 1 }}
+                      />
+                      {isMajor && (
+                        <span className="mt-0.5 shrink-0 text-[10px] font-medium tabular-nums text-foreground/70">
+                          {formatTimeHMS(sec)}
+                        </span>
+                      )}
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+            {/* Clips track */}
+            <div
+              className="relative h-12 min-w-full"
+              style={{
+                width: `${Math.max(1, totalDurationSec * timelinePxPerSec)}px`,
+              }}
+            >
             {clips.map((clip) => (
               <div
                 key={clip.id}
                 className="absolute top-0 h-full"
                 style={{
-                  left: `${(clip.startTimeSec ?? 0) * CLIP_WIDTH_PX_PER_SEC}px`,
+                  left: `${(clip.startTimeSec ?? 0) * timelinePxPerSec}px`,
                 }}
               >
                 <TimelineClipBlock
                   clip={clip}
+                  pxPerSec={timelinePxPerSec}
                   isSelected={selectedClipId === clip.id}
                   isDragged={draggedId === clip.id}
                   onSelect={() => setSelectedClipId(clip.id)}
@@ -558,6 +641,7 @@ export default function Editor() {
                 />
               </div>
             ))}
+            </div>
           </div>
         </div>
         {selectedClip && (
@@ -717,10 +801,10 @@ function RemotionPlayerPreview({
 }
 
 const MIN_TRIM_DURATION_SEC = 0.1;
-const MIN_CLIP_WIDTH_PX = Math.max(24, 0.1 * CLIP_WIDTH_PX_PER_SEC); // at least 0.1s, min 24px for usability
 
 function TimelineClipBlock({
   clip,
+  pxPerSec,
   isSelected,
   isDragged,
   onSelect,
@@ -730,6 +814,7 @@ function TimelineClipBlock({
   onPositionDragStart,
 }: {
   clip: EditorClip;
+  pxPerSec: number;
   isSelected: boolean;
   isDragged: boolean;
   onSelect: () => void;
@@ -745,16 +830,17 @@ function TimelineClipBlock({
     startValue: number;
   } | null>(null);
 
+  const minClipWidthPx = Math.max(24, 0.1 * pxPerSec);
   const trimStart = toFinite(clip.trimStartSec, 0);
   const trimEnd = toFinite(clip.trimEndSec, 10);
   const durationSec = Math.max(0, trimEnd - trimStart);
   const fullDuration = Math.max(durationSec, toFinite(clip.durationSec, trimEnd || 10));
   const widthPx = Math.max(
-    MIN_CLIP_WIDTH_PX,
-    Math.min(fullDuration * CLIP_WIDTH_PX_PER_SEC, durationSec * CLIP_WIDTH_PX_PER_SEC)
+    minClipWidthPx,
+    Math.min(fullDuration * pxPerSec, durationSec * pxPerSec)
   );
-  const safeWidth = toFinite(widthPx, MIN_CLIP_WIDTH_PX);
-  const wrapperWidthPx = Math.max(safeWidth, toFinite(fullDuration * CLIP_WIDTH_PX_PER_SEC, safeWidth));
+  const safeWidth = toFinite(widthPx, minClipWidthPx);
+  const wrapperWidthPx = Math.max(safeWidth, toFinite(fullDuration * pxPerSec, safeWidth));
   const clipLeftPx =
     fullDuration > 0
       ? (trimStart / fullDuration) * wrapperWidthPx
