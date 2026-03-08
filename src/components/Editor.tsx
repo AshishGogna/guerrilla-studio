@@ -240,6 +240,9 @@ export default function Editor() {
   const [addUrl, setAddUrl] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const playerRef = useRef<PlayerRefType | null>(null);
+  const playheadLineRef = useRef<HTMLDivElement>(null);
+  const timelinePxPerSecRef = useRef(timelinePxPerSec);
+  timelinePxPerSecRef.current = timelinePxPerSec;
 
   const totalDurationSec = Math.max(
     0.1,
@@ -603,6 +606,41 @@ export default function Editor() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [selectedClipId, removeClip]);
 
+  const lastWasPlayingRef = useRef(false);
+  useEffect(() => {
+    const id = setInterval(() => {
+      const player = playerRef.current;
+      const el = playheadLineRef.current;
+      const playing = player?.isPlaying?.() ?? false;
+      if (playing && el && player) {
+        lastWasPlayingRef.current = true;
+        const frame = player.getCurrentFrame();
+        if (typeof frame === "number" && Number.isFinite(frame)) {
+          const sec = frame / FPS;
+          const leftPx = sec * timelinePxPerSecRef.current;
+          el.style.left = `${leftPx}px`;
+        }
+      } else if (lastWasPlayingRef.current) {
+        lastWasPlayingRef.current = false;
+        const frame = player?.getCurrentFrame?.();
+        if (typeof frame === "number" && Number.isFinite(frame)) {
+          setPlayheadTimeSec(frame / FPS);
+        }
+      }
+    }, 100);
+    return () => clearInterval(id);
+  }, [clips.length]);
+
+  const handleRulerClick = useCallback(
+    (e: React.MouseEvent) => {
+      const x = Math.max(0, getTimelineX(e.clientX) - TIMELINE_PADDING_PX);
+      const sec = Math.max(0, Math.min(totalDurationSec, x / timelinePxPerSec));
+      setPlayheadTimeSec(sec);
+      playerRef.current?.seekTo(Math.round(sec * FPS));
+    },
+    [getTimelineX, totalDurationSec, timelinePxPerSec]
+  );
+
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background text-foreground">
       {/* Preview */}
@@ -704,8 +742,13 @@ export default function Editor() {
               minWidth: "100%",
             }}
           >
-            {/* Time ruler */}
-            <div className="relative h-9 shrink-0 border-b border-foreground/20 bg-foreground/5">
+            {/* Time ruler - click to seek */}
+            <div
+              className="relative h-9 shrink-0 cursor-pointer border-b border-foreground/20 bg-foreground/5"
+              onClick={handleRulerClick}
+              role="button"
+              aria-label="Click to seek playhead"
+            >
               {(() => {
                 const totalSec = Math.max(0, totalDurationSec);
                 const minorStep = 0.25;
@@ -801,6 +844,7 @@ export default function Editor() {
             </div>
             {/* Playhead: vertical line at current time, draggable from ruler */}
             <div
+              ref={playheadLineRef}
               className="absolute top-0 bottom-0 z-30 w-2 -translate-x-1/2"
               style={{ left: `${playheadTimeSec * timelinePxPerSec}px` }}
             >
@@ -1065,7 +1109,6 @@ function TimelineClipBlock({
         src={clip.src}
         className="hidden"
         preload="metadata"
-        controls={true}
         onLoadedMetadata={(e) => {
           const el = e.target as HTMLVideoElement;
           const d = toFinite(el.duration, 0);
