@@ -3,7 +3,8 @@
 import { renderMediaOnWeb } from "@remotion/web-renderer";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AbsoluteFill, Sequence, Video, useVideoConfig } from "remotion";
+import { Video } from "@remotion/media";
+import { AbsoluteFill, Sequence, useVideoConfig } from "remotion";
 
 const RemotionPlayer = dynamic(
   () =>
@@ -30,6 +31,10 @@ export interface EditorClip {
   durationSec?: number;
   /** Start time on the timeline in seconds (for gaps and ordering). */
   startTimeSec: number;
+  /** Video width in pixels (from loaded metadata). */
+  width?: number;
+  /** Video height in pixels (from loaded metadata). */
+  height?: number;
 }
 
 export function EditorCompositionWithProps({ clips = [] }: { clips?: EditorClip[] }) {
@@ -144,6 +149,9 @@ export default function Editor() {
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportResX, setExportResX] = useState(COMP_WIDTH);
+  const [exportResY, setExportResY] = useState(COMP_HEIGHT);
   const [addUrl, setAddUrl] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -222,6 +230,36 @@ export default function Editor() {
     },
     []
   );
+
+  const handleClipMetadataLoaded = useCallback(
+    (clipId: string, durationSec: number, width?: number, height?: number) => {
+      setClips((prev) => {
+        const clip = prev.find((c) => c.id === clipId);
+        if (!clip) return prev;
+        const oldEnd =
+          toFinite(clip.startTimeSec, 0) +
+          Math.max(0, toFinite(clip.trimEndSec, 0) - toFinite(clip.trimStartSec, 0));
+        const newTrimEnd = Math.min(toFinite(clip.trimEndSec, durationSec), durationSec);
+        const w = width != null && Number.isFinite(width) ? width : undefined;
+        const h = height != null && Number.isFinite(height) ? height : undefined;
+        let next = prev.map((c) =>
+          c.id === clipId
+            ? { ...c, durationSec, trimEndSec: newTrimEnd, ...(w != null && { width: w }), ...(h != null && { height: h }) }
+            : c
+        );
+      const updated = next.find((c) => c.id === clipId)!;
+      const newEnd =
+        toFinite(updated.startTimeSec, 0) +
+        Math.max(0, toFinite(updated.trimEndSec, 0) - toFinite(updated.trimStartSec, 0));
+      const delta = oldEnd - newEnd;
+      if (delta <= 0) return next;
+      return next.map((c) =>
+        c.id === clipId ? c : toFinite(c.startTimeSec, 0) >= oldEnd
+          ? { ...c, startTimeSec: Math.max(0, toFinite(c.startTimeSec, 0) - delta) }
+          : c
+      );
+    });
+  }, []);
 
   const timelineRef = useRef<HTMLDivElement>(null);
 
@@ -347,39 +385,63 @@ export default function Editor() {
     [getTimelineX, applyClipPositionAndTrimOverlaps]
   );
 
-  const handleExport = useCallback(async () => {
-    if (clips.length === 0) {
-      alert("Add at least one clip to export.");
-      return;
-    }
-    setExporting(true);
-    try {
-      const safeDuration = Math.max(1, toFinite(durationInFrames, 1));
-      const { getBlob } = await renderMediaOnWeb({
-        composition: {
-          id: "editor-composition",
-          component: EditorCompositionWithProps,
-          durationInFrames: safeDuration,
-          fps: FPS,
-          width: toFinite(COMP_WIDTH, 1920),
-          height: toFinite(COMP_HEIGHT, 1080),
-          defaultProps: { clips: [] },
-        },
-        inputProps: { clips },
-      });
-      const blob = await getBlob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "edited-video.mp4";
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Export failed");
-    } finally {
-      setExporting(false);
-    }
-  }, [clips, durationInFrames]);
+  const handleExport = useCallback(
+    async (widthPx?: number, heightPx?: number) => {
+      if (clips.length === 0) {
+        alert("Add at least one clip to export.");
+        return;
+      }
+      const w = toFinite(widthPx, COMP_WIDTH);
+      const h = toFinite(heightPx, COMP_HEIGHT);
+      if (w < 1 || h < 1) {
+        alert("Resolution must be at least 1x1.");
+        return;
+      }
+      setExporting(true);
+      try {
+        const safeDuration = Math.max(1, toFinite(durationInFrames, 1));
+        const { getBlob } = await renderMediaOnWeb({
+          composition: {
+            id: "editor-composition",
+            component: EditorCompositionWithProps,
+            durationInFrames: safeDuration,
+            fps: FPS,
+            width: w,
+            height: h,
+            defaultProps: { clips: [] },
+          },
+          inputProps: { clips },
+        });
+        const blob = await getBlob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "edited-video.mp4";
+        a.click();
+        URL.revokeObjectURL(url);
+        setShowExportModal(false);
+      } catch (err) {
+        alert(err instanceof Error ? err.message : "Export failed");
+      } finally {
+        setExporting(false);
+      }
+    },
+    [clips, durationInFrames]
+  );
+
+  const openExportModal = useCallback(() => {
+    const sorted = [...clips].sort(
+      (a, b) => toFinite(a.startTimeSec, 0) - toFinite(b.startTimeSec, 0)
+    );
+    const first = sorted[0];
+    const defW =
+      first?.width != null && Number.isFinite(first.width) ? first.width : COMP_WIDTH;
+    const defH =
+      first?.height != null && Number.isFinite(first.height) ? first.height : COMP_HEIGHT;
+    setExportResX(defW);
+    setExportResY(defH);
+    setShowExportModal(true);
+  }, [clips]);
 
   const selectedClip = clips.find((c) => c.id === selectedClipId);
 
@@ -454,11 +516,11 @@ export default function Editor() {
             </button>
             <button
               type="button"
-              onClick={handleExport}
-              disabled={exporting || clips.length === 0}
+              onClick={openExportModal}
+              disabled={clips.length === 0}
               className="rounded bg-accent px-3 py-1.5 text-sm text-background hover:opacity-90 disabled:opacity-50"
             >
-              {exporting ? "Exporting…" : "Export"}
+              Export
             </button>
           </div>
         </div>
@@ -484,6 +546,7 @@ export default function Editor() {
                   onSelect={() => setSelectedClipId(clip.id)}
                   onRemove={() => removeClip(clip.id)}
                   onUpdate={(patch) => updateClip(clip.id, patch)}
+                  onMetadataLoaded={(durationSec, w, h) => handleClipMetadataLoaded(clip.id, durationSec, w, h)}
                   onPositionDragStart={(e) =>
                     handlePositionDragStart(
                       clip.id,
@@ -542,6 +605,70 @@ export default function Editor() {
           </div>
         )}
       </div>
+
+      {/* Export modal */}
+      {showExportModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={() => !exporting && setShowExportModal(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="export-modal-title"
+        >
+          <div
+            className="rounded-lg border border-foreground/20 bg-background p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="export-modal-title" className="mb-4 text-lg font-medium text-foreground">
+              Export
+            </h2>
+            <div className="mb-4">
+              <label className="mb-2 block text-sm text-foreground/80">
+                Resolution: X × Y
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  value={exportResX}
+                  onChange={(e) =>
+                    setExportResX(Math.max(1, Number(e.target.value) || COMP_WIDTH))
+                  }
+                  className="w-24 rounded border border-foreground/20 bg-transparent px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-accent"
+                />
+                <span className="text-foreground/60">×</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={exportResY}
+                  onChange={(e) =>
+                    setExportResY(Math.max(1, Number(e.target.value) || COMP_HEIGHT))
+                  }
+                  className="w-24 rounded border border-foreground/20 bg-transparent px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-accent"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowExportModal(false)}
+                disabled={exporting}
+                className="rounded border border-foreground/20 bg-foreground/10 px-3 py-1.5 text-sm hover:bg-foreground/20 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleExport(exportResX, exportResY)}
+                disabled={exporting}
+                className="rounded bg-accent px-3 py-1.5 text-sm text-background hover:opacity-90 disabled:opacity-50"
+              >
+                {exporting ? "Exporting…" : "Export"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -599,6 +726,7 @@ function TimelineClipBlock({
   onSelect,
   onRemove,
   onUpdate,
+  onMetadataLoaded,
   onPositionDragStart,
 }: {
   clip: EditorClip;
@@ -607,6 +735,7 @@ function TimelineClipBlock({
   onSelect: () => void;
   onRemove: () => void;
   onUpdate: (patch: Partial<EditorClip>) => void;
+  onMetadataLoaded: (durationSec: number, width?: number, height?: number) => void;
   onPositionDragStart: (e: React.MouseEvent) => void;
 }) {
   const barRef = useRef<HTMLDivElement>(null);
@@ -714,13 +843,11 @@ function TimelineClipBlock({
         className="hidden"
         preload="metadata"
         onLoadedMetadata={(e) => {
-          const d = toFinite((e.target as HTMLVideoElement).duration, 0);
-          if (d > 0) {
-            onUpdate({
-              durationSec: d,
-              trimEndSec: Math.min(trimEnd, d),
-            });
-          }
+          const el = e.target as HTMLVideoElement;
+          const d = toFinite(el.duration, 0);
+          const w = el.videoWidth;
+          const h = el.videoHeight;
+          if (d > 0) onMetadataLoaded(d, w, h);
         }}
       />
     </div>

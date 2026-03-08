@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@remotion/media": "4.0.434",
     "@remotion/player": "^4.0.434",
     "@remotion/web-renderer": "^4.0.434",
     "jszip": "^3.10.1",
