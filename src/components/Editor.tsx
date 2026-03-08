@@ -1105,7 +1105,7 @@ export default function Editor() {
                             <div
                               key={clip.id}
                               className="absolute top-0 flex h-full flex-col"
-                              style={{ left: slotLeft, width: `${slotW}px` }}
+                              style={{ left: slotLeft, width: `${slotW}px`, pointerEvents: "none" }}
                             >
                               <div className="h-1/2 min-h-0 overflow-hidden">
                                 <TimelineClipBlock
@@ -1139,7 +1139,7 @@ export default function Editor() {
                         }
                         if (k === "audio") {
                           return (
-                            <div key={clip.id} className="absolute top-0 h-full" style={{ left: slotLeft }}>
+                            <div key={clip.id} className="absolute top-0 h-full" style={{ left: slotLeft, pointerEvents: "none" }}>
                               <TimelineAudioBlock
                                 clip={displayClipA}
                                 pxPerSec={timelinePxPerSec}
@@ -1155,7 +1155,7 @@ export default function Editor() {
                           );
                         }
                         return (
-                          <div key={clip.id} className="absolute top-0 h-full" style={{ left: slotLeft }}>
+                          <div key={clip.id} className="absolute top-0 h-full" style={{ left: slotLeft, pointerEvents: "none" }}>
                             <TimelineClipBlock
                               clip={displayClipV}
                               pxPerSec={timelinePxPerSec}
@@ -1421,18 +1421,18 @@ function TimelineClipBlock({
   return (
     <div
       ref={barRef}
-      role="button"
-      tabIndex={0}
-      onMouseDown={(e) => {
-        if (e.button === 0) onPositionDragStart(e);
-      }}
-      onClick={(e) => e.stopPropagation()}
-      onContextMenu={onContextMenuProp}
-      className="relative h-12 shrink-0 cursor-grab active:cursor-grabbing"
-      style={{ width: `${Math.max(1, wrapperWidthPx)}px` }}
+      className="relative h-12 shrink-0"
+      style={{ width: `${Math.max(1, wrapperWidthPx)}px`, pointerEvents: "none" }}
     >
       <div
-        className={`absolute top-0 bottom-0 flex items-center overflow-hidden rounded border-2 transition ${
+        role="button"
+        tabIndex={0}
+        onMouseDown={(e) => {
+          if (e.button === 0) onPositionDragStart(e);
+        }}
+        onClick={(e) => e.stopPropagation()}
+        onContextMenu={onContextMenuProp}
+        className={`absolute top-0 bottom-0 flex items-center overflow-hidden rounded border-2 cursor-grab active:cursor-grabbing transition ${
           isSelected
             ? "border-accent"
             : "border-foreground/20 hover:border-foreground/30"
@@ -1440,6 +1440,7 @@ function TimelineClipBlock({
         style={{
           left: `${clipLeftPx}px`,
           width: `${Math.max(1, safeWidth)}px`,
+          pointerEvents: "auto",
         }}
       >
         <div className="absolute inset-0 bg-foreground/15" />
@@ -1603,21 +1604,21 @@ function TimelineAudioBlock({
   return (
     <div
       ref={barRef}
-      role="button"
-      tabIndex={0}
-      onMouseDown={(e) => {
-        if (e.button === 0) onPositionDragStart(e);
-      }}
-      onClick={(e) => {
-        e.stopPropagation();
-        onSelect();
-      }}
-      onContextMenu={onContextMenuProp}
-      className="relative h-12 shrink-0 cursor-grab active:cursor-grabbing"
-      style={{ width: `${Math.max(1, wrapperWidthPx)}px` }}
+      className="relative h-12 shrink-0"
+      style={{ width: `${Math.max(1, wrapperWidthPx)}px`, pointerEvents: "none" }}
     >
       <div
-        className={`absolute top-0 bottom-0 flex items-center overflow-hidden rounded border-2 transition ${
+        role="button"
+        tabIndex={0}
+        onMouseDown={(e) => {
+          if (e.button === 0) onPositionDragStart(e);
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onSelect();
+        }}
+        onContextMenu={onContextMenuProp}
+        className={`absolute top-0 bottom-0 flex items-center overflow-hidden rounded border-2 cursor-grab active:cursor-grabbing transition ${
           isSelected
             ? "border-accent"
             : "border-foreground/20 hover:border-foreground/30"
@@ -1625,6 +1626,7 @@ function TimelineAudioBlock({
         style={{
           left: `${clipLeftPx}px`,
           width: `${Math.max(1, safeWidth)}px`,
+          pointerEvents: "auto",
         }}
       >
         <div className="absolute inset-0 bg-foreground/10" />
