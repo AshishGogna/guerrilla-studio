@@ -16,6 +16,8 @@ const FPS = 30;
 const COMP_WIDTH = 1920;
 const COMP_HEIGHT = 1080;
 const CLIP_WIDTH_PX_PER_SEC = 64;
+const TRACK_HEIGHT_PX = 48;
+const RULER_HEIGHT_PX = 36; // h-9 in Tailwind
 
 /** Format seconds as HH:MM:SS (whole seconds). */
 function formatTimeHMS(seconds: number): string {
@@ -41,6 +43,8 @@ export interface EditorClip {
   durationSec?: number;
   /** Start time on the timeline in seconds (for gaps and ordering). */
   startTimeSec: number;
+  /** Track/layer index (0 = bottom). Clips on higher tracks render on top. */
+  trackIndex: number;
   /** Video width in pixels (from loaded metadata). */
   width?: number;
   /** Video height in pixels (from loaded metadata). */
@@ -67,87 +71,103 @@ export function EditorCompositionWithProps({ clips = [] }: { clips?: EditorClip[
   }
 
   const safeFps = toFinite(fps, FPS);
-
   type Segment = { start: number; end: number };
-  const clipSegments: Segment[] = clips.map((c) => {
-    const start = toFinite(c.startTimeSec, 0);
-    const dur = Math.max(0, toFinite(c.trimEndSec, 0) - toFinite(c.trimStartSec, 0));
-    return { start, end: start + dur };
-  });
+
+  const trackIndices = [...new Set(clips.map((c) => toFinite(c.trackIndex, 0)))].sort(
+    (a, b) => a - b
+  );
   const totalDurationSec = Math.max(
     0.1,
-    ...clipSegments.map((s) => s.end)
-  );
-
-  const gaps: Segment[] = [];
-  const sorted = [...clipSegments].sort((a, b) => a.start - b.start);
-  const gapToleranceSec = 1 / safeFps;
-  let t = 0;
-  for (const seg of sorted) {
-    if (seg.start > t + gapToleranceSec) gaps.push({ start: t, end: seg.start });
-    t = Math.max(t, seg.end);
-  }
-  if (t + gapToleranceSec < totalDurationSec) gaps.push({ start: t, end: totalDurationSec });
-
-  const sortedClips = [...clips].sort(
-    (a, b) => toFinite(a.startTimeSec, 0) - toFinite(b.startTimeSec, 0)
+    ...clips.map((c) => {
+      const start = toFinite(c.startTimeSec, 0);
+      const dur = Math.max(0, toFinite(c.trimEndSec, 0) - toFinite(c.trimStartSec, 0));
+      return start + dur;
+    })
   );
 
   return (
     <>
-      {gaps.map((gap, i) => {
-        const fromFrame = Math.round(gap.start * safeFps);
-        const durationInFrames = Math.max(1, Math.round((gap.end - gap.start) * safeFps));
+      {trackIndices.map((trackIdx) => {
+        const trackClips = clips.filter((c) => toFinite(c.trackIndex, 0) === trackIdx);
+        if (trackClips.length === 0) return null;
+        const segments: Segment[] = trackClips.map((c) => {
+          const start = toFinite(c.startTimeSec, 0);
+          const dur = Math.max(0, toFinite(c.trimEndSec, 0) - toFinite(c.trimStartSec, 0));
+          return { start, end: start + dur };
+        });
+        const sortedSeg = [...segments].sort((a, b) => a.start - b.start);
+        const gaps: Segment[] = [];
+        const gapToleranceSec = 1 / safeFps;
+        let t = 0;
+        for (const seg of sortedSeg) {
+          if (seg.start > t + gapToleranceSec) gaps.push({ start: t, end: seg.start });
+          t = Math.max(t, seg.end);
+        }
+        if (t + gapToleranceSec < totalDurationSec)
+          gaps.push({ start: t, end: totalDurationSec });
+        const sortedTrackClips = [...trackClips].sort(
+          (a, b) => toFinite(a.startTimeSec, 0) - toFinite(b.startTimeSec, 0)
+        );
         return (
-          <Sequence
-            key={`gap-${i}`}
-            from={fromFrame}
-            durationInFrames={durationInFrames}
-            name={`Gap ${i}`}
-          >
-            <AbsoluteFill style={{ backgroundColor: "#000" }} />
-          </Sequence>
-        );
-      })}
-      {sortedClips.map((clip) => {
-        const durationSec = Math.max(
-          0,
-          toFinite(clip.trimEndSec, 0) - toFinite(clip.trimStartSec, 0)
-        );
-        const durationInFrames = Math.max(
-          1,
-          Math.round(toFinite(durationSec * safeFps, 0))
-        );
-        const fromFrame = Math.round(toFinite(clip.startTimeSec, 0) * safeFps);
-        const trimBefore = Math.max(
-          0,
-          Math.round(toFinite(clip.trimStartSec, 0) * safeFps)
-        );
-        const durationSecClip = toFinite(clip.durationSec, 0);
-        const trimAfterFrames =
-          clip.durationSec != null && durationSecClip > 0
-            ? Math.round(
-                (durationSecClip - toFinite(clip.trimEndSec, 0)) * safeFps
-              )
-            : 0;
-        const trimAfter = trimAfterFrames > 0 ? trimAfterFrames : undefined;
-
-        return (
-          <Sequence
-            key={clip.id}
-            from={fromFrame}
-            durationInFrames={durationInFrames}
-            name={`Clip ${clip.id}`}
-          >
-            <AbsoluteFill>
-              <Video
-                src={clip.src}
-                trimBefore={trimBefore}
-                {...(trimAfter !== undefined && { trimAfter })}
-                style={{ width: "100%", height: "100%", objectFit: "contain" }}
-              />
-            </AbsoluteFill>
-          </Sequence>
+          <AbsoluteFill key={`track-${trackIdx}`}>
+            {gaps.map((gap, i) => {
+              const fromFrame = Math.round(gap.start * safeFps);
+              const durationInFrames = Math.max(
+                1,
+                Math.round((gap.end - gap.start) * safeFps)
+              );
+              return (
+                <Sequence
+                  key={`gap-${trackIdx}-${i}`}
+                  from={fromFrame}
+                  durationInFrames={durationInFrames}
+                  name={`Gap T${trackIdx}-${i}`}
+                >
+                  <AbsoluteFill style={{ backgroundColor: "#000" }} />
+                </Sequence>
+              );
+            })}
+            {sortedTrackClips.map((clip) => {
+              const durationSec = Math.max(
+                0,
+                toFinite(clip.trimEndSec, 0) - toFinite(clip.trimStartSec, 0)
+              );
+              const durationInFrames = Math.max(
+                1,
+                Math.round(toFinite(durationSec * safeFps, 0))
+              );
+              const fromFrame = Math.round(toFinite(clip.startTimeSec, 0) * safeFps);
+              const trimBefore = Math.max(
+                0,
+                Math.round(toFinite(clip.trimStartSec, 0) * safeFps)
+              );
+              const durationSecClip = toFinite(clip.durationSec, 0);
+              const trimAfterFrames =
+                clip.durationSec != null && durationSecClip > 0
+                  ? Math.round(
+                      (durationSecClip - toFinite(clip.trimEndSec, 0)) * safeFps
+                    )
+                  : 0;
+              const trimAfter = trimAfterFrames > 0 ? trimAfterFrames : undefined;
+              return (
+                <Sequence
+                  key={clip.id}
+                  from={fromFrame}
+                  durationInFrames={durationInFrames}
+                  name={`Clip ${clip.id}`}
+                >
+                  <AbsoluteFill>
+                    <Video
+                      src={clip.src}
+                      trimBefore={trimBefore}
+                      {...(trimAfter !== undefined && { trimAfter })}
+                      style={{ width: "100%", height: "100%", objectFit: "contain" }}
+                    />
+                  </AbsoluteFill>
+                </Sequence>
+              );
+            })}
+          </AbsoluteFill>
         );
       })}
     </>
@@ -203,6 +223,7 @@ export default function Editor() {
           trimEndSec: Math.max(0, endSec),
           durationSec: Number.isFinite(Number(durationSec)) ? durationSec : undefined,
           startTimeSec: endOfTimeline,
+          trackIndex: 0,
         },
       ];
     });
@@ -263,32 +284,43 @@ export default function Editor() {
         toFinite(updated.startTimeSec, 0) +
         Math.max(0, toFinite(updated.trimEndSec, 0) - toFinite(updated.trimStartSec, 0));
       const delta = oldEnd - newEnd;
+      const updatedTrack = toFinite(updated.trackIndex, 0);
       if (delta <= 0) return next;
       return next.map((c) =>
-        c.id === clipId ? c : toFinite(c.startTimeSec, 0) >= oldEnd
-          ? { ...c, startTimeSec: Math.max(0, toFinite(c.startTimeSec, 0) - delta) }
-          : c
+        c.id === clipId
+          ? c
+          : toFinite(c.trackIndex, 0) === updatedTrack && toFinite(c.startTimeSec, 0) >= oldEnd
+            ? { ...c, startTimeSec: Math.max(0, toFinite(c.startTimeSec, 0) - delta) }
+            : c
       );
     });
   }, []);
 
   const timelineRef = useRef<HTMLDivElement>(null);
+  const timelineTracksRef = useRef<HTMLDivElement>(null);
 
   const applyClipPositionAndTrimOverlaps = useCallback(
-    (prevClips: EditorClip[], movedId: string, newStartSec: number): EditorClip[] => {
+    (
+      prevClips: EditorClip[],
+      movedId: string,
+      newStartSec: number,
+      trackIndex?: number
+    ): EditorClip[] => {
       const aIndex = prevClips.findIndex((c) => c.id === movedId);
       if (aIndex === -1) return prevClips;
       const a = prevClips[aIndex];
+      const aTrack = trackIndex ?? toFinite(a.trackIndex, 0);
       const aDur = Math.max(0, toFinite(a.trimEndSec, 0) - toFinite(a.trimStartSec, 0));
       const aStart = Math.max(0, newStartSec);
       const aEnd = aStart + aDur;
 
       let next = prevClips.map((c) =>
-        c.id === movedId ? { ...c, startTimeSec: aStart } : { ...c }
+        c.id === movedId ? { ...c, startTimeSec: aStart, trackIndex: aTrack } : { ...c }
       );
 
       next = next.map((b) => {
         if (b.id === movedId) return b;
+        if (toFinite(b.trackIndex, 0) !== aTrack) return b;
         const bStart = toFinite(b.startTimeSec, 0);
         const bDur = Math.max(0, toFinite(b.trimEndSec, 0) - toFinite(b.trimStartSec, 0));
         const bEnd = bStart + bDur;
@@ -358,18 +390,30 @@ export default function Editor() {
     (
       id: string,
       initialStartTimeSec: number,
+      initialTrackIndex: number,
       initialClientX: number,
       onSelectIfClick?: () => void
     ) => {
       let hasMoved = false;
+      let currentTrackIndex = initialTrackIndex;
       const initialTimelineX = getTimelineX(initialClientX);
+      const getTrackIndexFromY = (clientY: number): number => {
+        const scrollEl = timelineRef.current;
+        if (!scrollEl) return initialTrackIndex;
+        const rect = scrollEl.getBoundingClientRect();
+        const yInScrollContent = clientY - rect.top + scrollEl.scrollTop - RULER_HEIGHT_PX;
+        return Math.max(0, Math.floor(yInScrollContent / TRACK_HEIGHT_PX));
+      };
       const onMove = (e: MouseEvent) => {
         hasMoved = true;
         const currentTimelineX = getTimelineX(e.clientX);
         const deltaSec = (currentTimelineX - initialTimelineX) / timelinePxPerSec;
         const newStartSec = Math.max(0, initialStartTimeSec + deltaSec);
+        currentTrackIndex = getTrackIndexFromY(e.clientY);
         setClips((prev) =>
-          prev.map((c) => (c.id === id ? { ...c, startTimeSec: newStartSec } : c))
+          prev.map((c) =>
+            c.id === id ? { ...c, startTimeSec: newStartSec, trackIndex: currentTrackIndex } : c
+          )
         );
       };
       const onEnd = () => {
@@ -378,7 +422,7 @@ export default function Editor() {
           setClips((prev) => {
             const clip = prev.find((c) => c.id === id);
             const start = clip ? toFinite(clip.startTimeSec, 0) : 0;
-            return applyClipPositionAndTrimOverlaps(prev, id, start);
+            return applyClipPositionAndTrimOverlaps(prev, id, start, currentTrackIndex);
           });
         }
         setDraggedId(null);
@@ -481,14 +525,15 @@ export default function Editor() {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background text-foreground">
       {/* Preview */}
-      <div className="flex shrink-0 justify-center border-b border-foreground/10 bg-black/40 p-4">
+      <div className="flex shrink-0 justify-center border-b border-foreground/10 bg-black/40 p-4"
+      style={{ height: 300 }}>
         <div className="aspect-video w-full max-w-4xl overflow-hidden rounded-lg bg-black">
           <RemotionPlayerPreview clips={clips} durationInFrames={durationInFrames} />
         </div>
       </div>
 
       {/* Timeline */}
-      <div className="flex flex-1 flex-col overflow-hidden border-t border-foreground/10">
+      <div className="flex flex-1 flex-col overflow-hidden border-t border-foreground/10" style={{ height: 600 }}>
         <div className="flex items-center justify-between border-b border-foreground/10 px-4 py-2">
           <span className="text-sm font-medium text-foreground/80">Timeline</span>
           <div className="flex items-center gap-2">
@@ -566,7 +611,7 @@ export default function Editor() {
             </button>
           </div>
         </div>
-        <div ref={timelineRef} className="flex flex-1 flex-col overflow-x-auto overflow-y-hidden p-4">
+        <div ref={timelineRef} className="flex flex-1 flex-col overflow-auto p-4">
           <div
             className="flex shrink-0 flex-col"
             style={{
@@ -606,41 +651,68 @@ export default function Editor() {
                 });
               })()}
             </div>
-            {/* Clips track */}
+            {/* Track rows */}
             <div
-              className="relative h-12 min-w-full"
+              ref={timelineTracksRef}
+              className="flex min-w-full shrink-0 flex-col"
               style={{
                 width: `${Math.max(1, totalDurationSec * timelinePxPerSec)}px`,
+                minHeight: `${Math.max(1, (clips.length ? Math.max(0, ...clips.map((c) => toFinite(c.trackIndex, 0))) + 1 : 1)) * TRACK_HEIGHT_PX}px`,
               }}
             >
-            {clips.map((clip) => (
-              <div
-                key={clip.id}
-                className="absolute top-0 h-full"
-                style={{
-                  left: `${(clip.startTimeSec ?? 0) * timelinePxPerSec}px`,
-                }}
-              >
-                <TimelineClipBlock
-                  clip={clip}
-                  pxPerSec={timelinePxPerSec}
-                  isSelected={selectedClipId === clip.id}
-                  isDragged={draggedId === clip.id}
-                  onSelect={() => setSelectedClipId(clip.id)}
-                  onRemove={() => removeClip(clip.id)}
-                  onUpdate={(patch) => updateClip(clip.id, patch)}
-                  onMetadataLoaded={(durationSec, w, h) => handleClipMetadataLoaded(clip.id, durationSec, w, h)}
-                  onPositionDragStart={(e) =>
-                    handlePositionDragStart(
-                      clip.id,
-                      clip.startTimeSec ?? 0,
-                      e.clientX,
-                      () => setSelectedClipId(clip.id)
-                    )
-                  }
-                />
-              </div>
-            ))}
+              {(() => {
+                const maxTrack = clips.length
+                  ? Math.max(0, ...clips.map((c) => toFinite(c.trackIndex, 0)))
+                  : 0;
+                const trackIndices = Array.from(
+                  { length: maxTrack + 1 },
+                  (_, i) => i
+                );
+                return trackIndices.map((trackIdx) => (
+                  <div
+                    key={`track-${trackIdx}`}
+                    className="relative shrink-0 border-b border-foreground/10 bg-foreground/[0.02]"
+                    style={{ height: TRACK_HEIGHT_PX, minHeight: TRACK_HEIGHT_PX }}
+                  >
+                    <span className="absolute left-1 top-1/2 -translate-y-1/2 text-[10px] font-medium tabular-nums text-foreground/50">
+                      {trackIdx + 1}
+                    </span>
+                    {clips
+                      .filter((c) => toFinite(c.trackIndex, 0) === trackIdx)
+                      .map((clip) => (
+                        <div
+                          key={clip.id}
+                          className="absolute top-0 h-full"
+                          style={{
+                            left: `${(clip.startTimeSec ?? 0) * timelinePxPerSec}px`,
+                          }}
+                        >
+                          <TimelineClipBlock
+                            clip={clip}
+                            pxPerSec={timelinePxPerSec}
+                            isSelected={selectedClipId === clip.id}
+                            isDragged={draggedId === clip.id}
+                            onSelect={() => setSelectedClipId(clip.id)}
+                            onRemove={() => removeClip(clip.id)}
+                            onUpdate={(patch) => updateClip(clip.id, patch)}
+                            onMetadataLoaded={(durationSec, w, h) =>
+                              handleClipMetadataLoaded(clip.id, durationSec, w, h)
+                            }
+                            onPositionDragStart={(e) =>
+                              handlePositionDragStart(
+                                clip.id,
+                                clip.startTimeSec ?? 0,
+                                toFinite(clip.trackIndex, 0),
+                                e.clientX,
+                                () => setSelectedClipId(clip.id)
+                              )
+                            }
+                          />
+                        </div>
+                      ))}
+                  </div>
+                ));
+              })()}
             </div>
           </div>
         </div>
