@@ -3,6 +3,7 @@
 import { renderMediaOnWeb } from "@remotion/web-renderer";
 import dynamic from "next/dynamic";
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Video } from "@remotion/media";
 import { AbsoluteFill, Sequence, useVideoConfig } from "remotion";
 
@@ -21,6 +22,30 @@ const CLIP_WIDTH_PX_PER_SEC = 64;
 const TRACK_HEIGHT_PX = 48;
 const RULER_HEIGHT_PX = 36; // h-9 in Tailwind
 const TIMELINE_PADDING_PX = 16; // p-4 on scroll container
+
+/** Effective trim for display: per-track for combined, else main trim. */
+function getEffectiveTrim(
+  clip: EditorClip,
+  trackType: "video" | "audio"
+): { trimStartSec: number; trimEndSec: number } {
+  const k = clip.kind ?? "combined";
+  if (k !== "combined") {
+    return {
+      trimStartSec: toFinite(clip.trimStartSec, 0),
+      trimEndSec: toFinite(clip.trimEndSec, 10),
+    };
+  }
+  if (trackType === "video") {
+    return {
+      trimStartSec: toFinite(clip.trimStartSecVideo ?? clip.trimStartSec, 0),
+      trimEndSec: toFinite(clip.trimEndSecVideo ?? clip.trimEndSec, 10),
+    };
+  }
+  return {
+    trimStartSec: toFinite(clip.trimStartSecAudio ?? clip.trimStartSec, 0),
+    trimEndSec: toFinite(clip.trimEndSecAudio ?? clip.trimEndSec, 10),
+  };
+}
 
 /** Get a short display name for a clip from its src (filename or fallback). */
 function getClipDisplayName(clip: EditorClip): string {
@@ -51,6 +76,8 @@ function toFinite(value: unknown, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+export type ClipKind = "video" | "audio" | "combined";
+
 export interface EditorClip {
   id: string;
   src: string;
@@ -59,12 +86,46 @@ export interface EditorClip {
   durationSec?: number;
   /** Start time on the timeline in seconds (for gaps and ordering). */
   startTimeSec: number;
-  /** Track/layer index (0 = bottom). Clips on higher tracks render on top. */
+  /** Lane index (0, 1, 2…). Each lane has two rows: video above, audio below. */
   trackIndex: number;
+  /** When 'combined', clip appears on both video and audio rows; unlink splits into video + audio. */
+  kind?: ClipKind;
+  /** Trim used when this clip is shown on the video row (combined only). */
+  trimStartSecVideo?: number;
+  trimEndSecVideo?: number;
+  /** Trim used when this clip is shown on the audio row (combined only). */
+  trimStartSecAudio?: number;
+  trimEndSecAudio?: number;
   /** Video width in pixels (from loaded metadata). */
   width?: number;
   /** Video height in pixels (from loaded metadata). */
   height?: number;
+  /** Normalized amplitude samples for waveform (0–1), one per pixel column. */
+  waveformData?: number[];
+}
+
+const WAVEFORM_SAMPLES = 256;
+
+/** Decode audio from a media URL and return normalized waveform samples. */
+async function decodeAudioWaveform(src: string): Promise<number[]> {
+  const res = await fetch(src, { mode: "cors" });
+  const buf = await res.arrayBuffer();
+  const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+  const audio = await ctx.decodeAudioData(buf);
+  ctx.close();
+  const ch = audio.getChannelData(0);
+  const step = Math.max(1, Math.floor(ch.length / WAVEFORM_SAMPLES));
+  const out: number[] = [];
+  for (let i = 0; i < WAVEFORM_SAMPLES; i++) {
+    const start = i * step;
+    let max = 0;
+    for (let j = 0; j < step && start + j < ch.length; j++) {
+      max = Math.max(max, Math.abs(ch[start + j]));
+    }
+    out.push(max);
+  }
+  const peak = Math.max(...out, 1e-9);
+  return out.map((v) => v / peak);
 }
 
 export function EditorCompositionWithProps({ clips = [] }: { clips?: EditorClip[] }) {
@@ -149,76 +210,137 @@ export function EditorCompositionWithProps({ clips = [] }: { clips?: EditorClip[
                 </Sequence>
               );
             })}
-            {sortedTrackClips.map((clip) => {
-              const durationSec = Math.max(
-                0,
-                toFinite(clip.trimEndSec, 0) - toFinite(clip.trimStartSec, 0)
-              );
-              const durationInFrames = Math.max(
-                1,
-                Math.round(toFinite(durationSec * safeFps, 0))
-              );
-              const fromFrame = Math.round(toFinite(clip.startTimeSec, 0) * safeFps);
-              const trimBefore = Math.max(
-                0,
-                Math.round(toFinite(clip.trimStartSec, 0) * safeFps)
-              );
-              const durationSecClip = toFinite(clip.durationSec, 0);
-              const trimAfterFrames =
-                clip.durationSec != null && durationSecClip > 0
-                  ? Math.round(
-                      (durationSecClip - toFinite(clip.trimEndSec, 0)) * safeFps
-                    )
-                  : 0;
-              const trimAfter = trimAfterFrames > 0 ? trimAfterFrames : undefined;
-              const clipStartSec = toFinite(clip.startTimeSec, 0);
-              const clipEndSec = clipStartSec + durationSec;
-              const clipTrackIdx = toFinite(clip.trackIndex, 0);
-              const overlapSeconds: [number, number][] = clips
-                .filter(
-                  (c) =>
-                    c.id !== clip.id &&
-                    toFinite(c.trackIndex, 0) < clipTrackIdx
-                )
-                .map((c) => {
-                  const cStart = toFinite(c.startTimeSec, 0);
-                  const cDur = Math.max(
+            {sortedTrackClips.flatMap((clip) => {
+              const clipKind = clip.kind ?? "combined";
+              const overlapSecondsForClip = (clipStartSec: number, clipEndSec: number): [number, number][] =>
+                clips
+                  .filter(
+                    (c) =>
+                      c.id !== clip.id &&
+                      toFinite(c.trackIndex, 0) < toFinite(clip.trackIndex, 0)
+                  )
+                  .map((c) => {
+                    const cStart = toFinite(c.startTimeSec, 0);
+                    const cDur = Math.max(
+                      0,
+                      toFinite(c.trimEndSec, 0) - toFinite(c.trimStartSec, 0)
+                    );
+                    const cEnd = cStart + cDur;
+                    const start = Math.max(clipStartSec, cStart);
+                    const end = Math.min(clipEndSec, cEnd);
+                    return [start, end] as [number, number];
+                  })
+                  .filter(([s, e]) => e > s);
+
+              const renderClipSequence = (
+                trimStart: number,
+                trimEnd: number,
+                volume: number | ((frame: number) => number),
+                isAudioOnly: boolean,
+                keySuffix: string
+              ) => {
+                const durationSec = Math.max(0, trimEnd - trimStart);
+                const durationInFrames = Math.max(
+                  1,
+                  Math.round(toFinite(durationSec * safeFps, 0))
+                );
+                const fromFrame = Math.round(toFinite(clip.startTimeSec, 0) * safeFps);
+                const trimBefore = Math.max(0, Math.round(trimStart * safeFps));
+                const durationSecClip = toFinite(clip.durationSec, 0);
+                const trimAfterFrames =
+                  clip.durationSec != null && durationSecClip > 0
+                    ? Math.round((durationSecClip - trimEnd) * safeFps)
+                    : 0;
+                const trimAfter = trimAfterFrames > 0 ? trimAfterFrames : undefined;
+                const clipStartSec = toFinite(clip.startTimeSec, 0);
+                const clipEndSec = clipStartSec + durationSec;
+                const overlapSeconds = overlapSecondsForClip(clipStartSec, clipEndSec);
+                const vol =
+                  typeof volume === "number"
+                    ? volume
+                    : overlapSeconds.length > 0
+                      ? (frame: number) => {
+                          const t = frame / safeFps;
+                          return overlapSeconds.some(([s, e]) => t >= s && t < e)
+                            ? 0
+                            : volume(frame);
+                        }
+                      : volume;
+                return (
+                  <Sequence
+                    key={`${clip.id}-${keySuffix}`}
+                    from={fromFrame}
+                    durationInFrames={durationInFrames}
+                    name={`Clip ${clip.id} ${keySuffix}`}
+                  >
+                    <AbsoluteFill>
+                      <Video
+                        src={clip.src}
+                        trimBefore={trimBefore}
+                        {...(trimAfter !== undefined && { trimAfter })}
+                        volume={vol}
+                        style={{
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "contain",
+                          ...(isAudioOnly && {
+                            position: "absolute",
+                            width: 0,
+                            height: 0,
+                            overflow: "hidden",
+                            opacity: 0,
+                            pointerEvents: "none",
+                          }),
+                        }}
+                      />
+                    </AbsoluteFill>
+                  </Sequence>
+                );
+              };
+
+              if (clipKind === "combined") {
+                const videoTrim = getEffectiveTrim(clip, "video");
+                const audioTrim = getEffectiveTrim(clip, "audio");
+                return [
+                  renderClipSequence(
+                    videoTrim.trimStartSec,
+                    videoTrim.trimEndSec,
                     0,
-                    toFinite(c.trimEndSec, 0) - toFinite(c.trimStartSec, 0)
-                  );
-                  const cEnd = cStart + cDur;
-                  const start = Math.max(clipStartSec, cStart);
-                  const end = Math.min(clipEndSec, cEnd);
-                  return [start, end] as [number, number];
-                })
-                .filter(([s, e]) => e > s);
+                    false,
+                    "video"
+                  ),
+                  renderClipSequence(
+                    audioTrim.trimStartSec,
+                    audioTrim.trimEndSec,
+                    1,
+                    true,
+                    "audio"
+                  ),
+                ];
+              }
+              const trimStart = toFinite(clip.trimStartSec, 0);
+              const trimEnd = toFinite(clip.trimEndSec, 10);
+              const clipStartSec = toFinite(clip.startTimeSec, 0);
+              const clipEndSec = clipStartSec + Math.max(0, trimEnd - trimStart);
+              const overlapSeconds = overlapSecondsForClip(clipStartSec, clipEndSec);
               const volume =
-                overlapSeconds.length > 0
-                  ? (frame: number) => {
-                      const t = frame / safeFps;
-                      return overlapSeconds.some(([s, e]) => t >= s && t < e)
-                        ? 0
-                        : 1;
-                    }
-                  : 1;
-              return (
-                <Sequence
-                  key={clip.id}
-                  from={fromFrame}
-                  durationInFrames={durationInFrames}
-                  name={`Clip ${clip.id}`}
-                >
-                  <AbsoluteFill>
-                    <Video
-                      src={clip.src}
-                      trimBefore={trimBefore}
-                      {...(trimAfter !== undefined && { trimAfter })}
-                      volume={volume}
-                      style={{ width: "100%", height: "100%", objectFit: "contain" }}
-                    />
-                  </AbsoluteFill>
-                </Sequence>
-              );
+                clipKind === "video"
+                  ? 0
+                  : overlapSeconds.length > 0
+                    ? (frame: number) => {
+                        const t = frame / safeFps;
+                        return overlapSeconds.some(([s, e]) => t >= s && t < e) ? 0 : 1;
+                      }
+                    : 1;
+              return [
+                renderClipSequence(
+                  trimStart,
+                  trimEnd,
+                  volume,
+                  clipKind === "audio",
+                  "main"
+                ),
+              ];
             })}
           </AbsoluteFill>
         );
@@ -282,6 +404,7 @@ export default function Editor() {
           durationSec: Number.isFinite(Number(durationSec)) ? durationSec : undefined,
           startTimeSec: endOfTimeline,
           trackIndex: 0,
+          kind: "combined" as const,
         },
       ];
     });
@@ -298,6 +421,53 @@ export default function Editor() {
     });
     if (selectedClipId === id) setSelectedClipId(null);
   }, [selectedClipId]);
+
+  const [clipContextMenu, setClipContextMenu] = useState<{
+    clipId: string;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  const unlinkClip = useCallback((clipId: string) => {
+    setClips((prev) => {
+      const clip = prev.find((c) => c.id === clipId);
+      if (!clip || (clip.kind && clip.kind !== "combined")) return prev;
+      const videoTrim = getEffectiveTrim(clip, "video");
+      const audioTrim = getEffectiveTrim(clip, "audio");
+      const videoId = `clip-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      const audioId = `clip-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      const videoClip: EditorClip = {
+        ...clip,
+        id: videoId,
+        kind: "video",
+        trimStartSec: videoTrim.trimStartSec,
+        trimEndSec: videoTrim.trimEndSec,
+      };
+      const audioClip: EditorClip = {
+        ...clip,
+        id: audioId,
+        kind: "audio",
+        trimStartSec: audioTrim.trimStartSec,
+        trimEndSec: audioTrim.trimEndSec,
+      };
+      return prev
+        .filter((c) => c.id !== clipId)
+        .concat([videoClip, audioClip]);
+    });
+    setClipContextMenu(null);
+    setSelectedClipId(null);
+  }, []);
+
+  useEffect(() => {
+    if (!clipContextMenu) return;
+    const close = () => setClipContextMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("contextmenu", close);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("contextmenu", close);
+    };
+  }, [clipContextMenu]);
 
   const handleUploadClips = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -316,6 +486,34 @@ export default function Editor() {
     (id: string, patch: Partial<EditorClip>) => {
       setClips((prev) =>
         prev.map((c) => (c.id === id ? { ...c, ...patch } : c))
+      );
+    },
+    []
+  );
+
+  /** Update only the trim for the given track (video or audio row). Prevents trimming one row from changing the other. */
+  const updateClipTrimForTrack = useCallback(
+    (id: string, patch: { trimStartSec?: number; trimEndSec?: number }, trackType: "video" | "audio") => {
+      setClips((prev) =>
+        prev.map((c) => {
+          if (c.id !== id) return c;
+          const k = c.kind ?? "combined";
+          if (k !== "combined") {
+            return { ...c, ...patch };
+          }
+          if (trackType === "video") {
+            return {
+              ...c,
+              ...(patch.trimStartSec != null && { trimStartSecVideo: patch.trimStartSec }),
+              ...(patch.trimEndSec != null && { trimEndSecVideo: patch.trimEndSec }),
+            };
+          }
+          return {
+            ...c,
+            ...(patch.trimStartSec != null && { trimStartSecAudio: patch.trimStartSec }),
+            ...(patch.trimEndSec != null && { trimEndSecAudio: patch.trimEndSec }),
+          };
+        })
       );
     },
     []
@@ -357,6 +555,15 @@ export default function Editor() {
   const timelineRef = useRef<HTMLDivElement>(null);
   const timelineTracksRef = useRef<HTMLDivElement>(null);
 
+  /** True if two clips are on the same track row (both video row or both audio row) for overlap trimming. */
+  const sameTrackRow = useCallback((a: EditorClip, b: EditorClip): boolean => {
+    if (toFinite(a.trackIndex, 0) !== toFinite(b.trackIndex, 0)) return false;
+    const aKind = a.kind ?? "combined";
+    const bKind = b.kind ?? "combined";
+    if (aKind === "combined" || bKind === "combined") return true;
+    return aKind === bKind;
+  }, []);
+
   const applyClipPositionAndTrimOverlaps = useCallback(
     (
       prevClips: EditorClip[],
@@ -378,7 +585,7 @@ export default function Editor() {
 
       next = next.map((b) => {
         if (b.id === movedId) return b;
-        if (toFinite(b.trackIndex, 0) !== aTrack) return b;
+        if (!sameTrackRow({ ...a, trackIndex: aTrack, startTimeSec: aStart }, b)) return b;
         const bStart = toFinite(b.startTimeSec, 0);
         const bDur = Math.max(0, toFinite(b.trimEndSec, 0) - toFinite(b.trimStartSec, 0));
         const bEnd = bStart + bDur;
@@ -434,7 +641,7 @@ export default function Editor() {
 
       return next;
     },
-    []
+    [sameTrackRow]
   );
 
   const getTimelineX = useCallback((clientX: number): number => {
@@ -486,7 +693,8 @@ export default function Editor() {
         if (!scrollEl) return initialTrackIndex;
         const rect = scrollEl.getBoundingClientRect();
         const yInScrollContent = clientY - rect.top + scrollEl.scrollTop - RULER_HEIGHT_PX;
-        return Math.max(0, Math.floor(yInScrollContent / TRACK_HEIGHT_PX));
+        const rowIndex = Math.max(0, Math.floor(yInScrollContent / TRACK_HEIGHT_PX));
+        return Math.floor(rowIndex / 2);
       };
       const onMove = (e: MouseEvent) => {
         hasMoved = true;
@@ -785,63 +993,155 @@ export default function Editor() {
               className="flex min-w-full shrink-0 flex-col"
               style={{
                 width: `${Math.max(1, totalDurationSec * timelinePxPerSec)}px`,
-                minHeight: `${Math.max(1, (clips.length ? Math.max(0, ...clips.map((c) => toFinite(c.trackIndex, 0))) + 1 : 1)) * TRACK_HEIGHT_PX}px`,
+                minHeight: `${Math.max(1, (clips.length ? (Math.max(0, ...clips.map((c) => toFinite(c.trackIndex, 0))) + 1) * 2 : 2)) * TRACK_HEIGHT_PX}px`,
               }}
             >
               {(() => {
-                const maxTrack = clips.length
+                const maxLane = clips.length
                   ? Math.max(0, ...clips.map((c) => toFinite(c.trackIndex, 0)))
                   : 0;
-                const trackIndices = Array.from(
-                  { length: maxTrack + 1 },
-                  (_, i) => i
-                );
-                return trackIndices.map((trackIdx) => (
-                  <div
-                    key={`track-${trackIdx}`}
-                    className="relative shrink-0 border-b border-foreground/10 bg-foreground/[0.02]"
-                    style={{ height: TRACK_HEIGHT_PX, minHeight: TRACK_HEIGHT_PX }}
-                  >
-                    <span className="absolute left-1 top-1/2 -translate-y-1/2 text-[10px] font-medium tabular-nums text-foreground/50">
-                      {trackIdx + 1}
-                    </span>
-                    {clips
-                      .filter((c) => toFinite(c.trackIndex, 0) === trackIdx)
-                      .map((clip) => (
-                        <div
-                          key={clip.id}
-                          className="absolute top-0 h-full"
-                          style={{
-                            left: `${(clip.startTimeSec ?? 0) * timelinePxPerSec}px`,
-                          }}
-                        >
-                          <TimelineClipBlock
-                            clip={clip}
-                            pxPerSec={timelinePxPerSec}
-                            isSelected={selectedClipId === clip.id}
-                            isDragged={draggedId === clip.id}
-                            onSelect={() => setSelectedClipId(clip.id)}
-                            onRemove={() => removeClip(clip.id)}
-                            onUpdate={(patch) => updateClip(clip.id, patch)}
-                            onMetadataLoaded={(durationSec, w, h) =>
-                              handleClipMetadataLoaded(clip.id, durationSec, w, h)
-                            }
-                            onPositionDragStart={(e) =>
-                              handlePositionDragStart(
-                                clip.id,
-                                clip.startTimeSec ?? 0,
-                                toFinite(clip.trackIndex, 0),
-                                e.clientX,
-                                () => setSelectedClipId(clip.id)
-                              )
-                            }
-                          />
-                        </div>
-                      ))}
-                  </div>
-                ));
+                const rowCount = (maxLane + 1) * 2;
+                const rows = Array.from({ length: rowCount }, (_, i) => i);
+                return rows.map((trackIdx) => {
+                  const lane = Math.floor(trackIdx / 2);
+                  const isVideoRow = trackIdx % 2 === 0;
+                  const laneClips = clips
+                    .filter((c) => toFinite(c.trackIndex, 0) === lane)
+                    .filter((c) => {
+                      const k = c.kind ?? "combined";
+                      return isVideoRow
+                        ? k === "combined" || k === "video"
+                        : k === "combined" || k === "audio";
+                    });
+                  return (
+                    <div
+                      key={`track-${trackIdx}`}
+                      className="relative shrink-0 border-b border-foreground/10 bg-foreground/[0.02]"
+                      style={{ height: TRACK_HEIGHT_PX, minHeight: TRACK_HEIGHT_PX }}
+                    >
+                      <span className="absolute left-1 top-1/2 -translate-y-1/2 text-[10px] font-medium tabular-nums text-foreground/50">
+                        {trackIdx + 1}
+                        <span className="ml-0.5 text-foreground/40">
+                          {isVideoRow ? "V" : "A"}
+                        </span>
+                      </span>
+                      {isVideoRow
+                        ? laneClips.map((clip) => {
+                            const displayClip = { ...clip, ...getEffectiveTrim(clip, "video") };
+                            return (
+                            <div
+                              key={clip.id}
+                              className="absolute top-0 h-full"
+                              style={{
+                                left: `${(clip.startTimeSec ?? 0) * timelinePxPerSec}px`,
+                              }}
+                            >
+                              <TimelineClipBlock
+                                clip={displayClip}
+                                pxPerSec={timelinePxPerSec}
+                                isSelected={selectedClipId === clip.id}
+                                isDragged={draggedId === clip.id}
+                                onSelect={() => setSelectedClipId(clip.id)}
+                                onRemove={() => removeClip(clip.id)}
+                                onUpdate={(patch) => updateClipTrimForTrack(clip.id, patch, "video")}
+                                onMetadataLoaded={(durationSec, w, h) =>
+                                  handleClipMetadataLoaded(clip.id, durationSec, w, h)
+                                }
+                                onPositionDragStart={(e) =>
+                                  handlePositionDragStart(
+                                    clip.id,
+                                    clip.startTimeSec ?? 0,
+                                    toFinite(clip.trackIndex, 0),
+                                    e.clientX,
+                                    () => setSelectedClipId(clip.id)
+                                  )
+                                }
+                                onContextMenu={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setClipContextMenu({
+                                    clipId: clip.id,
+                                    x: e.clientX,
+                                    y: e.clientY,
+                                  });
+                                }}
+                              />
+                            </div>
+                          ); })
+                        : laneClips.map((clip) => {
+                            const displayClip = { ...clip, ...getEffectiveTrim(clip, "audio") };
+                            return (
+                            <div
+                              key={clip.id}
+                              className="absolute top-0 h-full"
+                              style={{
+                                left: `${(clip.startTimeSec ?? 0) * timelinePxPerSec}px`,
+                              }}
+                            >
+                              <TimelineAudioBlock
+                                clip={displayClip}
+                                pxPerSec={timelinePxPerSec}
+                                isSelected={selectedClipId === clip.id}
+                                isDragged={draggedId === clip.id}
+                                onSelect={() => setSelectedClipId(clip.id)}
+                                onUpdate={(patch) => updateClipTrimForTrack(clip.id, patch, "audio")}
+                                onWaveformLoaded={(data) =>
+                                  updateClip(clip.id, { waveformData: data })
+                                }
+                                onPositionDragStart={(e) =>
+                                  handlePositionDragStart(
+                                    clip.id,
+                                    clip.startTimeSec ?? 0,
+                                    toFinite(clip.trackIndex, 0),
+                                    e.clientX,
+                                    () => setSelectedClipId(clip.id)
+                                  )
+                                }
+                                onContextMenu={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setClipContextMenu({
+                                    clipId: clip.id,
+                                    x: e.clientX,
+                                    y: e.clientY,
+                                  });
+                                }}
+                              />
+                            </div>
+                          ); })}
+                    </div>
+                  );
+                });
               })()}
             </div>
+            {/* Clip context menu */}
+            {clipContextMenu &&
+              createPortal(
+                (() => {
+                  const clip = clips.find((c) => c.id === clipContextMenu.clipId);
+                  const canUnlink = clip && (clip.kind ?? "combined") === "combined";
+                  return (
+                    <div
+                      className="fixed z-50 min-w-[140px] rounded-md border border-foreground/20 bg-background py-1 shadow-lg"
+                      style={{
+                        left: clipContextMenu.x,
+                        top: clipContextMenu.y,
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        type="button"
+                        disabled={!canUnlink}
+                        className="w-full px-3 py-1.5 text-left text-sm hover:bg-foreground/10 disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={() => unlinkClip(clipContextMenu.clipId)}
+                      >
+                        Unlink
+                      </button>
+                    </div>
+                  );
+                })(),
+                document.body
+              )}
             {/* Playhead: vertical line at current time, draggable from ruler */}
             <div
               ref={playheadLineRef}
@@ -987,6 +1287,7 @@ function TimelineClipBlock({
   onUpdate,
   onMetadataLoaded,
   onPositionDragStart,
+  onContextMenu: onContextMenuProp,
 }: {
   clip: EditorClip;
   pxPerSec: number;
@@ -997,6 +1298,7 @@ function TimelineClipBlock({
   onUpdate: (patch: Partial<EditorClip>) => void;
   onMetadataLoaded: (durationSec: number, width?: number, height?: number) => void;
   onPositionDragStart: (e: React.MouseEvent) => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
 }) {
   const barRef = useRef<HTMLDivElement>(null);
   const [trimDrag, setTrimDrag] = useState<{
@@ -1063,6 +1365,7 @@ function TimelineClipBlock({
         if (e.button === 0) onPositionDragStart(e);
       }}
       onClick={(e) => e.stopPropagation()}
+      onContextMenu={onContextMenuProp}
       className="relative h-12 shrink-0 cursor-grab active:cursor-grabbing"
       style={{ width: `${Math.max(1, wrapperWidthPx)}px` }}
     >
@@ -1117,6 +1420,186 @@ function TimelineClipBlock({
           if (d > 0) onMetadataLoaded(d, w, h);
         }}
       />
+    </div>
+  );
+}
+
+function TimelineAudioBlock({
+  clip,
+  pxPerSec,
+  isSelected,
+  isDragged,
+  onSelect,
+  onUpdate,
+  onWaveformLoaded,
+  onPositionDragStart,
+  onContextMenu: onContextMenuProp,
+}: {
+  clip: EditorClip;
+  pxPerSec: number;
+  isSelected: boolean;
+  isDragged: boolean;
+  onSelect: () => void;
+  onUpdate: (patch: Partial<EditorClip>) => void;
+  onWaveformLoaded: (data: number[]) => void;
+  onPositionDragStart: (e: React.MouseEvent) => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
+}) {
+  const barRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [trimDrag, setTrimDrag] = useState<{
+    side: "left" | "right";
+    startX: number;
+    startValue: number;
+  } | null>(null);
+  const [waveformLoading, setWaveformLoading] = useState(false);
+
+  const trimStart = toFinite(clip.trimStartSec, 0);
+  const trimEnd = toFinite(clip.trimEndSec, 10);
+  const durationSec = Math.max(0, trimEnd - trimStart);
+  const fullDuration = Math.max(durationSec, toFinite(clip.durationSec, trimEnd || 10));
+  const minClipWidthPx = Math.max(24, 0.1 * pxPerSec);
+  const widthPx = Math.max(
+    minClipWidthPx,
+    Math.min(fullDuration * pxPerSec, durationSec * pxPerSec)
+  );
+  const safeWidth = toFinite(widthPx, minClipWidthPx);
+  const wrapperWidthPx = Math.max(safeWidth, toFinite(fullDuration * pxPerSec, safeWidth));
+  const clipLeftPx =
+    fullDuration > 0 ? (trimStart / fullDuration) * wrapperWidthPx : 0;
+
+  const onWaveformLoadedRef = useRef(onWaveformLoaded);
+  onWaveformLoadedRef.current = onWaveformLoaded;
+  useEffect(() => {
+    if (clip.waveformData?.length) return;
+    if (waveformLoading) return;
+    setWaveformLoading(true);
+    decodeAudioWaveform(clip.src)
+      .then((data) => {
+        onWaveformLoadedRef.current(data);
+      })
+      .catch(() => {
+        onWaveformLoadedRef.current(Array(WAVEFORM_SAMPLES).fill(0.1));
+      })
+      .finally(() => setWaveformLoading(false));
+  }, [clip.id, clip.src, clip.waveformData?.length, waveformLoading]);
+
+  useEffect(() => {
+    if (!trimDrag || !barRef.current) return;
+    const fullDur = Math.max(fullDuration, 0.1);
+    const onMouseMove = (e: MouseEvent) => {
+      const rect = barRef.current!.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width;
+      const sec = Math.max(0, Math.min(1, x)) * fullDur;
+      if (trimDrag.side === "left") {
+        onUpdate({
+          trimStartSec: Math.max(0, Math.min(sec, trimEnd - MIN_TRIM_DURATION_SEC)),
+        });
+      } else {
+        onUpdate({
+          trimEndSec: Math.max(
+            trimStart + MIN_TRIM_DURATION_SEC,
+            Math.min(fullDur, sec)
+          ),
+        });
+      }
+    };
+    const onMouseUp = () => setTrimDrag(null);
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, [trimDrag, fullDuration, trimStart, trimEnd, onUpdate]);
+
+  const waveform = clip.waveformData ?? [];
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || waveform.length === 0) return;
+    const parent = canvas.parentElement;
+    if (!parent) return;
+    const rect = parent.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(1, Math.round(rect.width * dpr));
+    const h = Math.max(1, Math.round(rect.height * dpr));
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const cw = rect.width;
+    const ch = rect.height;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const centerY = ch / 2;
+    const barWidth = Math.max(0.5, cw / waveform.length);
+    ctx.fillStyle = "rgba(59, 130, 246, 0.7)";
+    waveform.forEach((norm, i) => {
+      const barH = Math.max(1, norm * (centerY - 2));
+      const x = (i / waveform.length) * cw;
+      ctx.fillRect(x, centerY - barH, barWidth, barH * 2);
+    });
+  }, [waveform]);
+
+  return (
+    <div
+      ref={barRef}
+      role="button"
+      tabIndex={0}
+      onMouseDown={(e) => {
+        if (e.button === 0) onPositionDragStart(e);
+      }}
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect();
+      }}
+      onContextMenu={onContextMenuProp}
+      className="relative h-12 shrink-0 cursor-grab active:cursor-grabbing"
+      style={{ width: `${Math.max(1, wrapperWidthPx)}px` }}
+    >
+      <div
+        className={`absolute top-0 bottom-0 flex items-center overflow-hidden rounded border-2 transition ${
+          isSelected
+            ? "border-accent"
+            : "border-foreground/20 hover:border-foreground/30"
+        } ${isDragged ? "opacity-50" : ""}`}
+        style={{
+          left: `${clipLeftPx}px`,
+          width: `${Math.max(1, safeWidth)}px`,
+        }}
+      >
+        <div className="absolute inset-0 bg-foreground/10" />
+        {waveformLoading || waveform.length === 0 ? (
+          <span className="absolute inset-0 flex items-center justify-center text-[10px] text-foreground/50">
+            {waveformLoading ? "Loading…" : "No waveform"}
+          </span>
+        ) : (
+          <canvas
+            ref={canvasRef}
+            className="absolute inset-0 h-full w-full"
+            style={{ width: "100%", height: "100%" }}
+          />
+        )}
+        <div
+          role="slider"
+          aria-label="Trim start"
+          className="absolute left-0 inset-y-0 z-10 w-2 cursor-ew-resize border-r border-foreground/30 hover:bg-foreground/20"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setTrimDrag({ side: "left", startX: e.clientX, startValue: trimStart });
+          }}
+        />
+        <div
+          role="slider"
+          aria-label="Trim end"
+          className="absolute right-0 inset-y-0 z-10 w-2 cursor-ew-resize border-l border-foreground/30 hover:bg-foreground/20"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setTrimDrag({ side: "right", startX: e.clientX, startValue: trimEnd });
+          }}
+        />
+      </div>
     </div>
   );
 }
