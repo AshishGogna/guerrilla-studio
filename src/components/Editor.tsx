@@ -102,6 +102,8 @@ export interface EditorClip {
   height?: number;
   /** Normalized amplitude samples for waveform (0–1), one per pixel column. */
   waveformData?: number[];
+  /** Id of the linked partner clip. Moving one syncs the other. Cleared on Unlink. */
+  linkedClipId?: string;
 }
 
 const WAVEFORM_SAMPLES = 256;
@@ -407,8 +409,8 @@ export default function Editor() {
       const audioId = `clip-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
       return [
         ...prev,
-        { ...base, id: videoId, trackIndex: videoTrack, kind: "video" as const },
-        { ...base, id: audioId, trackIndex: audioTrack, kind: "audio" as const },
+        { ...base, id: videoId, trackIndex: videoTrack, kind: "video" as const, linkedClipId: audioId },
+        { ...base, id: audioId, trackIndex: audioTrack, kind: "audio" as const, linkedClipId: videoId },
       ];
     });
     setAddUrl("");
@@ -420,7 +422,12 @@ export default function Editor() {
       if (clip?.src.startsWith("blob:")) {
         URL.revokeObjectURL(clip.src);
       }
-      return prev.filter((c) => c.id !== id);
+      const partnerId = clip?.linkedClipId;
+      let next = prev.filter((c) => c.id !== id);
+      if (partnerId) {
+        next = next.map((c) => c.id === partnerId ? { ...c, linkedClipId: undefined } : c);
+      }
+      return next;
     });
     if (selectedClipId === id) setSelectedClipId(null);
   }, [selectedClipId]);
@@ -434,28 +441,22 @@ export default function Editor() {
   const unlinkClip = useCallback((clipId: string) => {
     setClips((prev) => {
       const clip = prev.find((c) => c.id === clipId);
-      if (!clip || (clip.kind && clip.kind !== "combined")) return prev;
-      const videoTrim = getEffectiveTrim(clip, "video");
-      const audioTrim = getEffectiveTrim(clip, "audio");
-      const videoId = `clip-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-      const audioId = `clip-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-      const videoClip: EditorClip = {
-        ...clip,
-        id: videoId,
-        kind: "video",
-        trimStartSec: videoTrim.trimStartSec,
-        trimEndSec: videoTrim.trimEndSec,
-      };
-      const audioClip: EditorClip = {
-        ...clip,
-        id: audioId,
-        kind: "audio",
-        trimStartSec: audioTrim.trimStartSec,
-        trimEndSec: audioTrim.trimEndSec,
-      };
-      return prev
-        .filter((c) => c.id !== clipId)
-        .concat([videoClip, audioClip]);
+      if (!clip) return prev;
+      if ((clip.kind ?? "combined") === "combined") {
+        const videoTrim = getEffectiveTrim(clip, "video");
+        const audioTrim = getEffectiveTrim(clip, "audio");
+        const videoId = `clip-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        const audioId = `clip-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        return prev.filter((c) => c.id !== clipId).concat([
+          { ...clip, id: videoId, kind: "video" as const, trimStartSec: videoTrim.trimStartSec, trimEndSec: videoTrim.trimEndSec, linkedClipId: undefined },
+          { ...clip, id: audioId, kind: "audio" as const, trimStartSec: audioTrim.trimStartSec, trimEndSec: audioTrim.trimEndSec, linkedClipId: undefined },
+        ]);
+      }
+      const partnerId = clip.linkedClipId;
+      if (!partnerId) return prev;
+      return prev.map((c) =>
+        c.id === clipId || c.id === partnerId ? { ...c, linkedClipId: undefined } : c
+      );
     });
     setClipContextMenu(null);
     setSelectedClipId(null);
@@ -566,14 +567,6 @@ export default function Editor() {
   const timelineTracksRef = useRef<HTMLDivElement>(null);
 
   /** True if two clips are on the same track row (both video row or both audio row) for overlap trimming. */
-  const sameTrackRow = useCallback((a: EditorClip, b: EditorClip): boolean => {
-    if (toFinite(a.trackIndex, 0) !== toFinite(b.trackIndex, 0)) return false;
-    const aKind = a.kind ?? "combined";
-    const bKind = b.kind ?? "combined";
-    if (aKind === "combined" || bKind === "combined") return true;
-    return aKind === bKind;
-  }, []);
-
   const applyClipPositionAndTrimOverlaps = useCallback(
     (
       prevClips: EditorClip[],
@@ -589,69 +582,119 @@ export default function Editor() {
       const aStart = Math.max(0, newStartSec);
       const aEnd = aStart + aDur;
 
-      let next = prevClips.map((c) =>
-        c.id === movedId ? { ...c, startTimeSec: aStart, trackIndex: aTrack } : { ...c }
-      );
+      const partnerId = a.linkedClipId;
 
-      next = next.map((b) => {
-        if (b.id === movedId) return b;
-        if (!sameTrackRow({ ...a, trackIndex: aTrack, startTimeSec: aStart }, b)) return b;
-        const bStart = toFinite(b.startTimeSec, 0);
-        const bDur = Math.max(0, toFinite(b.trimEndSec, 0) - toFinite(b.trimStartSec, 0));
-        const bEnd = bStart + bDur;
-        if (aEnd <= bStart || aStart >= bEnd) return b;
+      let next = prevClips.map((c) => {
+        if (c.id === movedId) return { ...c, startTimeSec: aStart, trackIndex: aTrack };
+        if (partnerId && c.id === partnerId) return { ...c, startTimeSec: aStart };
+        return { ...c };
+      });
 
-        const bTrimStart = toFinite(b.trimStartSec, 0);
-        const bTrimEnd = toFinite(b.trimEndSec, 0);
+      const skipIds = new Set<string>([movedId]);
+      if (partnerId) skipIds.add(partnerId);
 
-        if (aEnd > bStart && aEnd < bEnd && aStart <= bStart) {
-          const trimOff = aEnd - bStart;
-          return {
-            ...b,
-            startTimeSec: aEnd,
-            trimStartSec: Math.min(bTrimEnd - MIN_TRIM_DURATION_SEC, bTrimStart + trimOff),
-          };
+      const resolveOverlaps = (
+        clips: EditorClip[],
+        anchorStart: number,
+        anchorEnd: number,
+        anchorTrack: number
+      ): EditorClip[] =>
+        clips.map((b) => {
+          if (skipIds.has(b.id)) return b;
+          if (toFinite(b.trackIndex, 0) !== anchorTrack) return b;
+          const bStart = toFinite(b.startTimeSec, 0);
+          const bDur = Math.max(0, toFinite(b.trimEndSec, 0) - toFinite(b.trimStartSec, 0));
+          const bEnd = bStart + bDur;
+          if (anchorEnd <= bStart || anchorStart >= bEnd) return b;
+
+          const bTrimStart = toFinite(b.trimStartSec, 0);
+          const bTrimEnd = toFinite(b.trimEndSec, 0);
+
+          if (anchorEnd > bStart && anchorEnd < bEnd && anchorStart <= bStart) {
+            const trimOff = anchorEnd - bStart;
+            return {
+              ...b,
+              startTimeSec: anchorEnd,
+              trimStartSec: Math.min(bTrimEnd - MIN_TRIM_DURATION_SEC, bTrimStart + trimOff),
+            };
+          }
+          if (anchorStart > bStart && anchorStart < bEnd && anchorEnd >= bEnd) {
+            const newDur = anchorStart - bStart;
+            return {
+              ...b,
+              trimEndSec: Math.max(bTrimStart + MIN_TRIM_DURATION_SEC, bTrimStart + newDur),
+            };
+          }
+          if (anchorStart <= bStart && anchorEnd >= bEnd) {
+            return { ...b, trimEndSec: bTrimStart };
+          }
+          if (bStart < anchorStart && bEnd > anchorEnd) {
+            return {
+              ...b,
+              trimEndSec: Math.max(
+                bTrimStart + MIN_TRIM_DURATION_SEC,
+                bTrimStart + (anchorStart - bStart)
+              ),
+            };
+          }
+          if (anchorStart < bEnd && anchorEnd > bStart && anchorStart > bStart) {
+            const newDur = anchorStart - bStart;
+            return {
+              ...b,
+              trimEndSec: Math.max(bTrimStart + MIN_TRIM_DURATION_SEC, bTrimStart + newDur),
+            };
+          }
+          if (anchorEnd > bStart && anchorEnd < bEnd) {
+            const trimOff = anchorEnd - bStart;
+            return {
+              ...b,
+              startTimeSec: anchorEnd,
+              trimStartSec: Math.min(bTrimEnd - MIN_TRIM_DURATION_SEC, bTrimStart + trimOff),
+            };
+          }
+          return b;
+        });
+
+      next = resolveOverlaps(next, aStart, aEnd, aTrack);
+
+      if (partnerId) {
+        const partner = next.find((c) => c.id === partnerId);
+        if (partner) {
+          const pTrack = toFinite(partner.trackIndex, 0);
+          if (pTrack !== aTrack) {
+            const pDur = Math.max(
+              0,
+              toFinite(partner.trimEndSec, 0) - toFinite(partner.trimStartSec, 0)
+            );
+            const pStart = toFinite(partner.startTimeSec, 0);
+            const pEnd = pStart + pDur;
+            next = resolveOverlaps(next, pStart, pEnd, pTrack);
+          }
         }
-        if (aStart > bStart && aStart < bEnd && aEnd >= bEnd) {
-          const newDur = aStart - bStart;
-          return {
-            ...b,
-            trimEndSec: Math.max(bTrimStart + MIN_TRIM_DURATION_SEC, bTrimStart + newDur),
-          };
-        }
-        if (aStart <= bStart && aEnd >= bEnd) {
-          return { ...b, trimEndSec: bTrimStart };
-        }
-        if (bStart < aStart && bEnd > aEnd) {
-          return {
-            ...b,
-            trimEndSec: Math.max(
-              bTrimStart + MIN_TRIM_DURATION_SEC,
-              bTrimStart + (aStart - bStart)
-            ),
-          };
-        }
-        if (aStart < bEnd && aEnd > bStart && aStart > bStart) {
-          const newDur = aStart - bStart;
-          return {
-            ...b,
-            trimEndSec: Math.max(bTrimStart + MIN_TRIM_DURATION_SEC, bTrimStart + newDur),
-          };
-        }
-        if (aEnd > bStart && aEnd < bEnd) {
-          const trimOff = aEnd - bStart;
-          return {
-            ...b,
-            startTimeSec: aEnd,
-            trimStartSec: Math.min(bTrimEnd - MIN_TRIM_DURATION_SEC, bTrimStart + trimOff),
-          };
-        }
-        return b;
+      }
+
+      next = next.map((c) => {
+        if (!c.linkedClipId || skipIds.has(c.id)) return c;
+        const partner = next.find((x) => x.id === c.linkedClipId);
+        if (!partner) return c;
+        const orig = prevClips.find((x) => x.id === c.id);
+        if (!orig) return c;
+        const wasModified =
+          toFinite(c.startTimeSec, 0) !== toFinite(orig.startTimeSec, 0) ||
+          toFinite(c.trimStartSec, 0) !== toFinite(orig.trimStartSec, 0) ||
+          toFinite(c.trimEndSec, 0) !== toFinite(orig.trimEndSec, 0);
+        if (wasModified) return c;
+        return {
+          ...c,
+          startTimeSec: toFinite(partner.startTimeSec, 0),
+          trimStartSec: toFinite(partner.trimStartSec, 0),
+          trimEndSec: toFinite(partner.trimEndSec, 0),
+        };
       });
 
       return next;
     },
-    [sameTrackRow]
+    []
   );
 
   const getTimelineX = useCallback((clientX: number): number => {
@@ -711,11 +754,15 @@ export default function Editor() {
         const deltaSec = (currentTimelineX - initialTimelineX) / timelinePxPerSec;
         const newStartSec = Math.max(0, initialStartTimeSec + deltaSec);
         currentTrackIndex = getTrackIndexFromY(e.clientY);
-        setClips((prev) =>
-          prev.map((c) =>
-            c.id === id ? { ...c, startTimeSec: newStartSec, trackIndex: currentTrackIndex } : c
-          )
-        );
+        setClips((prev) => {
+          const moved = prev.find((c) => c.id === id);
+          const partnerId = moved?.linkedClipId;
+          return prev.map((c) => {
+            if (c.id === id) return { ...c, startTimeSec: newStartSec, trackIndex: currentTrackIndex };
+            if (partnerId && c.id === partnerId) return { ...c, startTimeSec: newStartSec };
+            return c;
+          });
+        });
       };
       const onEnd = () => {
         if (!hasMoved) onSelectIfClick?.();
@@ -1042,9 +1089,12 @@ export default function Editor() {
                       </span>
                       {trackClips.map((clip) => {
                         const k = clip.kind ?? "combined";
-                        const slotLeft = `${(clip.startTimeSec ?? 0) * timelinePxPerSec}px`;
                         const displayClipV = { ...clip, ...getEffectiveTrim(clip, "video") } as EditorClip;
                         const displayClipA = { ...clip, ...getEffectiveTrim(clip, "audio") } as EditorClip;
+                        const trimOffset = k === "audio"
+                          ? toFinite(displayClipA.trimStartSec, 0)
+                          : toFinite(displayClipV.trimStartSec, 0);
+                        const slotLeft = `${((clip.startTimeSec ?? 0) - trimOffset) * timelinePxPerSec}px`;
                         if (k === "combined") {
                           const trimStart = toFinite(displayClipV.trimStartSec, 0);
                           const trimEnd = toFinite(displayClipV.trimEndSec, 10);
@@ -1061,7 +1111,7 @@ export default function Editor() {
                                 <TimelineClipBlock
                                   clip={displayClipV}
                                   pxPerSec={timelinePxPerSec}
-                                  isSelected={selectedClipId === clip.id}
+                                  isSelected={selectedClipId === clip.id || (clip.linkedClipId != null && selectedClipId === clip.linkedClipId)}
                                   isDragged={draggedId === clip.id}
                                   onSelect={() => setSelectedClipId(clip.id)}
                                   onRemove={() => removeClip(clip.id)}
@@ -1075,7 +1125,7 @@ export default function Editor() {
                                 <TimelineAudioBlock
                                   clip={displayClipA}
                                   pxPerSec={timelinePxPerSec}
-                                  isSelected={selectedClipId === clip.id}
+                                  isSelected={selectedClipId === clip.id || (clip.linkedClipId != null && selectedClipId === clip.linkedClipId)}
                                   isDragged={draggedId === clip.id}
                                   onSelect={() => setSelectedClipId(clip.id)}
                                   onWaveformLoaded={(data) =>
@@ -1093,7 +1143,7 @@ export default function Editor() {
                               <TimelineAudioBlock
                                 clip={displayClipA}
                                 pxPerSec={timelinePxPerSec}
-                                isSelected={selectedClipId === clip.id}
+                                isSelected={selectedClipId === clip.id || (clip.linkedClipId != null && selectedClipId === clip.linkedClipId)}
                                 isDragged={draggedId === clip.id}
                                 onSelect={() => setSelectedClipId(clip.id)}
                                 onWaveformLoaded={(data) =>
@@ -1109,7 +1159,7 @@ export default function Editor() {
                             <TimelineClipBlock
                               clip={displayClipV}
                               pxPerSec={timelinePxPerSec}
-                              isSelected={selectedClipId === clip.id}
+                              isSelected={selectedClipId === clip.id || (clip.linkedClipId != null && selectedClipId === clip.linkedClipId)}
                               isDragged={draggedId === clip.id}
                               onSelect={() => setSelectedClipId(clip.id)}
                               onRemove={() => removeClip(clip.id)}
@@ -1131,7 +1181,7 @@ export default function Editor() {
               createPortal(
                 (() => {
                   const clip = clips.find((c) => c.id === clipContextMenu.clipId);
-                  const canUnlink = clip && (clip.kind ?? "combined") === "combined";
+                  const canUnlink = clip && ((clip.kind ?? "combined") === "combined" || clip.linkedClipId != null);
                   return (
                     <div
                       className="fixed z-50 min-w-[140px] rounded-md border border-foreground/20 bg-background py-1 shadow-lg"
