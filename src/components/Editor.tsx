@@ -394,10 +394,8 @@ export default function Editor() {
                   Math.max(0, toFinite(c.trimEndSec, 0) - toFinite(c.trimStartSec, 0))
               )
             );
-      const maxTrack =
-        prev.length === 0 ? -1 : Math.max(...prev.map((c) => toFinite(c.trackIndex, 0)));
-      const videoTrack = maxTrack + 1;
-      const audioTrack = maxTrack + 2;
+      const videoTrack = 0;
+      const audioTrack = 1;
       const base = {
         src,
         trimStartSec: 0,
@@ -551,12 +549,11 @@ export default function Editor() {
           toFinite(updated.startTimeSec, 0) +
           Math.max(0, toFinite(updated.trimEndSec, 0) - toFinite(updated.trimStartSec, 0));
         const delta = oldEnd - newEnd;
-        const updatedTrack = toFinite(updated.trackIndex, 0);
         if (delta <= 0) return next;
         return next.map((c) =>
           c.id === clipId
             ? c
-            : toFinite(c.trackIndex, 0) === updatedTrack && toFinite(c.startTimeSec, 0) >= oldEnd
+            : toFinite(c.startTimeSec, 0) >= oldEnd
               ? { ...c, startTimeSec: Math.max(0, toFinite(c.startTimeSec, 0) - delta) }
               : c
         );
