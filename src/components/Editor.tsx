@@ -1536,14 +1536,12 @@ function TimelineAudioBlock({
     if (!parent) return;
     const rect = parent.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
-    const w = Math.max(1, Math.round(rect.width * dpr));
-    const h = Math.max(1, Math.round(rect.height * dpr));
-    canvas.width = w;
-    canvas.height = h;
+    const cw = Math.max(1, Math.round(wrapperWidthPx));
+    const ch = Math.max(1, Math.round(rect.height));
+    canvas.width = cw * dpr;
+    canvas.height = ch * dpr;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    const cw = rect.width;
-    const ch = rect.height;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const centerY = ch / 2;
     const barWidth = Math.max(0.5, cw / waveform.length);
@@ -1553,7 +1551,7 @@ function TimelineAudioBlock({
       const x = (i / waveform.length) * cw;
       ctx.fillRect(x, centerY - barH, barWidth, barH * 2);
     });
-  }, [waveform]);
+  }, [waveform, wrapperWidthPx]);
 
   return (
     <div
@@ -1588,11 +1586,20 @@ function TimelineAudioBlock({
             {waveformLoading ? "Loading…" : "No waveform"}
           </span>
         ) : (
-          <canvas
-            ref={canvasRef}
-            className="absolute inset-0 h-full w-full"
-            style={{ width: "100%", height: "100%" }}
-          />
+          <div
+            className="absolute top-0 bottom-0 overflow-hidden"
+            style={{
+              left: -clipLeftPx,
+              width: wrapperWidthPx,
+              minWidth: wrapperWidthPx,
+            }}
+          >
+            <canvas
+              ref={canvasRef}
+              className="block h-full"
+              style={{ width: `${wrapperWidthPx}px`, height: "100%" }}
+            />
+          </div>
         )}
         <div
           role="slider"
