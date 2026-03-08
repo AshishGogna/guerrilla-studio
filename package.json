@@ -9,11 +9,14 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@remotion/player": "^4.0.434",
+    "@remotion/web-renderer": "^4.0.434",
     "jszip": "^3.10.1",
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "react-markdown": "^10.1.0"
+    "react-markdown": "^10.1.0",
+    "remotion": "^4.0.434"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

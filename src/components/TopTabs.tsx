@@ -1,16 +1,18 @@
 "use client";
 
 import { useState } from "react";
+import Editor from "./Editor";
+import ImageGen from "./ImageGen";
 import Scripting from "./Scripting";
 import Storyboarding from "./Storyboarding";
-import ImageGen from "./ImageGen";
 import VideoGen from "./VideoGen";
 
-type TabId = "scripting" | "storyboarding" | "image-gen" | "video-gen";
+type TabId = "scripting" | "storyboarding" | "editing" | "image-gen" | "video-gen";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "scripting", label: "Scripting" },
   { id: "storyboarding", label: "Storyboarding" },
+  { id: "editing", label: "Editing" },
   { id: "image-gen", label: "Image Gen" },
   { id: "video-gen", label: "Video Gen" },
 ];
@@ -41,6 +43,7 @@ export default function TopTabs() {
       <div className="min-h-0 flex-1 overflow-auto">
         {activeTab === "scripting" && <Scripting />}
         {activeTab === "storyboarding" && <Storyboarding />}
+        {activeTab === "editing" && <Editor />}
         {activeTab === "image-gen" && <ImageGen />}
         {activeTab === "video-gen" && <VideoGen />}
       </div>
