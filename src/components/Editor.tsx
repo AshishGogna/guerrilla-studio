@@ -101,9 +101,10 @@ export function EditorCompositionWithProps({ clips = [] }: { clips?: EditorClip[
     })
   );
 
+  const maxTrackIdx = trackIndices.length ? Math.max(...trackIndices) : 0;
   return (
     <>
-      {trackIndices.map((trackIdx) => {
+      {[...trackIndices].reverse().map((trackIdx) => {
         const trackClips = clips.filter((c) => toFinite(c.trackIndex, 0) === trackIdx);
         if (trackClips.length === 0) return null;
         const segments: Segment[] = trackClips.map((c) => {
@@ -132,7 +133,7 @@ export function EditorCompositionWithProps({ clips = [] }: { clips?: EditorClip[
                 1,
                 Math.round((gap.end - gap.start) * safeFps)
               );
-              const isBottomTrack = trackIdx === (trackIndices[0] ?? 0);
+              const isBottomTrack = trackIdx === maxTrackIdx;
               return (
                 <Sequence
                   key={`gap-${trackIdx}-${i}`}
@@ -170,6 +171,36 @@ export function EditorCompositionWithProps({ clips = [] }: { clips?: EditorClip[
                     )
                   : 0;
               const trimAfter = trimAfterFrames > 0 ? trimAfterFrames : undefined;
+              const clipStartSec = toFinite(clip.startTimeSec, 0);
+              const clipEndSec = clipStartSec + durationSec;
+              const clipTrackIdx = toFinite(clip.trackIndex, 0);
+              const overlapSeconds: [number, number][] = clips
+                .filter(
+                  (c) =>
+                    c.id !== clip.id &&
+                    toFinite(c.trackIndex, 0) < clipTrackIdx
+                )
+                .map((c) => {
+                  const cStart = toFinite(c.startTimeSec, 0);
+                  const cDur = Math.max(
+                    0,
+                    toFinite(c.trimEndSec, 0) - toFinite(c.trimStartSec, 0)
+                  );
+                  const cEnd = cStart + cDur;
+                  const start = Math.max(clipStartSec, cStart);
+                  const end = Math.min(clipEndSec, cEnd);
+                  return [start, end] as [number, number];
+                })
+                .filter(([s, e]) => e > s);
+              const volume =
+                overlapSeconds.length > 0
+                  ? (frame: number) => {
+                      const t = frame / safeFps;
+                      return overlapSeconds.some(([s, e]) => t >= s && t < e)
+                        ? 0
+                        : 1;
+                    }
+                  : 1;
               return (
                 <Sequence
                   key={clip.id}
@@ -182,6 +213,7 @@ export function EditorCompositionWithProps({ clips = [] }: { clips?: EditorClip[
                       src={clip.src}
                       trimBefore={trimBefore}
                       {...(trimAfter !== undefined && { trimAfter })}
+                      volume={volume}
                       style={{ width: "100%", height: "100%", objectFit: "contain" }}
                     />
                   </AbsoluteFill>
@@ -789,50 +821,6 @@ export default function Editor() {
             </div>
           </div>
         </div>
-        {selectedClip && (
-          <div className="border-t border-foreground/10 px-4 py-3">
-            <span className="text-xs font-medium text-foreground/60">
-              Trim: {selectedClip.id}
-            </span>
-            <div className="mt-2 flex items-center gap-4">
-              <label className="flex items-center gap-2 text-sm">
-                Start (s):
-                <input
-                  type="number"
-                  min={0}
-                  max={Math.max(0, toFinite(selectedClip.trimEndSec, 10) - 0.1)}
-                  step={0.1}
-                  value={toFinite(selectedClip.trimStartSec, 0)}
-                  onChange={(e) =>
-                    updateClip(selectedClip.id, {
-                      trimStartSec: Math.max(0, toFinite(e.target.value, 0)),
-                    })
-                  }
-                  className="w-20 rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm"
-                />
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                End (s):
-                <input
-                  type="number"
-                  min={toFinite(selectedClip.trimStartSec, 0) + 0.1}
-                  max={toFinite(selectedClip.durationSec, 999) || 999}
-                  step={0.1}
-                  value={toFinite(selectedClip.trimEndSec, 10)}
-                  onChange={(e) =>
-                    updateClip(selectedClip.id, {
-                      trimEndSec: Math.max(
-                        toFinite(selectedClip.trimStartSec, 0),
-                        toFinite(e.target.value, 10)
-                      ),
-                    })
-                  }
-                  className="w-20 rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm"
-                />
-              </label>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Export modal */}
@@ -1077,6 +1065,7 @@ function TimelineClipBlock({
         src={clip.src}
         className="hidden"
         preload="metadata"
+        controls={true}
         onLoadedMetadata={(e) => {
           const el = e.target as HTMLVideoElement;
           const d = toFinite(el.duration, 0);
