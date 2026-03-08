@@ -116,6 +116,7 @@ export function EditorCompositionWithProps({ clips = [] }: { clips?: EditorClip[
                 1,
                 Math.round((gap.end - gap.start) * safeFps)
               );
+              const isBottomTrack = trackIdx === (trackIndices[0] ?? 0);
               return (
                 <Sequence
                   key={`gap-${trackIdx}-${i}`}
@@ -123,7 +124,11 @@ export function EditorCompositionWithProps({ clips = [] }: { clips?: EditorClip[
                   durationInFrames={durationInFrames}
                   name={`Gap T${trackIdx}-${i}`}
                 >
-                  <AbsoluteFill style={{ backgroundColor: "#000" }} />
+                  <AbsoluteFill
+                    style={{
+                      backgroundColor: isBottomTrack ? "#000" : "transparent",
+                    }}
+                  />
                 </Sequence>
               );
             })}
