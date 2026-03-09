@@ -201,8 +201,8 @@ export function EditorCompositionWithProps({ clips: rawClips = [] }: { clips?: E
         return (
           <AbsoluteFill key={`track-${trackIdx}`}>
             {gaps.map((gap, i) => {
-              const fromFrame = Math.floor(gap.start * safeFps);
-              const gapEndFrame = Math.floor(gap.end * safeFps);
+              const fromFrame = Math.round(gap.start * safeFps);
+              const gapEndFrame = Math.round(gap.end * safeFps);
               const durationInFrames = Math.max(1, gapEndFrame - fromFrame);
               const isBottomTrack = trackIdx === maxTrackIdx;
               return (
@@ -256,9 +256,10 @@ export function EditorCompositionWithProps({ clips: rawClips = [] }: { clips?: E
                 const durationSec = Math.max(0, trimEnd - trimStart);
                 if (durationSec <= 0) return null;
                 const clipStart = toFinite(clip.startTimeSec, 0);
-                const fromFrame = Math.floor(clipStart * safeFps);
-                const endFrame = Math.floor((clipStart + durationSec) * safeFps);
-                const durationInFrames = Math.max(1, endFrame - fromFrame);
+                const fromFrame = Math.round(clipStart * safeFps);
+                const endFrame = Math.round((clipStart + durationSec) * safeFps);
+                const CROSSFADE_FRAMES = 3;
+                const durationInFrames = Math.max(1, endFrame - fromFrame + CROSSFADE_FRAMES);
                 const trimBefore = Math.max(0, Math.round(trimStart * safeFps));
                 const clipStartSec = toFinite(clip.startTimeSec, 0);
                 const clipEndSec = clipStartSec + durationSec;
@@ -367,8 +368,9 @@ export function EditorCompositionWithProps({ clips: rawClips = [] }: { clips?: E
         <AbsoluteFill style={{ pointerEvents: "none" }}>
           {subtitleClips.map((sub) => {
             const durSec = Math.max(0, toFinite(sub.trimEndSec, 0) - toFinite(sub.trimStartSec, 0));
-            const durationInFrames = Math.max(1, Math.round(durSec * safeFps));
-            const fromFrame = Math.round(toFinite(sub.startTimeSec, 0) * safeFps);
+            const subStart = toFinite(sub.startTimeSec, 0);
+            const fromFrame = Math.round(subStart * safeFps);
+            const durationInFrames = Math.max(1, Math.round((subStart + durSec) * safeFps) - fromFrame);
             return (
               <Sequence
                 key={sub.id}

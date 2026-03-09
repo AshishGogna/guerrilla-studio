@@ -38,7 +38,7 @@ export async function POST(req: Request) {
 
     await new Promise<void>((resolve, reject) => {
       exec(
-        `whisper ${audioPath} --model medium --language en --task transcribe --word_timestamps True --output_format json --output_dir "${tempDir}"`,
+        `whisper ${audioPath} --model medium --task transcribe --word_timestamps True --output_format json --output_dir "${tempDir}"`,
         (error) => {
           if (error) reject(error);
           else resolve();
@@ -52,7 +52,7 @@ export async function POST(req: Request) {
 
   } finally {
     //Dont uncomment these two lines.
-    // try { await fs.unlink(audioPath); } catch {}
-    // try { await fs.unlink(jsonPath); } catch {}
+    try { await fs.unlink(audioPath); } catch {}
+    try { await fs.unlink(jsonPath); } catch {}
   }
 }
