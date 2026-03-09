@@ -24,6 +24,20 @@ const TRACK_HEIGHT_PX = 48;
 const RULER_HEIGHT_PX = 36; // h-9 in Tailwind
 const TIMELINE_PADDING_PX = 16; // p-4 on scroll container
 
+function formatPlayheadTime(sec: number): string {
+  const s = Math.max(0, sec);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const secPart = Math.floor(s % 60);
+  const ms = Math.floor((s % 1) * 1000);
+  return [
+    String(h).padStart(2, "0"),
+    String(m).padStart(2, "0"),
+    String(secPart).padStart(2, "0"),
+    String(ms).padStart(3, "0"),
+  ].join(":");
+}
+
 /** Effective trim for display: per-track for combined, else main trim. */
 function getEffectiveTrim(
   clip: EditorClip,
@@ -1443,7 +1457,12 @@ export default function Editor() {
       {/* Timeline */}
       <div className="flex flex-1 flex-col overflow-hidden border-t border-foreground/10" style={{ height: 600 }}>
         <div className="flex items-center justify-between border-b border-foreground/10 px-4 py-2">
-          <span className="text-sm font-medium text-foreground/80">Timeline</span>
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-medium text-foreground/80">Timeline</span>
+            <span className="font-mono text-sm tabular-nums text-foreground/70" title="Playhead position">
+              {formatPlayheadTime(playheadTimeSec)}
+            </span>
+          </div>
           <div className="flex items-center gap-2">
             <input
               ref={fileInputRef}
