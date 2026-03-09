@@ -781,13 +781,39 @@ export default function Editor() {
         body: formData,
       });
       const data = await response.json();
-      console.log("Silences detected:", data);
       return data.silences ?? [];
     } catch (err) {
       console.error("Detect silences failed for clip", clip.id, err);
       return [];
     }
   }, []);
+
+  /** Build content/silence segments from silences within [trimStart, trimEnd]. */
+  const buildSegmentsFromSilences = useCallback(
+    (trimStart: number, trimEnd: number, silences: { start: number; end: number }[]) => {
+      const overlapping = silences
+        .filter((s) => s.end > trimStart && s.start < trimEnd)
+        .map((s) => ({
+          start: Math.max(s.start, trimStart),
+          end: Math.min(s.end, trimEnd),
+        }))
+        .sort((a, b) => a.start - b.start);
+      const segments: { start: number; end: number; isSilence: boolean }[] = [];
+      let t = trimStart;
+      for (const s of overlapping) {
+        if (t < s.start) {
+          segments.push({ start: t, end: s.start, isSilence: false });
+        }
+        segments.push({ start: s.start, end: s.end, isSilence: true });
+        t = s.end;
+      }
+      if (t < trimEnd) {
+        segments.push({ start: t, end: trimEnd, isSilence: false });
+      }
+      return segments;
+    },
+    []
+  );
 
   const cutSilences = useCallback(async () => {
     const audioClips = clips.filter(
@@ -796,113 +822,93 @@ export default function Editor() {
     if (audioClips.length === 0) return;
     setIsCuttingSilences(true);
     try {
-      const silencesMap = new Map<string, { start: number; end: number }[]>();
+      // Only process one clip per linked pair (process the one we consider "main").
+      const processed = new Set<string>();
+      const toProcess: EditorClip[] = [];
       for (const clip of audioClips) {
-        const silences = await detectSilencesForClip(clip);
-        if (silences.length > 0) silencesMap.set(clip.id, silences);
+        const partnerId = clip.linkedClipId;
+        if (partnerId && processed.has(partnerId)) continue;
+        toProcess.push(clip);
+        processed.add(clip.id);
+        if (partnerId) processed.add(partnerId);
       }
 
-      setClips((prev) => {
-        let next = [...prev];
-        for (const [clipId, silences] of silencesMap) {
-          const idx = next.findIndex((c) => c.id === clipId);
-          if (idx === -1) continue;
-          const clip = next[idx];
-          const trimStart = toFinite(clip.trimStartSec, 0);
-          const trimEnd = toFinite(clip.trimEndSec, toFinite(clip.durationSec, 10));
+      const replacementMap = new Map<string, EditorClip[]>();
+      for (const clip of toProcess) {
+        const silences = await detectSilencesForClip(clip);
+        const trimStart = toFinite(clip.trimStartSec, 0);
+        const trimEnd = toFinite(clip.trimEndSec, toFinite(clip.durationSec, 10));
+        const segments = buildSegmentsFromSilences(trimStart, trimEnd, silences);
+        if (segments.length <= 1) continue;
 
-          const firstSilence = silences[0];
-          const lastSilence = silences[silences.length - 1];
+        const partner = clip.linkedClipId ? clips.find((c) => c.id === clip.linkedClipId) : null;
+        let timelineSec = toFinite(clip.startTimeSec, 0);
 
-          // First silence: trim from start so clip starts at firstSilence.end.
-          // Last silence: trim from end so clip ends at lastSilence.start.
-          let newTrimStart = trimStart;
-          let newTrimEnd = trimEnd;
-          if (firstSilence) {
-            newTrimStart = firstSilence.end;
-            newTrimStart = Math.max(trimStart, Math.min(newTrimStart, trimEnd));
-          }
-          if (lastSilence && silences.length > 1) {
-            newTrimEnd = lastSilence.start;
-            newTrimEnd = Math.max(newTrimStart, Math.min(newTrimEnd, trimEnd));
-          }
+        const segmentClips: EditorClip[] = [];
+        const partnerSegmentClips: EditorClip[] = [];
 
-          if (newTrimStart >= newTrimEnd) continue;
+        for (let i = 0; i < segments.length; i++) {
+          const seg = segments[i];
+          const segDur = Math.max(0, seg.end - seg.start);
+          const id = `clip-${Date.now()}-${clip.id}-seg-${i}-${Math.random().toString(36).slice(2, 9)}`;
+          const partnerId = partner
+            ? `clip-${Date.now()}-${partner.id}-seg-${i}-${Math.random().toString(36).slice(2, 9)}`
+            : undefined;
 
-          const startDelta = newTrimStart - trimStart;
-          const updated = { ...clip, trimStartSec: newTrimStart, trimEndSec: newTrimEnd };
+          const newClip: EditorClip = {
+            ...clip,
+            id,
+            trimStartSec: seg.start,
+            trimEndSec: seg.end,
+            startTimeSec: timelineSec,
+            disabled: seg.isSilence,
+            linkedClipId: partnerId,
+          };
           if (clip.kind === "combined") {
-            updated.trimStartSecVideo = newTrimStart;
-            updated.trimEndSecVideo = newTrimEnd;
-            updated.trimStartSecAudio = newTrimStart;
-            updated.trimEndSecAudio = newTrimEnd;
+            newClip.trimStartSecVideo = seg.start;
+            newClip.trimEndSecVideo = seg.end;
+            newClip.trimStartSecAudio = seg.start;
+            newClip.trimEndSecAudio = seg.end;
           }
+          segmentClips.push(newClip);
 
-          next[idx] = updated;
-
-          if (clip.linkedClipId) {
-            const partnerIdx = next.findIndex((c) => c.id === clip.linkedClipId);
-            if (partnerIdx !== -1) {
-              const partner = next[partnerIdx];
-              const pTrimStart = toFinite(partner.trimStartSec, 0);
-              const pTrimEnd = toFinite(partner.trimEndSec, toFinite(partner.durationSec, 10));
-              next[partnerIdx] = {
-                ...partner,
-                trimStartSec: pTrimStart + startDelta,
-                trimEndSec: pTrimEnd - (trimEnd - newTrimEnd),
-              };
+          if (partner && partnerId) {
+            const newPartner: EditorClip = {
+              ...partner,
+              id: partnerId,
+              trimStartSec: seg.start,
+              trimEndSec: seg.end,
+              startTimeSec: timelineSec,
+              disabled: seg.isSilence,
+              linkedClipId: id,
+            };
+            if (partner.kind === "combined") {
+              newPartner.trimStartSecVideo = seg.start;
+              newPartner.trimEndSecVideo = seg.end;
+              newPartner.trimStartSecAudio = seg.start;
+              newPartner.trimEndSecAudio = seg.end;
             }
+            partnerSegmentClips.push(newPartner);
           }
+
+          timelineSec += segDur;
         }
 
-        // Compact: shift clips left to close gaps caused by trimming.
-        // Process each track; re-read from `next` to avoid stale references.
-        // Track which linked clips were already shifted so we don't double-shift.
-        const shiftedLinkedIds = new Set<string>();
-        const trackIndices = [...new Set(next.map((c) => toFinite(c.trackIndex, 0)))].sort((a, b) => a - b);
-        for (const ti of trackIndices) {
-          const trackClipIds = next
-            .filter((c) => toFinite(c.trackIndex, 0) === ti && c.kind !== "subtitle")
-            .sort((a, b) => toFinite(a.startTimeSec, 0) - toFinite(b.startTimeSec, 0))
-            .map((c) => c.id);
-          for (let i = 0; i < trackClipIds.length; i++) {
-            const cId = trackClipIds[i];
-            if (shiftedLinkedIds.has(cId)) continue;
-            const cIdx = next.findIndex((n) => n.id === cId);
-            const c = next[cIdx];
-            const cStart = toFinite(c.startTimeSec, 0);
-            const cDur = Math.max(0, toFinite(c.trimEndSec, 0) - toFinite(c.trimStartSec, 0));
+        replacementMap.set(clip.id, segmentClips);
+        if (partner) replacementMap.set(partner.id, partnerSegmentClips);
+      }
 
-            let prevEnd = 0;
-            if (i > 0) {
-              const prevId = trackClipIds[i - 1];
-              const prevIdx = next.findIndex((n) => n.id === prevId);
-              const prev = next[prevIdx];
-              prevEnd = toFinite(prev.startTimeSec, 0) +
-                Math.max(0, toFinite(prev.trimEndSec, 0) - toFinite(prev.trimStartSec, 0));
-            }
-
-            if (cStart > prevEnd) {
-              const shift = cStart - prevEnd;
-              next[cIdx] = { ...next[cIdx], startTimeSec: cStart - shift };
-              if (c.linkedClipId) {
-                const pIdx = next.findIndex((n) => n.id === c.linkedClipId);
-                if (pIdx !== -1) {
-                  next[pIdx] = { ...next[pIdx], startTimeSec: toFinite(next[pIdx].startTimeSec, 0) - shift };
-                  shiftedLinkedIds.add(c.linkedClipId);
-                }
-              }
-            }
-          }
-        }
-
-        return next;
-      });
+      setClips((prev) =>
+        prev.flatMap((c) => {
+          const repl = replacementMap.get(c.id);
+          return repl ?? [c];
+        })
+      );
+      playerRef.current?.seekTo(0);
     } finally {
       setIsCuttingSilences(false);
-      playerRef.current?.seekTo(0);
     }
-  }, [clips, silenceBuffer, detectSilencesForClip]);
+  }, [clips, detectSilencesForClip, buildSegmentsFromSilences]);
 
   const removeClip = useCallback((id: string) => {
     setClips((prev) => {
