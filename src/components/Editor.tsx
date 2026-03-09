@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Video } from "@remotion/media";
-import { AbsoluteFill, Sequence, useVideoConfig } from "remotion";
+import { AbsoluteFill, Audio, Sequence, useVideoConfig } from "remotion";
 
 const RemotionPlayer = dynamic(
   () =>
@@ -241,6 +241,9 @@ export function EditorCompositionWithProps({ clips: rawClips = [] }: { clips?: E
                   })
                   .filter(([s, e]) => e > s);
 
+              const isAudioSrc = /\.(mp3|wav|ogg|aac|flac|webm|m4a)(\?|$)/i.test(clip.src) ||
+                clip.src.startsWith("blob:");
+
               const renderClipSequence = (
                 trimStart: number,
                 trimEnd: number,
@@ -275,6 +278,9 @@ export function EditorCompositionWithProps({ clips: rawClips = [] }: { clips?: E
                             : volume(frame);
                         }
                       : volume;
+
+                const useAudioElement = isAudioOnly && isAudioSrc && (clip.kind === "audio") && !clip.linkedClipId;
+
                 return (
                   <Sequence
                     key={`${clip.id}-${keySuffix}`}
@@ -283,25 +289,33 @@ export function EditorCompositionWithProps({ clips: rawClips = [] }: { clips?: E
                     name={`Clip ${clip.id} ${keySuffix}`}
                   >
                     <AbsoluteFill>
-                      <Video
-                        src={clip.src}
-                        trimBefore={trimBefore}
-                        {...(trimAfter !== undefined && { trimAfter })}
-                        volume={vol}
-                        style={{
-                          width: "100%",
-                          height: "100%",
-                          objectFit: "contain",
-                          ...(isAudioOnly && {
-                            position: "absolute",
-                            width: 0,
-                            height: 0,
-                            overflow: "hidden",
-                            opacity: 0,
-                            pointerEvents: "none",
-                          }),
-                        }}
-                      />
+                      {useAudioElement ? (
+                        <Audio
+                          src={clip.src}
+                          startFrom={trimBefore}
+                          volume={vol}
+                        />
+                      ) : (
+                        <Video
+                          src={clip.src}
+                          trimBefore={trimBefore}
+                          {...(trimAfter !== undefined && { trimAfter })}
+                          volume={vol}
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            objectFit: "contain",
+                            ...(isAudioOnly && {
+                              position: "absolute",
+                              width: 0,
+                              height: 0,
+                              overflow: "hidden",
+                              opacity: 0,
+                              pointerEvents: "none",
+                            }),
+                          }}
+                        />
+                      )}
                     </AbsoluteFill>
                   </Sequence>
                 );
@@ -372,6 +386,9 @@ export default function Editor() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioFileInputRef = useRef<HTMLInputElement>(null);
   const playerRef = useRef<PlayerRefType | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
   const playheadLineRef = useRef<HTMLDivElement>(null);
   const timelinePxPerSecRef = useRef(timelinePxPerSec);
   timelinePxPerSecRef.current = timelinePxPerSec;
@@ -445,6 +462,104 @@ export default function Editor() {
       ];
     });
   }, []);
+
+  const [isRecordingPaused, setIsRecordingPaused] = useState(false);
+
+  const stopRecording = useCallback(() => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      recorder.stop();
+    }
+    playerRef.current?.pause();
+    playerRef.current?.setVolume(1);
+    setIsRecording(false);
+    setIsRecordingPaused(false);
+  }, []);
+
+  const pauseRecording = useCallback(() => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state === "recording") {
+      recorder.pause();
+      playerRef.current?.pause();
+      setIsRecordingPaused(true);
+    }
+  }, []);
+
+  const resumeRecording = useCallback(() => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state === "paused") {
+      recorder.resume();
+      playerRef.current?.play();
+      setIsRecordingPaused(false);
+    }
+  }, []);
+
+  const startRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      recordedChunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) recordedChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        playerRef.current?.setVolume(1);
+        const blob = new Blob(recordedChunksRef.current, { type: "audio/webm" });
+        if (blob.size > 0) {
+          const url = URL.createObjectURL(blob);
+          addAudioClip(url, "Voiceover");
+        }
+        setIsRecording(false);
+      };
+
+      playerRef.current?.seekTo(0);
+      playerRef.current?.setVolume(0);
+      recorder.start();
+      setIsRecording(true);
+
+      setTimeout(() => {
+        playerRef.current?.play();
+      }, 100);
+
+      const player = playerRef.current;
+      if (player) {
+        const onEnd = () => {
+          if (mediaRecorderRef.current?.state !== "inactive") {
+            stopRecording();
+          }
+          player.removeEventListener("ended", onEnd);
+        };
+        player.addEventListener("ended", onEnd);
+      }
+    } catch (err) {
+      alert("Could not access microphone: " + (err instanceof Error ? err.message : String(err)));
+    }
+  }, [addAudioClip, stopRecording]);
+
+  const transcribeClip = useCallback(async (clipId: string) => {
+    const clip = clips.find((c) => c.id === clipId);
+    if (!clip) return;
+    setClipContextMenu(null);
+    try {
+      const res = await fetch(clip.src);
+      const blob = await res.blob();
+      const formData = new FormData();
+      formData.append("audio", blob, clip.fileName ?? "clip.webm");
+      const response = await fetch("/api/whisper-clip", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await response.json();
+      console.log("Transcription result:", data);
+    } catch (err) {
+      console.error("Transcription failed:", err);
+      alert("Transcription failed: " + (err instanceof Error ? err.message : String(err)));
+    }
+  }, [clips]);
 
   const removeClip = useCallback((id: string) => {
     setClips((prev) => {
@@ -989,6 +1104,32 @@ export default function Editor() {
               className="hidden"
               onChange={handleUploadClips}
             />
+            {isRecording ? (
+              <>
+                <button
+                  type="button"
+                  onClick={isRecordingPaused ? resumeRecording : pauseRecording}
+                  className="rounded border border-yellow-500 bg-yellow-500/20 text-yellow-400 px-3 py-1.5 text-sm hover:bg-yellow-500/30"
+                >
+                  {isRecordingPaused ? "▶ Resume" : "⏸ Pause"}
+                </button>
+                <button
+                  type="button"
+                  onClick={stopRecording}
+                  className="rounded border border-red-500 bg-red-500/20 text-red-400 px-3 py-1.5 text-sm hover:bg-red-500/30"
+                >
+                  ⏹ Stop
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={startRecording}
+                className="rounded border border-foreground/20 bg-foreground/10 px-3 py-1.5 text-sm hover:bg-foreground/20"
+              >
+                ⏺ Record
+              </button>
+            )}
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
@@ -1251,6 +1392,7 @@ export default function Editor() {
                   const clip = clips.find((c) => c.id === clipContextMenu.clipId);
                   const canUnlink = clip && ((clip.kind ?? "combined") === "combined" || clip.linkedClipId != null);
                   const isDisabled = clip?.disabled;
+                  const isAudioClip = clip && ((clip.kind ?? "combined") === "audio" || (clip.kind ?? "combined") === "combined");
                   return (
                     <div
                       className="fixed z-50 min-w-[140px] rounded-md border border-foreground/20 bg-background py-1 shadow-lg"
@@ -1275,6 +1417,15 @@ export default function Editor() {
                       >
                         Unlink
                       </button>
+                      {isAudioClip && (
+                        <button
+                          type="button"
+                          className="w-full px-3 py-1.5 text-left text-sm hover:bg-foreground/10"
+                          onClick={() => transcribeClip(clipContextMenu.clipId)}
+                        >
+                          Transcribe
+                        </button>
+                      )}
                     </div>
                   );
                 })(),
