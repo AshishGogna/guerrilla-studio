@@ -471,6 +471,7 @@ export default function Editor() {
   const [isCuttingSilences, setIsCuttingSilences] = useState(false);
   const [silenceBuffer, setSilenceBuffer] = useState(0.5);
   const [cutSilencesOpen, setCutSilencesOpen] = useState(true);
+  const [transcribeOpen, setTranscribeOpen] = useState(true);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const playheadLineRef = useRef<HTMLDivElement>(null);
@@ -1518,6 +1519,28 @@ export default function Editor() {
           <div className="border-b border-foreground/10">
             <button
               type="button"
+              onClick={() => setTranscribeOpen((v) => !v)}
+              className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium text-foreground/80 hover:bg-foreground/5"
+            >
+              Transcribe
+              <span className="text-xs text-foreground/40">{transcribeOpen ? "▾" : "▸"}</span>
+            </button>
+            {transcribeOpen && (
+              <div className="flex flex-col gap-3 px-3 pb-3">
+                <button
+                  type="button"
+                  onClick={transcribeAll}
+                  disabled={isTranscribingAll || clips.filter((c) => (c.kind === "audio" || c.kind === "combined") && !c.disabled).length === 0}
+                  className="rounded border border-foreground/20 bg-foreground/10 px-3 py-1.5 text-sm hover:bg-foreground/20 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {isTranscribingAll ? "Transcribing..." : "Transcribe all"}
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="border-b border-foreground/10">
+            <button
+              type="button"
               onClick={() => setCutSilencesOpen((v) => !v)}
               className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium text-foreground/80 hover:bg-foreground/5"
             >
@@ -1577,14 +1600,6 @@ export default function Editor() {
               className="hidden"
               onChange={handleUploadClips}
             />
-            <button
-              type="button"
-              onClick={transcribeAll}
-              disabled={isTranscribingAll || clips.filter((c) => (c.kind === "audio" || c.kind === "combined") && !c.disabled).length === 0}
-              className="rounded border border-foreground/20 bg-foreground/10 px-3 py-1.5 text-sm hover:bg-foreground/20 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {isTranscribingAll ? "Transcribing..." : "Transcribe All"}
-            </button>
             {isRecording ? (
               <>
                 <button
