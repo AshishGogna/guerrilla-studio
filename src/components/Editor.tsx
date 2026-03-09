@@ -431,6 +431,7 @@ export default function Editor() {
   const audioFileInputRef = useRef<HTMLInputElement>(null);
   const playerRef = useRef<PlayerRefType | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribingAll, setIsTranscribingAll] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const playheadLineRef = useRef<HTMLDivElement>(null);
@@ -606,6 +607,22 @@ export default function Editor() {
       const clipOffset = toFinite(clip.startTimeSec, 0);
 
       setClips((prev) => {
+        const existingSubTrack = prev.find((c) => c.kind === "subtitle");
+        if (existingSubTrack != null) {
+          const subTrackIdx = toFinite(existingSubTrack.trackIndex, 0);
+          const newSubs: EditorClip[] = segments.map((seg, i) => ({
+            id: `sub-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 7)}`,
+            src: "",
+            trimStartSec: 0,
+            trimEndSec: seg.end - seg.start,
+            durationSec: seg.end - seg.start,
+            startTimeSec: clipOffset + seg.start,
+            trackIndex: subTrackIdx,
+            kind: "subtitle" as const,
+            text: seg.text.trim(),
+          }));
+          return [...prev, ...newSubs];
+        }
         const shifted = prev.map((c) => ({ ...c, trackIndex: toFinite(c.trackIndex, 0) + 1 }));
         const subtitleClips: EditorClip[] = segments.map((seg, i) => ({
           id: `sub-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 7)}`,
@@ -625,6 +642,21 @@ export default function Editor() {
       alert("Transcription failed: " + (err instanceof Error ? err.message : String(err)));
     }
   }, [clips]);
+
+  const transcribeAll = useCallback(async () => {
+    const audioClips = clips.filter(
+      (c) => (c.kind === "audio" || c.kind === "combined") && !c.disabled
+    );
+    if (audioClips.length === 0) return;
+    setIsTranscribingAll(true);
+    try {
+      for (const clip of audioClips) {
+        await transcribeClip(clip.id);
+      }
+    } finally {
+      setIsTranscribingAll(false);
+    }
+  }, [clips, transcribeClip]);
 
   const removeClip = useCallback((id: string) => {
     setClips((prev) => {
@@ -1169,6 +1201,14 @@ export default function Editor() {
               className="hidden"
               onChange={handleUploadClips}
             />
+            <button
+              type="button"
+              onClick={transcribeAll}
+              disabled={isTranscribingAll || clips.filter((c) => (c.kind === "audio" || c.kind === "combined") && !c.disabled).length === 0}
+              className="rounded border border-foreground/20 bg-foreground/10 px-3 py-1.5 text-sm hover:bg-foreground/20 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {isTranscribingAll ? "Transcribing..." : "Transcribe All"}
+            </button>
             {isRecording ? (
               <>
                 <button
@@ -1201,24 +1241,6 @@ export default function Editor() {
               className="rounded border border-foreground/20 bg-foreground/10 px-3 py-1.5 text-sm hover:bg-foreground/20"
             >
               Upload clips
-            </button>
-            <input
-              type="url"
-              value={addUrl}
-              onChange={(e) => setAddUrl(e.target.value)}
-              placeholder="Or paste video URL..."
-              className="w-56 rounded border border-foreground/20 bg-transparent px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-accent"
-            />
-            <button
-              type="button"
-              onClick={() => {
-                const url = addUrl.trim();
-                if (url) addClip(url);
-              }}
-              disabled={!addUrl.trim()}
-              className="rounded border border-foreground/20 bg-foreground/10 px-3 py-1.5 text-sm hover:bg-foreground/20 disabled:opacity-50"
-            >
-              Add from URL
             </button>
             <button
               type="button"
