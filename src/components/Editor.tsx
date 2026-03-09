@@ -942,6 +942,37 @@ export default function Editor() {
           if (clip?.src.startsWith("blob:")) URL.revokeObjectURL(clip.src);
           next = removeClipFromArray(next, id);
         }
+        // Compact timeline: reassign startTimeSec so no gaps remain
+        const nonSub = next.filter((c) => c.kind !== "subtitle");
+        if (nonSub.length > 0) {
+          const byStart = new Map<number, EditorClip[]>();
+          for (const c of nonSub) {
+            const t = toFinite(c.startTimeSec, 0);
+            if (!byStart.has(t)) byStart.set(t, []);
+            byStart.get(t)!.push(c);
+          }
+          const sortedStarts = [...byStart.keys()].sort((a, b) => a - b);
+          const newStartMap = new Map<string, number>();
+          let runEnd = 0;
+          for (const t of sortedStarts) {
+            const group = byStart.get(t)!;
+            const maxDur = Math.max(
+              ...group.map((c) =>
+                Math.max(0, toFinite(c.trimEndSec, 0) - toFinite(c.trimStartSec, 0))
+              )
+            );
+            for (const c of group) {
+              newStartMap.set(c.id, runEnd);
+              if (c.linkedClipId) newStartMap.set(c.linkedClipId, runEnd);
+            }
+            runEnd += maxDur;
+          }
+          next = next.map((c) => {
+            const newStart = newStartMap.get(c.id);
+            if (newStart === undefined) return c;
+            return { ...c, startTimeSec: newStart };
+          });
+        }
         return next;
       });
       playerRef.current?.seekTo(0);
