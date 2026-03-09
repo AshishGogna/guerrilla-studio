@@ -21,6 +21,8 @@ const COMP_WIDTH = 1920;
 const COMP_HEIGHT = 1080;
 const CLIP_WIDTH_PX_PER_SEC = 64;
 const TRACK_HEIGHT_PX = 48;
+/** Minimum segment duration (sec) when splitting by silences; shorter segments are skipped to avoid very thin clips. */
+const MIN_SEGMENT_DURATION_SEC = 0.1;
 const RULER_HEIGHT_PX = 36; // h-9 in Tailwind
 const TIMELINE_PADDING_PX = 16; // p-4 on scroll container
 
@@ -850,6 +852,11 @@ export default function Editor() {
         for (let i = 0; i < segments.length; i++) {
           const seg = segments[i];
           const segDur = Math.max(0, seg.end - seg.start);
+          // Skip very short segments to avoid extra very thin clips (e.g. tiny tail after last silence)
+          if (segDur < MIN_SEGMENT_DURATION_SEC) {
+            timelineSec += segDur;
+            continue;
+          }
           const id = `clip-${Date.now()}-${clip.id}-seg-${i}-${Math.random().toString(36).slice(2, 9)}`;
           const partnerId = partner
             ? `clip-${Date.now()}-${partner.id}-seg-${i}-${Math.random().toString(36).slice(2, 9)}`
@@ -894,9 +901,21 @@ export default function Editor() {
           timelineSec += segDur;
         }
 
-        replacementMap.set(clip.id, segmentClips);
-        if (partner) replacementMap.set(partner.id, partnerSegmentClips);
+        if (segmentClips.length > 0) {
+          replacementMap.set(clip.id, segmentClips);
+          if (partner) replacementMap.set(partner.id, partnerSegmentClips);
+        }
       }
+
+      // Build disabled list once from replacementMap (avoids double log from Strict Mode)
+      const allSegmentClips = [...replacementMap.values()].flat();
+      const disabledClips = allSegmentClips.filter((c) => c.disabled);
+      console.log(
+        "Cut silences – disabled clips:",
+        disabledClips.length,
+        "(silence segments × tracks; e.g. 2 silences × video+audio = 4):",
+        disabledClips
+      );
 
       setClips((prev) =>
         prev.flatMap((c) => {
