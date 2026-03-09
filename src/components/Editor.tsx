@@ -77,7 +77,7 @@ function toFinite(value: unknown, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-export type ClipKind = "video" | "audio" | "combined";
+export type ClipKind = "video" | "audio" | "combined" | "subtitle";
 
 export interface EditorClip {
   id: string;
@@ -109,6 +109,8 @@ export interface EditorClip {
   fileName?: string;
   /** When true the clip is muted/hidden in the composition but still shown on the timeline. */
   disabled?: boolean;
+  /** Subtitle text (for subtitle clips). */
+  text?: string;
 }
 
 const WAVEFORM_SAMPLES = 256;
@@ -137,9 +139,11 @@ async function decodeAudioWaveform(src: string): Promise<number[]> {
 
 export function EditorCompositionWithProps({ clips: rawClips = [] }: { clips?: EditorClip[] }) {
   const { fps } = useVideoConfig();
-  const clips = rawClips.filter((c) => !c.disabled);
+  const allEnabled = rawClips.filter((c) => !c.disabled);
+  const clips = allEnabled.filter((c) => c.kind !== "subtitle");
+  const subtitleClips = allEnabled.filter((c) => c.kind === "subtitle");
 
-  if (clips.length === 0) {
+  if (allEnabled.length === 0) {
     return (
       <AbsoluteFill
         style={{
@@ -163,7 +167,7 @@ export function EditorCompositionWithProps({ clips: rawClips = [] }: { clips?: E
   );
   const totalDurationSec = Math.max(
     0.1,
-    ...clips.map((c) => {
+    ...allEnabled.map((c) => {
       const start = toFinite(c.startTimeSec, 0);
       const dur = Math.max(0, toFinite(c.trimEndSec, 0) - toFinite(c.trimStartSec, 0));
       return start + dur;
@@ -368,6 +372,46 @@ export function EditorCompositionWithProps({ clips: rawClips = [] }: { clips?: E
           </AbsoluteFill>
         );
       })}
+      {subtitleClips.length > 0 && (
+        <AbsoluteFill style={{ pointerEvents: "none" }}>
+          {subtitleClips.map((sub) => {
+            const durSec = Math.max(0, toFinite(sub.trimEndSec, 0) - toFinite(sub.trimStartSec, 0));
+            const durationInFrames = Math.max(1, Math.round(durSec * safeFps));
+            const fromFrame = Math.round(toFinite(sub.startTimeSec, 0) * safeFps);
+            return (
+              <Sequence
+                key={sub.id}
+                from={fromFrame}
+                durationInFrames={durationInFrames}
+                name={`Sub ${sub.id}`}
+              >
+                <AbsoluteFill
+                  style={{
+                    justifyContent: "flex-end",
+                    alignItems: "center",
+                    paddingBottom: 40,
+                  }}
+                >
+                  <div
+                    style={{
+                      backgroundColor: "rgba(0,0,0,0.7)",
+                      color: "#fff",
+                      padding: "6px 16px",
+                      borderRadius: 4,
+                      fontSize: 24,
+                      fontFamily: "sans-serif",
+                      textAlign: "center",
+                      maxWidth: "80%",
+                    }}
+                  >
+                    {sub.text}
+                  </div>
+                </AbsoluteFill>
+              </Sequence>
+            );
+          })}
+        </AbsoluteFill>
+      )}
     </>
   );
 }
@@ -555,6 +599,27 @@ export default function Editor() {
       });
       const data = await response.json();
       console.log("Transcription result:", data);
+
+      const segments: { start: number; end: number; text: string }[] = data.segments ?? [];
+      if (segments.length === 0) return;
+
+      const clipOffset = toFinite(clip.startTimeSec, 0);
+
+      setClips((prev) => {
+        const shifted = prev.map((c) => ({ ...c, trackIndex: toFinite(c.trackIndex, 0) + 1 }));
+        const subtitleClips: EditorClip[] = segments.map((seg, i) => ({
+          id: `sub-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 7)}`,
+          src: "",
+          trimStartSec: 0,
+          trimEndSec: seg.end - seg.start,
+          durationSec: seg.end - seg.start,
+          startTimeSec: clipOffset + seg.start,
+          trackIndex: 0,
+          kind: "subtitle" as const,
+          text: seg.text.trim(),
+        }));
+        return [...subtitleClips, ...shifted];
+      });
     } catch (err) {
       console.error("Transcription failed:", err);
       alert("Transcription failed: " + (err instanceof Error ? err.message : String(err)));
@@ -1137,13 +1202,6 @@ export default function Editor() {
             >
               Upload clips
             </button>
-            <button
-              type="button"
-              onClick={() => audioFileInputRef.current?.click()}
-              className="rounded border border-foreground/20 bg-foreground/10 px-3 py-1.5 text-sm hover:bg-foreground/20"
-            >
-              Upload audio
-            </button>
             <input
               type="url"
               value={addUrl}
@@ -1339,6 +1397,50 @@ export default function Editor() {
                                   }
                                   {...blockHandlers(clip, "audio")}
                                 />
+                              </div>
+                            </div>
+                          );
+                        }
+                        if (k === "subtitle") {
+                          const subDur = Math.max(0, toFinite(clip.trimEndSec, 0) - toFinite(clip.trimStartSec, 0));
+                          const subWidthPx = Math.max(24, subDur * timelinePxPerSec);
+                          const subLeft = `${(clip.startTimeSec ?? 0) * timelinePxPerSec}px`;
+                          return (
+                            <div
+                              key={clip.id}
+                              className="absolute top-0 h-full"
+                              style={{ left: subLeft, pointerEvents: "none", opacity: clipOpacity }}
+                            >
+                              <div
+                                role="button"
+                                tabIndex={0}
+                                onClick={(e) => { e.stopPropagation(); setSelectedClipId(clip.id); }}
+                                onContextMenu={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setClipContextMenu({ clipId: clip.id, x: e.clientX, y: e.clientY });
+                                }}
+                                onMouseDown={(e) => {
+                                  if (e.button === 0)
+                                    handlePositionDragStart(
+                                      clip.id,
+                                      clip.startTimeSec ?? 0,
+                                      toFinite(clip.trackIndex, 0),
+                                      e.nativeEvent.clientX,
+                                      () => setSelectedClipId(clip.id)
+                                    );
+                                }}
+                                className={`relative h-12 shrink-0 cursor-grab active:cursor-grabbing overflow-hidden rounded border-2 transition ${
+                                  selectedClipId === clip.id
+                                    ? "border-accent"
+                                    : "border-green-500/40 hover:border-green-500/60"
+                                } ${draggedId === clip.id ? "opacity-50" : ""}`}
+                                style={{ width: `${subWidthPx}px`, pointerEvents: "auto" }}
+                              >
+                                <div className="absolute inset-0 bg-green-500/15" />
+                                <span className="absolute left-1 right-1 top-1/2 -translate-y-1/2 truncate text-[10px] font-medium text-green-300">
+                                  {clip.text}
+                                </span>
                               </div>
                             </div>
                           );
