@@ -201,11 +201,9 @@ export function EditorCompositionWithProps({ clips: rawClips = [] }: { clips?: E
         return (
           <AbsoluteFill key={`track-${trackIdx}`}>
             {gaps.map((gap, i) => {
-              const fromFrame = Math.round(gap.start * safeFps);
-              const durationInFrames = Math.max(
-                1,
-                Math.round((gap.end - gap.start) * safeFps)
-              );
+              const fromFrame = Math.floor(gap.start * safeFps);
+              const gapEndFrame = Math.floor(gap.end * safeFps);
+              const durationInFrames = Math.max(1, gapEndFrame - fromFrame);
               const isBottomTrack = trackIdx === maxTrackIdx;
               return (
                 <Sequence
@@ -256,18 +254,12 @@ export function EditorCompositionWithProps({ clips: rawClips = [] }: { clips?: E
                 keySuffix: string
               ) => {
                 const durationSec = Math.max(0, trimEnd - trimStart);
-                const durationInFrames = Math.max(
-                  1,
-                  Math.round(toFinite(durationSec * safeFps, 0))
-                );
-                const fromFrame = Math.round(toFinite(clip.startTimeSec, 0) * safeFps);
+                if (durationSec <= 0) return null;
+                const clipStart = toFinite(clip.startTimeSec, 0);
+                const fromFrame = Math.floor(clipStart * safeFps);
+                const endFrame = Math.floor((clipStart + durationSec) * safeFps);
+                const durationInFrames = Math.max(1, endFrame - fromFrame);
                 const trimBefore = Math.max(0, Math.round(trimStart * safeFps));
-                const durationSecClip = toFinite(clip.durationSec, 0);
-                const trimAfterFrames =
-                  clip.durationSec != null && durationSecClip > 0
-                    ? Math.round((durationSecClip - trimEnd) * safeFps)
-                    : 0;
-                const trimAfter = trimAfterFrames > 0 ? trimAfterFrames : undefined;
                 const clipStartSec = toFinite(clip.startTimeSec, 0);
                 const clipEndSec = clipStartSec + durationSec;
                 const overlapSeconds = overlapSecondsForClip(clipStartSec, clipEndSec);
@@ -283,7 +275,7 @@ export function EditorCompositionWithProps({ clips: rawClips = [] }: { clips?: E
                         }
                       : volume;
 
-                const useAudioElement = isAudioOnly && isAudioSrc && (clip.kind === "audio") && !clip.linkedClipId;
+                const useAudioElement = isAudioOnly && (clip.kind === "audio");
 
                 return (
                   <Sequence
@@ -303,7 +295,6 @@ export function EditorCompositionWithProps({ clips: rawClips = [] }: { clips?: E
                         <Video
                           src={clip.src}
                           trimBefore={trimBefore}
-                          {...(trimAfter !== undefined && { trimAfter })}
                           volume={vol}
                           style={{
                             width: "100%",
@@ -432,6 +423,9 @@ export default function Editor() {
   const playerRef = useRef<PlayerRefType | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribingAll, setIsTranscribingAll] = useState(false);
+  const [isCuttingSilences, setIsCuttingSilences] = useState(false);
+  const [silenceBuffer, setSilenceBuffer] = useState(0.5);
+  const [cutSilencesOpen, setCutSilencesOpen] = useState(true);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const playheadLineRef = useRef<HTMLDivElement>(null);
@@ -658,6 +652,140 @@ export default function Editor() {
     }
   }, [clips, transcribeClip]);
 
+  const transcribeClipRaw = useCallback(async (clip: EditorClip): Promise<{ start: number; end: number; text: string }[]> => {
+    try {
+      const res = await fetch(clip.src);
+      const blob = await res.blob();
+      const formData = new FormData();
+      formData.append("audio", blob, clip.fileName ?? "clip.webm");
+      const response = await fetch("/api/whisper-clip", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await response.json();
+      return data.segments ?? [];
+    } catch (err) {
+      console.error("Transcription failed for clip", clip.id, err);
+      return [];
+    }
+  }, []);
+
+  const cutSilences = useCallback(async () => {
+    const audioClips = clips.filter(
+      (c) => (c.kind === "audio" || c.kind === "combined") && !c.disabled
+    );
+    if (audioClips.length === 0) return;
+    setIsCuttingSilences(true);
+    try {
+      const transcriptions = new Map<string, { start: number; end: number; text: string }[]>();
+      for (const clip of audioClips) {
+        const segs = await transcribeClipRaw(clip);
+        if (segs.length > 0) transcriptions.set(clip.id, segs);
+      }
+
+      setClips((prev) => {
+        let next = [...prev];
+        for (const [clipId, segs] of transcriptions) {
+          const idx = next.findIndex((c) => c.id === clipId);
+          if (idx === -1) continue;
+          const clip = next[idx];
+          const trimStart = toFinite(clip.trimStartSec, 0);
+          const trimEnd = toFinite(clip.trimEndSec, toFinite(clip.durationSec, 10));
+          const clipDur = trimEnd - trimStart;
+
+          const firstSeg = segs[0];
+          const lastSeg = segs[segs.length - 1];
+
+          let newTrimStart = trimStart;
+          let newTrimEnd = trimEnd;
+
+          const silenceAtStart = firstSeg.start;
+          if (silenceAtStart > silenceBuffer) {
+            newTrimStart = trimStart + (silenceAtStart - silenceBuffer);
+          }
+
+          const silenceAtEnd = clipDur - lastSeg.end;
+          if (silenceAtEnd > silenceBuffer) {
+            newTrimEnd = trimEnd - (silenceAtEnd - silenceBuffer);
+          }
+
+          if (newTrimStart === trimStart && newTrimEnd === trimEnd) continue;
+
+          const startDelta = newTrimStart - trimStart;
+          const updated = { ...clip, trimStartSec: newTrimStart, trimEndSec: newTrimEnd };
+          if (clip.kind === "combined") {
+            updated.trimStartSecVideo = newTrimStart;
+            updated.trimEndSecVideo = newTrimEnd;
+            updated.trimStartSecAudio = newTrimStart;
+            updated.trimEndSecAudio = newTrimEnd;
+          }
+
+          next[idx] = updated;
+
+          if (clip.linkedClipId) {
+            const partnerIdx = next.findIndex((c) => c.id === clip.linkedClipId);
+            if (partnerIdx !== -1) {
+              const partner = next[partnerIdx];
+              const pTrimStart = toFinite(partner.trimStartSec, 0);
+              const pTrimEnd = toFinite(partner.trimEndSec, toFinite(partner.durationSec, 10));
+              next[partnerIdx] = {
+                ...partner,
+                trimStartSec: pTrimStart + startDelta,
+                trimEndSec: pTrimEnd - (trimEnd - newTrimEnd),
+              };
+            }
+          }
+        }
+
+        // Compact: shift clips left to close gaps caused by trimming.
+        // Process each track; re-read from `next` to avoid stale references.
+        // Track which linked clips were already shifted so we don't double-shift.
+        const shiftedLinkedIds = new Set<string>();
+        const trackIndices = [...new Set(next.map((c) => toFinite(c.trackIndex, 0)))].sort((a, b) => a - b);
+        for (const ti of trackIndices) {
+          const trackClipIds = next
+            .filter((c) => toFinite(c.trackIndex, 0) === ti && c.kind !== "subtitle")
+            .sort((a, b) => toFinite(a.startTimeSec, 0) - toFinite(b.startTimeSec, 0))
+            .map((c) => c.id);
+          for (let i = 0; i < trackClipIds.length; i++) {
+            const cId = trackClipIds[i];
+            if (shiftedLinkedIds.has(cId)) continue;
+            const cIdx = next.findIndex((n) => n.id === cId);
+            const c = next[cIdx];
+            const cStart = toFinite(c.startTimeSec, 0);
+            const cDur = Math.max(0, toFinite(c.trimEndSec, 0) - toFinite(c.trimStartSec, 0));
+
+            let prevEnd = 0;
+            if (i > 0) {
+              const prevId = trackClipIds[i - 1];
+              const prevIdx = next.findIndex((n) => n.id === prevId);
+              const prev = next[prevIdx];
+              prevEnd = toFinite(prev.startTimeSec, 0) +
+                Math.max(0, toFinite(prev.trimEndSec, 0) - toFinite(prev.trimStartSec, 0));
+            }
+
+            if (cStart > prevEnd) {
+              const shift = cStart - prevEnd;
+              next[cIdx] = { ...next[cIdx], startTimeSec: cStart - shift };
+              if (c.linkedClipId) {
+                const pIdx = next.findIndex((n) => n.id === c.linkedClipId);
+                if (pIdx !== -1) {
+                  next[pIdx] = { ...next[pIdx], startTimeSec: toFinite(next[pIdx].startTimeSec, 0) - shift };
+                  shiftedLinkedIds.add(c.linkedClipId);
+                }
+              }
+            }
+          }
+        }
+
+        return next;
+      });
+    } finally {
+      setIsCuttingSilences(false);
+      playerRef.current?.seekTo(0);
+    }
+  }, [clips, silenceBuffer, transcribeClipRaw]);
+
   const removeClip = useCallback((id: string) => {
     setClips((prev) => {
       const clip = prev.find((c) => c.id === id);
@@ -756,30 +884,39 @@ export default function Editor() {
     []
   );
 
-  /** Update only the trim for the given track (video or audio row). Prevents trimming one row from changing the other. */
+  /** Update only the trim for the given track (video or audio row). Prevents trimming one row from changing the other.
+   *  For linked clips, the same trim change is applied to the partner. */
   const updateClipTrimForTrack = useCallback(
     (id: string, patch: { trimStartSec?: number; trimEndSec?: number }, trackType: "video" | "audio") => {
-      setClips((prev) =>
-        prev.map((c) => {
-          if (c.id !== id) return c;
-          const k = c.kind ?? "combined";
-          if (k !== "combined") {
-            return { ...c, ...patch };
-          }
-          if (trackType === "video") {
+      setClips((prev) => {
+        const target = prev.find((c) => c.id === id);
+        if (!target) return prev;
+        const k = target.kind ?? "combined";
+        const linkedId = target.linkedClipId;
+
+        return prev.map((c) => {
+          const isTarget = c.id === id;
+          const isLinked = linkedId != null && c.id === linkedId;
+          if (!isTarget && !isLinked) return c;
+
+          if (k === "combined" && isTarget) {
+            if (trackType === "video") {
+              return {
+                ...c,
+                ...(patch.trimStartSec != null && { trimStartSecVideo: patch.trimStartSec }),
+                ...(patch.trimEndSec != null && { trimEndSecVideo: patch.trimEndSec }),
+              };
+            }
             return {
               ...c,
-              ...(patch.trimStartSec != null && { trimStartSecVideo: patch.trimStartSec }),
-              ...(patch.trimEndSec != null && { trimEndSecVideo: patch.trimEndSec }),
+              ...(patch.trimStartSec != null && { trimStartSecAudio: patch.trimStartSec }),
+              ...(patch.trimEndSec != null && { trimEndSecAudio: patch.trimEndSec }),
             };
           }
-          return {
-            ...c,
-            ...(patch.trimStartSec != null && { trimStartSecAudio: patch.trimStartSec }),
-            ...(patch.trimEndSec != null && { trimEndSecAudio: patch.trimEndSec }),
-          };
-        })
-      );
+
+          return { ...c, ...patch };
+        });
+      });
     },
     []
   );
@@ -1168,15 +1305,52 @@ export default function Editor() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background text-foreground">
-      {/* Preview */}
-      <div className="flex shrink-0 justify-center border-b border-foreground/10 bg-black/40 p-4"
-      style={{ height: 300 }}>
-        <div className="aspect-video w-full max-w-4xl overflow-hidden rounded-lg bg-black">
-          <RemotionPlayerPreview
-            ref={playerRef}
-            clips={clips}
-            durationInFrames={durationInFrames}
-          />
+      {/* Preview + Right Panel */}
+      <div className="flex shrink-0 border-b border-foreground/10 bg-black/40" style={{ height: 300 }}>
+        <div className="flex flex-1 items-center justify-center p-4">
+          <div className="aspect-video w-full max-w-4xl overflow-hidden rounded-lg bg-black">
+            <RemotionPlayerPreview
+              ref={playerRef}
+              clips={clips}
+              durationInFrames={durationInFrames}
+            />
+          </div>
+        </div>
+        {/* AI Tools Panel */}
+        <div className="w-64 shrink-0 border-l border-foreground/10 overflow-y-auto bg-foreground/[0.02]">
+          <div className="border-b border-foreground/10">
+            <button
+              type="button"
+              onClick={() => setCutSilencesOpen((v) => !v)}
+              className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium text-foreground/80 hover:bg-foreground/5"
+            >
+              Cut Silences
+              <span className="text-xs text-foreground/40">{cutSilencesOpen ? "▾" : "▸"}</span>
+            </button>
+            {cutSilencesOpen && (
+              <div className="flex flex-col gap-3 px-3 pb-3">
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-foreground/50">Buffer (seconds)</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.1}
+                    value={silenceBuffer}
+                    onChange={(e) => setSilenceBuffer(Math.max(0, parseFloat(e.target.value) || 0))}
+                    className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={cutSilences}
+                  disabled={isCuttingSilences || clips.filter((c) => (c.kind === "audio" || c.kind === "combined") && !c.disabled).length === 0}
+                  className="rounded border border-foreground/20 bg-foreground/10 px-3 py-1.5 text-sm hover:bg-foreground/20 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {isCuttingSilences ? "Cutting..." : "Cut"}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
