@@ -49,6 +49,7 @@ function getEffectiveTrim(
 
 /** Get a short display name for a clip from its src (filename or fallback). */
 function getClipDisplayName(clip: EditorClip): string {
+  if (clip.fileName) return clip.fileName;
   try {
     if (clip.src.startsWith("blob:")) return "Uploaded clip";
     const u = new URL(clip.src, "file:");
@@ -104,6 +105,10 @@ export interface EditorClip {
   waveformData?: number[];
   /** Id of the linked partner clip. Moving one syncs the other. Cleared on Unlink. */
   linkedClipId?: string;
+  /** Original file name (for display). */
+  fileName?: string;
+  /** When true the clip is muted/hidden in the composition but still shown on the timeline. */
+  disabled?: boolean;
 }
 
 const WAVEFORM_SAMPLES = 256;
@@ -130,8 +135,9 @@ async function decodeAudioWaveform(src: string): Promise<number[]> {
   return out.map((v) => v / peak);
 }
 
-export function EditorCompositionWithProps({ clips = [] }: { clips?: EditorClip[] }) {
+export function EditorCompositionWithProps({ clips: rawClips = [] }: { clips?: EditorClip[] }) {
   const { fps } = useVideoConfig();
+  const clips = rawClips.filter((c) => !c.disabled);
 
   if (clips.length === 0) {
     return (
@@ -364,6 +370,7 @@ export default function Editor() {
   const [playheadTimeSec, setPlayheadTimeSec] = useState(0);
   const [addUrl, setAddUrl] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const audioFileInputRef = useRef<HTMLInputElement>(null);
   const playerRef = useRef<PlayerRefType | null>(null);
   const playheadLineRef = useRef<HTMLDivElement>(null);
   const timelinePxPerSecRef = useRef(timelinePxPerSec);
@@ -416,6 +423,29 @@ export default function Editor() {
     setAddUrl("");
   }, []);
 
+  const addAudioClip = useCallback((src: string, fileName?: string) => {
+    setClips((prev) => {
+      const maxTrack = prev.length === 0
+        ? -1
+        : Math.max(...prev.map((c) => toFinite(c.trackIndex, 0)));
+      const newTrack = maxTrack + 1;
+      const id = `clip-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      return [
+        ...prev,
+        {
+          id,
+          src,
+          trimStartSec: 0,
+          trimEndSec: 10,
+          startTimeSec: 0,
+          trackIndex: newTrack,
+          kind: "audio" as const,
+          ...(fileName ? { fileName } : {}),
+        },
+      ];
+    });
+  }, []);
+
   const removeClip = useCallback((id: string) => {
     setClips((prev) => {
       const clip = prev.find((c) => c.id === id);
@@ -462,6 +492,21 @@ export default function Editor() {
     setSelectedClipId(null);
   }, []);
 
+  const toggleClipEnabled = useCallback((clipId: string) => {
+    setClips((prev) => {
+      const clip = prev.find((c) => c.id === clipId);
+      if (!clip) return prev;
+      const newDisabled = !clip.disabled;
+      const partnerId = clip.linkedClipId;
+      return prev.map((c) =>
+        c.id === clipId || (partnerId && c.id === partnerId)
+          ? { ...c, disabled: newDisabled }
+          : c
+      );
+    });
+    setClipContextMenu(null);
+  }, []);
+
   useEffect(() => {
     if (!clipContextMenu) return;
     const close = () => setClipContextMenu(null);
@@ -479,11 +524,15 @@ export default function Editor() {
       if (!files?.length) return;
       for (const file of Array.from(files)) {
         const url = URL.createObjectURL(file);
-        addClip(url);
+        if (file.type.startsWith("audio/")) {
+          addAudioClip(url, file.name);
+        } else {
+          addClip(url);
+        }
       }
       e.target.value = "";
     },
-    [addClip]
+    [addClip, addAudioClip]
   );
 
   const updateClip = useCallback(
@@ -927,7 +976,15 @@ export default function Editor() {
             <input
               ref={fileInputRef}
               type="file"
-              accept="video/*"
+              accept="video/*,audio/*"
+              multiple
+              className="hidden"
+              onChange={handleUploadClips}
+            />
+            <input
+              ref={audioFileInputRef}
+              type="file"
+              accept="audio/*"
               multiple
               className="hidden"
               onChange={handleUploadClips}
@@ -938,6 +995,13 @@ export default function Editor() {
               className="rounded border border-foreground/20 bg-foreground/10 px-3 py-1.5 text-sm hover:bg-foreground/20"
             >
               Upload clips
+            </button>
+            <button
+              type="button"
+              onClick={() => audioFileInputRef.current?.click()}
+              className="rounded border border-foreground/20 bg-foreground/10 px-3 py-1.5 text-sm hover:bg-foreground/20"
+            >
+              Upload audio
             </button>
             <input
               type="url"
@@ -1095,6 +1159,7 @@ export default function Editor() {
                           ? toFinite(displayClipA.trimStartSec, 0)
                           : toFinite(displayClipV.trimStartSec, 0);
                         const slotLeft = `${((clip.startTimeSec ?? 0) - trimOffset) * timelinePxPerSec}px`;
+                        const clipOpacity = clip.disabled ? 0.35 : 1;
                         if (k === "combined") {
                           const trimStart = toFinite(displayClipV.trimStartSec, 0);
                           const trimEnd = toFinite(displayClipV.trimEndSec, 10);
@@ -1105,7 +1170,7 @@ export default function Editor() {
                             <div
                               key={clip.id}
                               className="absolute top-0 flex h-full flex-col"
-                              style={{ left: slotLeft, width: `${slotW}px`, pointerEvents: "none" }}
+                              style={{ left: slotLeft, width: `${slotW}px`, pointerEvents: "none", opacity: clipOpacity }}
                             >
                               <div className="h-1/2 min-h-0 overflow-hidden">
                                 <TimelineClipBlock
@@ -1139,7 +1204,7 @@ export default function Editor() {
                         }
                         if (k === "audio") {
                           return (
-                            <div key={clip.id} className="absolute top-0 h-full" style={{ left: slotLeft, pointerEvents: "none" }}>
+                            <div key={clip.id} className="absolute top-0 h-full" style={{ left: slotLeft, pointerEvents: "none", opacity: clipOpacity }}>
                               <TimelineAudioBlock
                                 clip={displayClipA}
                                 pxPerSec={timelinePxPerSec}
@@ -1149,13 +1214,16 @@ export default function Editor() {
                                 onWaveformLoaded={(data) =>
                                   updateClip(clip.id, { waveformData: data })
                                 }
+                                onMetadataLoaded={!clip.linkedClipId ? (durationSec) =>
+                                  handleClipMetadataLoaded(clip.id, durationSec)
+                                : undefined}
                                 {...blockHandlers(clip, "audio")}
                               />
                             </div>
                           );
                         }
                         return (
-                          <div key={clip.id} className="absolute top-0 h-full" style={{ left: slotLeft, pointerEvents: "none" }}>
+                          <div key={clip.id} className="absolute top-0 h-full" style={{ left: slotLeft, pointerEvents: "none", opacity: clipOpacity }}>
                             <TimelineClipBlock
                               clip={displayClipV}
                               pxPerSec={timelinePxPerSec}
@@ -1182,6 +1250,7 @@ export default function Editor() {
                 (() => {
                   const clip = clips.find((c) => c.id === clipContextMenu.clipId);
                   const canUnlink = clip && ((clip.kind ?? "combined") === "combined" || clip.linkedClipId != null);
+                  const isDisabled = clip?.disabled;
                   return (
                     <div
                       className="fixed z-50 min-w-[140px] rounded-md border border-foreground/20 bg-background py-1 shadow-lg"
@@ -1191,6 +1260,13 @@ export default function Editor() {
                       }}
                       onClick={(e) => e.stopPropagation()}
                     >
+                      <button
+                        type="button"
+                        className="w-full px-3 py-1.5 text-left text-sm hover:bg-foreground/10"
+                        onClick={() => toggleClipEnabled(clipContextMenu.clipId)}
+                      >
+                        {isDisabled ? "Enable clip" : "Disable clip"}
+                      </button>
                       <button
                         type="button"
                         disabled={!canUnlink}
@@ -1495,6 +1571,7 @@ function TimelineAudioBlock({
   onSelect,
   onUpdate,
   onWaveformLoaded,
+  onMetadataLoaded,
   onPositionDragStart,
   onContextMenu: onContextMenuProp,
 }: {
@@ -1505,6 +1582,7 @@ function TimelineAudioBlock({
   onSelect: () => void;
   onUpdate: (patch: Partial<EditorClip>) => void;
   onWaveformLoaded: (data: number[]) => void;
+  onMetadataLoaded?: (durationSec: number) => void;
   onPositionDragStart: (e: React.MouseEvent) => void;
   onContextMenu?: (e: React.MouseEvent) => void;
 }) {
@@ -1671,6 +1749,18 @@ function TimelineAudioBlock({
           }}
         />
       </div>
+      {onMetadataLoaded && (
+        <audio
+          src={clip.src}
+          className="hidden"
+          preload="metadata"
+          onLoadedMetadata={(e) => {
+            const el = e.target as HTMLAudioElement;
+            const d = toFinite(el.duration, 0);
+            if (d > 0) onMetadataLoaded(d);
+          }}
+        />
+      )}
     </div>
   );
 }
