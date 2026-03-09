@@ -100,3 +100,31 @@ export function savePanelData(projectId: string, data: PanelData): void {
     // ignore
   }
 }
+
+export interface EditorState {
+  clips: unknown[];
+}
+
+export function loadEditorState(projectId: string): EditorState {
+  try {
+    const raw = localStorage.getItem(getStorageKey(projectId, "editor-clips"));
+    if (raw) {
+      const clips = JSON.parse(raw) as unknown[];
+      return { clips };
+    }
+  } catch {
+    // ignore
+  }
+  return { clips: [] };
+}
+
+export function saveEditorState(projectId: string, state: EditorState): void {
+  try {
+    localStorage.setItem(
+      getStorageKey(projectId, "editor-clips"),
+      JSON.stringify(state.clips)
+    );
+  } catch {
+    // ignore
+  }
+}

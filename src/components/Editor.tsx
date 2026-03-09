@@ -6,6 +6,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Video } from "@remotion/media";
 import { AbsoluteFill, Audio, Sequence, useVideoConfig } from "remotion";
+import { loadEditorState, saveEditorState } from "@/lib/panels-storage";
 
 const RemotionPlayer = dynamic(
   () =>
@@ -409,8 +410,18 @@ export function EditorCompositionWithProps({ clips: rawClips = [] }: { clips?: E
   );
 }
 
+const EDITOR_PROJECT_ID = "X";
+
+function isEditorSavePath(src: string): boolean {
+  return typeof src === "string" && src.startsWith("/editor-saves/");
+}
+
 export default function Editor() {
-  const [clips, setClips] = useState<EditorClip[]>([]);
+  const [clips, setClips] = useState<EditorClip[]>(() => {
+    if (typeof window === "undefined") return [];
+    const raw = loadEditorState(EDITOR_PROJECT_ID).clips as unknown as EditorClip[];
+    return raw.filter((c) => !c.src.startsWith("blob:"));
+  });
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -433,6 +444,79 @@ export default function Editor() {
   const playheadLineRef = useRef<HTMLDivElement>(null);
   const timelinePxPerSecRef = useRef(timelinePxPerSec);
   timelinePxPerSecRef.current = timelinePxPerSec;
+  const skipNextSaveRef = useRef(true);
+  const hasHydratedRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || hasHydratedRef.current) return;
+    const withPaths = clips.filter((c) => isEditorSavePath(c.src));
+    if (withPaths.length === 0) {
+      hasHydratedRef.current = true;
+      return;
+    }
+    hasHydratedRef.current = true;
+    (async () => {
+      const updated = await Promise.all(
+        clips.map(async (c): Promise<EditorClip> => {
+          if (!isEditorSavePath(c.src)) return c;
+          try {
+            const base = window.location.origin;
+            const res = await fetch(base + c.src);
+            const blob = await res.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            await fetch("/api/editor-delete-save", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ path: c.src }),
+            });
+            return { ...c, src: blobUrl };
+          } catch {
+            return c;
+          }
+        })
+      );
+      skipNextSaveRef.current = true;
+      setClips(updated);
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (skipNextSaveRef.current) {
+      skipNextSaveRef.current = false;
+      return;
+    }
+    const hasBlob = clips.some((c) => c.src.startsWith("blob:"));
+    if (hasBlob) {
+      (async () => {
+        const updated: EditorClip[] = await Promise.all(
+          clips.map(async (c): Promise<EditorClip> => {
+            if (!c.src.startsWith("blob:")) return c;
+            try {
+              const res = await fetch(c.src);
+              const blob = await res.blob();
+              const form = new FormData();
+              form.append("file", blob, c.fileName || `${c.id}.mp4`);
+              form.append("projectId", EDITOR_PROJECT_ID);
+              form.append("clipId", c.id);
+              const r = await fetch("/api/editor-save-blob", {
+                method: "POST",
+                body: form,
+              });
+              const data = await r.json();
+              if (data.path) return { ...c, src: data.path };
+            } catch {
+              // ignore
+            }
+            return c;
+          })
+        );
+        setClips(updated);
+        saveEditorState(EDITOR_PROJECT_ID, { clips: updated });
+      })();
+    } else {
+      saveEditorState(EDITOR_PROJECT_ID, { clips });
+    }
+  }, [clips]);
 
   const totalDurationSec = Math.max(
     0.1,
