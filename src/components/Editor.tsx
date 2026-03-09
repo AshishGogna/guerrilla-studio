@@ -1077,9 +1077,10 @@ export default function Editor() {
   );
 
   /** Update only the trim for the given track (video or audio row). Prevents trimming one row from changing the other.
-   *  For linked clips, the same trim change is applied to the partner. */
+   *  For linked clips, the same trim change is applied to the partner.
+   *  When startTimeSec is in the patch (e.g. when trimming from left), it is applied so the timeline graphic shortens from the left. */
   const updateClipTrimForTrack = useCallback(
-    (id: string, patch: { trimStartSec?: number; trimEndSec?: number }, trackType: "video" | "audio") => {
+    (id: string, patch: { trimStartSec?: number; trimEndSec?: number; startTimeSec?: number }, trackType: "video" | "audio") => {
       setClips((prev) => {
         const target = prev.find((c) => c.id === id);
         if (!target) return prev;
@@ -1091,22 +1092,26 @@ export default function Editor() {
           const isLinked = linkedId != null && c.id === linkedId;
           if (!isTarget && !isLinked) return c;
 
+          const startPatch = patch.startTimeSec != null ? { startTimeSec: patch.startTimeSec } : {};
+
           if (k === "combined" && isTarget) {
             if (trackType === "video") {
               return {
                 ...c,
+                ...startPatch,
                 ...(patch.trimStartSec != null && { trimStartSecVideo: patch.trimStartSec }),
                 ...(patch.trimEndSec != null && { trimEndSecVideo: patch.trimEndSec }),
               };
             }
             return {
               ...c,
+              ...startPatch,
               ...(patch.trimStartSec != null && { trimStartSecAudio: patch.trimStartSec }),
               ...(patch.trimEndSec != null && { trimEndSecAudio: patch.trimEndSec }),
             };
           }
 
-          return { ...c, ...patch };
+          return { ...c, ...startPatch, ...patch };
         });
       });
     },
@@ -2150,7 +2155,9 @@ function TimelineClipBlock({
           0,
           Math.min(sec, trimEnd - MIN_TRIM_DURATION_SEC)
         );
-        onUpdate({ trimStartSec: newStart });
+        const delta = newStart - trimStart;
+        const newStartTimeSec = toFinite(clip.startTimeSec, 0) + delta;
+        onUpdate({ trimStartSec: newStart, startTimeSec: newStartTimeSec });
       } else {
         const newEnd = Math.max(
           trimStart + MIN_TRIM_DURATION_SEC,
@@ -2326,8 +2333,12 @@ function TimelineAudioBlock({
       const x = (e.clientX - rect.left) / rect.width;
       const sec = Math.max(0, Math.min(1, x)) * fullDur;
       if (trimDrag.side === "left") {
+        const newStart = Math.max(0, Math.min(sec, trimEnd - MIN_TRIM_DURATION_SEC));
+        const delta = newStart - trimStart;
+        const newStartTimeSec = toFinite(clip.startTimeSec, 0) + delta;
         onUpdate({
-          trimStartSec: Math.max(0, Math.min(sec, trimEnd - MIN_TRIM_DURATION_SEC)),
+          trimStartSec: newStart,
+          startTimeSec: newStartTimeSec,
         });
       } else {
         onUpdate({
