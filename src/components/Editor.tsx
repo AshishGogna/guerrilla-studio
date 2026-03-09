@@ -770,6 +770,25 @@ export default function Editor() {
     }
   }, []);
 
+  const detectSilencesForClip = useCallback(async (clip: EditorClip): Promise<{ start: number; end: number }[]> => {
+    try {
+      const res = await fetch(clip.src);
+      const blob = await res.blob();
+      const formData = new FormData();
+      formData.append("file", blob, clip.fileName ?? "clip.webm");
+      const response = await fetch("/api/detect-silences", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await response.json();
+      console.log("Silences detected:", data);
+      return data.silences ?? [];
+    } catch (err) {
+      console.error("Detect silences failed for clip", clip.id, err);
+      return [];
+    }
+  }, []);
+
   const cutSilences = useCallback(async () => {
     const audioClips = clips.filter(
       (c) => (c.kind === "audio" || c.kind === "combined") && !c.disabled
@@ -777,39 +796,38 @@ export default function Editor() {
     if (audioClips.length === 0) return;
     setIsCuttingSilences(true);
     try {
-      const transcriptions = new Map<string, { start: number; end: number; text: string }[]>();
+      const silencesMap = new Map<string, { start: number; end: number }[]>();
       for (const clip of audioClips) {
-        const segs = await transcribeClipRaw(clip);
-        if (segs.length > 0) transcriptions.set(clip.id, segs);
+        const silences = await detectSilencesForClip(clip);
+        if (silences.length > 0) silencesMap.set(clip.id, silences);
       }
 
       setClips((prev) => {
         let next = [...prev];
-        for (const [clipId, segs] of transcriptions) {
+        for (const [clipId, silences] of silencesMap) {
           const idx = next.findIndex((c) => c.id === clipId);
           if (idx === -1) continue;
           const clip = next[idx];
           const trimStart = toFinite(clip.trimStartSec, 0);
           const trimEnd = toFinite(clip.trimEndSec, toFinite(clip.durationSec, 10));
-          const clipDur = trimEnd - trimStart;
 
-          const firstSeg = segs[0];
-          const lastSeg = segs[segs.length - 1];
+          const firstSilence = silences[0];
+          const lastSilence = silences[silences.length - 1];
 
+          // First silence: trim from start so clip starts at firstSilence.end.
+          // Last silence: trim from end so clip ends at lastSilence.start.
           let newTrimStart = trimStart;
           let newTrimEnd = trimEnd;
-
-          const silenceAtStart = firstSeg.start;
-          if (silenceAtStart > silenceBuffer) {
-            newTrimStart = trimStart + (silenceAtStart - silenceBuffer);
+          if (firstSilence) {
+            newTrimStart = firstSilence.end;
+            newTrimStart = Math.max(trimStart, Math.min(newTrimStart, trimEnd));
+          }
+          if (lastSilence && silences.length > 1) {
+            newTrimEnd = lastSilence.start;
+            newTrimEnd = Math.max(newTrimStart, Math.min(newTrimEnd, trimEnd));
           }
 
-          const silenceAtEnd = clipDur - lastSeg.end;
-          if (silenceAtEnd > silenceBuffer) {
-            newTrimEnd = trimEnd - (silenceAtEnd - silenceBuffer);
-          }
-
-          if (newTrimStart === trimStart && newTrimEnd === trimEnd) continue;
+          if (newTrimStart >= newTrimEnd) continue;
 
           const startDelta = newTrimStart - trimStart;
           const updated = { ...clip, trimStartSec: newTrimStart, trimEndSec: newTrimEnd };
@@ -884,7 +902,7 @@ export default function Editor() {
       setIsCuttingSilences(false);
       playerRef.current?.seekTo(0);
     }
-  }, [clips, silenceBuffer, transcribeClipRaw]);
+  }, [clips, silenceBuffer, detectSilencesForClip]);
 
   const removeClip = useCallback((id: string) => {
     setClips((prev) => {
@@ -1559,6 +1577,34 @@ export default function Editor() {
               className="rounded bg-accent px-3 py-1.5 text-sm text-background hover:opacity-90 disabled:opacity-50"
             >
               Export
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                if (clips.length === 0) return;
+                if (!confirm("Clear all clips and delete saved state? This cannot be undone.")) return;
+                clips.forEach((c) => {
+                  if (c.src.startsWith("blob:")) URL.revokeObjectURL(c.src);
+                });
+                setClips([]);
+                setSelectedClipId(null);
+                setPlayheadTimeSec(0);
+                playerRef.current?.seekTo(0);
+                saveEditorState(EDITOR_PROJECT_ID, { clips: [] });
+                try {
+                  await fetch("/api/editor-clear-saves", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ projectId: EDITOR_PROJECT_ID }),
+                  });
+                } catch {
+                  // ignore
+                }
+              }}
+              disabled={clips.length === 0}
+              className="rounded border border-red-500/40 bg-red-500/10 px-3 py-1.5 text-sm text-red-400 hover:bg-red-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Clear All
             </button>
           </div>
         </div>

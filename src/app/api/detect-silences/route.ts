@@ -17,10 +17,10 @@ const MIME_TO_EXT: Record<string, string> = {
 
 export async function POST(req: Request) {
   const formData = await req.formData();
-  const audio = formData.get("audio") as File | null;
+  const audio = formData.get("file") as File | null;
 
   if (!audio) {
-    return Response.json({ error: "No audio file provided" }, { status: 400 });
+    return Response.json({ error: "No file provided" }, { status: 400 });
   }
 
   const buffer = Buffer.from(await audio.arrayBuffer());
@@ -31,28 +31,34 @@ export async function POST(req: Request) {
   await fs.mkdir(tempDir, { recursive: true });
 
   const audioPath = path.join(tempDir, `${id}${ext}`);
-  const jsonPath = path.join(tempDir, `${id}.json`);
 
   try {
     await fs.writeFile(audioPath, buffer);
 
-    await new Promise<void>((resolve, reject) => {
-      exec(
-        `whisper ${audioPath} --model large --task transcribe --word_timestamps True --output_format json --output_dir "${tempDir}"`,
-        (error) => {
-          if (error) reject(error);
-          else resolve();
-        }
-      );
-    });
+    const silences = await new Promise<{ start: number; end: number }[]>(
+      (resolve, reject) => {
+        const cmd = `ffmpeg -i "${audioPath}" -af silencedetect=noise=-45dB:d=0.5 -f null - 2>&1 | awk '/silence_start/ {s=$5} /silence_end/ {print s, $5}'`;
 
-    const result = JSON.parse(await fs.readFile(jsonPath, "utf8"));
+        exec(cmd, (error, stdout) => {
+          if (error) return reject(error);
 
-    return Response.json(result);
+          const silences = stdout
+            .trim()
+            .split("\n")
+            .filter(Boolean)
+            .map((line) => {
+              const [start, end] = line.trim().split(/\s+/).map(Number);
+              return { start, end };
+            });
+
+          resolve(silences);
+        });
+      }
+    );
+
+    return Response.json({ silences });
 
   } finally {
-    //Dont uncomment these two lines.
     try { await fs.unlink(audioPath); } catch {}
-    try { await fs.unlink(jsonPath); } catch {}
   }
 }
