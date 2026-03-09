@@ -130,6 +130,19 @@ export interface EditorClip {
   text?: string;
 }
 
+/** Remove one clip from an array and clear partner's linkedClipId. Same logic as removeClip but pure. */
+function removeClipFromArray(clips: EditorClip[], idToRemove: string): EditorClip[] {
+  const clip = clips.find((c) => c.id === idToRemove);
+  const partnerId = clip?.linkedClipId;
+  let next = clips.filter((c) => c.id !== idToRemove);
+  if (partnerId) {
+    next = next.map((c) =>
+      c.id === partnerId ? { ...c, linkedClipId: undefined } : c
+    );
+  }
+  return next;
+}
+
 const WAVEFORM_SAMPLES = 256;
 
 /** Decode audio from a media URL and return normalized waveform samples. */
@@ -917,12 +930,20 @@ export default function Editor() {
         disabledClips
       );
 
-      setClips((prev) =>
-        prev.flatMap((c) => {
+      setClips((prev) => {
+        let next = prev.flatMap((c) => {
           const repl = replacementMap.get(c.id);
           return repl ?? [c];
-        })
-      );
+        });
+        // Remove disabled (silence) clips using same logic as removeClip
+        const toRemoveIds = next.filter((c) => c.disabled).map((c) => c.id);
+        for (const id of toRemoveIds) {
+          const clip = next.find((c) => c.id === id);
+          if (clip?.src.startsWith("blob:")) URL.revokeObjectURL(clip.src);
+          next = removeClipFromArray(next, id);
+        }
+        return next;
+      });
       playerRef.current?.seekTo(0);
     } finally {
       setIsCuttingSilences(false);
@@ -932,15 +953,8 @@ export default function Editor() {
   const removeClip = useCallback((id: string) => {
     setClips((prev) => {
       const clip = prev.find((c) => c.id === id);
-      if (clip?.src.startsWith("blob:")) {
-        URL.revokeObjectURL(clip.src);
-      }
-      const partnerId = clip?.linkedClipId;
-      let next = prev.filter((c) => c.id !== id);
-      if (partnerId) {
-        next = next.map((c) => c.id === partnerId ? { ...c, linkedClipId: undefined } : c);
-      }
-      return next;
+      if (clip?.src.startsWith("blob:")) URL.revokeObjectURL(clip.src);
+      return removeClipFromArray(prev, id);
     });
     if (selectedClipId === id) setSelectedClipId(null);
   }, [selectedClipId]);
