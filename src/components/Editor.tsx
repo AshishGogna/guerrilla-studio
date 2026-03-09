@@ -796,6 +796,7 @@ export default function Editor() {
         body: formData,
       });
       const data = await response.json();
+      console.log("Silences detected for clip:", clip.id, ":", data.silences);
       return data.silences ?? [];
     } catch (err) {
       console.error("Detect silences failed for clip", clip.id, err);
