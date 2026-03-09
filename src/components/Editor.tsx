@@ -147,12 +147,15 @@ const WAVEFORM_SAMPLES = 256;
 
 /** Decode audio from a media URL and return normalized waveform samples. */
 async function decodeAudioWaveform(src: string): Promise<number[]> {
-  const res = await fetch(src, { mode: "cors" });
+  const res = await fetch(src, { mode: "cors", cache: "no-store" });
+  if (!res.ok) throw new Error(`Waveform fetch failed: ${res.status}`);
   const buf = await res.arrayBuffer();
+  if (buf.byteLength === 0) throw new Error("Empty audio");
   const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
   const audio = await ctx.decodeAudioData(buf);
   ctx.close();
   const ch = audio.getChannelData(0);
+  if (!ch || ch.length === 0) throw new Error("No audio channel");
   const step = Math.max(1, Math.floor(ch.length / WAVEFORM_SAMPLES));
   const out: number[] = [];
   for (let i = 0; i < WAVEFORM_SAMPLES; i++) {
@@ -2282,19 +2285,38 @@ function TimelineAudioBlock({
 
   const onWaveformLoadedRef = useRef(onWaveformLoaded);
   onWaveformLoadedRef.current = onWaveformLoaded;
+  const decodedForSrcRef = useRef<string | null>(null);
+  const loadingForSrcRef = useRef<string | null>(null);
   useEffect(() => {
-    if (clip.waveformData?.length) return;
-    if (waveformLoading) return;
+    if (clip.waveformData?.length && decodedForSrcRef.current === clip.src) return;
+    if (clip.waveformData?.length) {
+      decodedForSrcRef.current = clip.src;
+      return;
+    }
+    if (waveformLoading && loadingForSrcRef.current === clip.src) return;
+    const srcToDecode = clip.src;
+    loadingForSrcRef.current = srcToDecode;
+    let cancelled = false;
     setWaveformLoading(true);
-    decodeAudioWaveform(clip.src)
+    decodeAudioWaveform(srcToDecode)
       .then((data) => {
+        if (cancelled) return;
+        decodedForSrcRef.current = srcToDecode;
         onWaveformLoadedRef.current(data);
       })
       .catch(() => {
+        if (cancelled) return;
+        decodedForSrcRef.current = srcToDecode;
         onWaveformLoadedRef.current(Array(WAVEFORM_SAMPLES).fill(0.1));
       })
-      .finally(() => setWaveformLoading(false));
-  }, [clip.id, clip.src, clip.waveformData?.length, waveformLoading]);
+      .finally(() => {
+        if (!cancelled) setWaveformLoading(false);
+        if (!cancelled) loadingForSrcRef.current = null;
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clip.id, clip.src, clip.waveformData?.length]);
 
   useEffect(() => {
     if (!trimDrag || !barRef.current) return;
@@ -2379,7 +2401,7 @@ function TimelineAudioBlock({
         }}
       >
         <div className="absolute inset-0 bg-foreground/10" />
-        {waveformLoading || waveform.length === 0 ? (
+        {waveform.length === 0 ? (
           <span className="absolute inset-0 flex items-center justify-center text-[10px] text-foreground/50">
             {waveformLoading ? "Loading…" : "No waveform"}
           </span>
