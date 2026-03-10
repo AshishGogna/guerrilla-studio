@@ -2078,10 +2078,27 @@ export default function Editor() {
                         const id = selectedClipId;
                         if (!id) return;
                         const next = e.target.value;
+                        const newTokens = next.trim().split(/\s+/).filter(Boolean);
                         setClips((prev) =>
-                          prev.map((c) =>
-                            c.id === id ? { ...c, text: next, words: undefined } : c
-                          )
+                          prev.map((c) => {
+                            if (c.id !== id) return c;
+                            let newWords: { start: number; end: number; text: string }[] | undefined;
+                            if (newTokens.length === 0) {
+                              newWords = undefined;
+                            } else if (c.words?.length === newTokens.length) {
+                              newWords = c.words.map((w, i) => ({ ...w, text: newTokens[i] ?? w.text }));
+                            } else {
+                              const segStart = toFinite(c.startTimeSec, 0);
+                              const segDur = Math.max(0.01, toFinite(c.trimEndSec, 0) - toFinite(c.trimStartSec, 0));
+                              const n = newTokens.length;
+                              newWords = newTokens.map((text, j) => ({
+                                start: segStart + (j / n) * segDur,
+                                end: segStart + ((j + 1) / n) * segDur,
+                                text,
+                              }));
+                            }
+                            return { ...c, text: next, words: newWords };
+                          })
                         );
                       }}
                       className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent resize-y min-h-[4rem]"
