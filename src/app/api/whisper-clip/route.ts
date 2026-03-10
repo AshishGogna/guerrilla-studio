@@ -38,7 +38,7 @@ export async function POST(req: Request) {
 
     await new Promise<void>((resolve, reject) => {
       exec(
-        `whisper ${audioPath} --model large --task transcribe --word_timestamps True --output_format json --output_dir "${tempDir}"`,
+        `whisper ${audioPath} --model medium --task transcribe --word_timestamps True --output_format json --output_dir "${tempDir}"`,
         (error) => {
           if (error) reject(error);
           else resolve();

@@ -22,7 +22,7 @@ const COMP_HEIGHT = 1080;
 const CLIP_WIDTH_PX_PER_SEC = 64;
 const TRACK_HEIGHT_PX = 48;
 /** Minimum segment duration (sec) when splitting by silences; shorter segments are skipped to avoid very thin clips. */
-const MIN_SEGMENT_DURATION_SEC = 0.1;
+const MIN_SEGMENT_DURATION_SEC = 1;
 const RULER_HEIGHT_PX = 36; // h-9 in Tailwind
 const TIMELINE_PADDING_PX = 16; // p-4 on scroll container
 
