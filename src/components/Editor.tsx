@@ -631,8 +631,8 @@ export default function Editor() {
   const [isTranscribingAll, setIsTranscribingAll] = useState(false);
   const [isCuttingSilences, setIsCuttingSilences] = useState(false);
   const [silenceBuffer, setSilenceBuffer] = useState(0.5);
-  const [cutSilencesOpen, setCutSilencesOpen] = useState(true);
-  const [transcribeOpen, setTranscribeOpen] = useState(true);
+  const [cutSilencesOpen, setCutSilencesOpen] = useState(false);
+  const [transcribeOpen, setTranscribeOpen] = useState(false);
   const [subtitleTextSize, setSubtitleTextSize] = useState(24);
   const [subtitleTextColor, setSubtitleTextColor] = useState("#ffffff");
   const [subtitleBgColor, setSubtitleBgColor] = useState("#000000");
