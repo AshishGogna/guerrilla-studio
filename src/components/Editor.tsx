@@ -371,6 +371,9 @@ function SubtitleBlock({
     return (
       <div style={baseStyle}>
         {words.map((w, i) => {
+          console.log("CURRENT TIME:", currentTimeSec);
+          console.log("WORD:", w.text, ":", w.start, ":", w.end);
+
           const highlighted = currentTimeSec >= w.start && currentTimeSec < w.end;
           return (
             <span
@@ -1016,8 +1019,8 @@ export default function Editor() {
         let words: { start: number; end: number; text: string }[] | undefined;
         if (seg.words?.length) {
           words = seg.words.map((w) => ({
-            start: clipOffset + segStart + toFinite(w.start, 0),
-            end: clipOffset + segStart + toFinite(w.end, 0),
+            start: segStart + toFinite(w.start, 0),
+            end: segStart + toFinite(w.end, 0),
             text: (w.word ?? w.text ?? "").trim(),
           })).filter((w) => w.text.length > 0);
         }
@@ -1025,8 +1028,8 @@ export default function Editor() {
           const tokens = trimText.split(/\s+/);
           const n = tokens.length;
           words = tokens.map((text, j) => ({
-            start: clipOffset + segStart + (j / n) * segDur,
-            end: clipOffset + segStart + ((j + 1) / n) * segDur,
+            start: segStart + (j / n) * segDur,
+            end: segStart + ((j + 1) / n) * segDur,
             text,
           }));
         }
