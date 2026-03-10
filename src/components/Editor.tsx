@@ -1889,6 +1889,27 @@ export default function Editor() {
                     />
                   </div>
                 </div>
+                {selectedClip?.kind === "subtitle" && (
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs text-foreground/50">Text</span>
+                    <textarea
+                      rows={3}
+                      value={selectedClip.text ?? ""}
+                      onChange={(e) => {
+                        const id = selectedClipId;
+                        if (!id) return;
+                        const next = e.target.value;
+                        setClips((prev) =>
+                          prev.map((c) =>
+                            c.id === id ? { ...c, text: next, words: undefined } : c
+                          )
+                        );
+                      }}
+                      className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent resize-y min-h-[4rem]"
+                      placeholder="Subtitle text"
+                    />
+                  </label>
+                )}
                 <ColorPickerPopover
                   isOpen={colorPickerOpen === "text"}
                   value={subtitleTextColor}
