@@ -388,10 +388,10 @@ function SubtitleBlock({
                           display: "inline-block",
                           color: highlightTextColor,
                           backgroundColor: bg,
-                          padding: "0 0",
+                          borderTop: '0',
                           borderLeft: `${horizontalPx}px solid ${bg}`,
                           borderRight: `${horizontalPx}px solid ${bg}`,
-                          borderRadius: 4,
+                          borderRadius: 10,
                         };
                       })()
                     : undefined
