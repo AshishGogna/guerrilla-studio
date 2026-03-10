@@ -378,28 +378,28 @@ function SubtitleBlock({
       <div style={baseStyle}>
         {words.map((w, i) => {
           const highlighted = currentTimeSec >= w.start && currentTimeSec < w.end;
+          const bg = highlightBgColor === TRANSPARENT_VALUE ? "transparent" : highlightBgColor;
           return (
             <React.Fragment key={i}>
-              <span
-                style={
-                  highlighted
-                    ? (() => {
-                        const bg = highlightBgColor === TRANSPARENT_VALUE ? "transparent" : highlightBgColor;
-                        const horizontalPx = 5;
-                        return {
-                          display: "inline-block",
-                          color: highlightTextColor,
-                          backgroundColor: bg,
-                          borderTop: '0',
-                          borderLeft: `${horizontalPx}px solid ${bg}`,
-                          borderRight: `${horizontalPx}px solid ${bg}`,
-                          borderRadius: 10,
-                        };
-                      })()
-                    : undefined
-                }
-              >
-                {w.text}
+              <span style={{ position: "relative", display: "inline-block" }}>
+                {highlighted && (
+                  <span
+                    style={{
+                      position: "absolute",
+                      left: -10,
+                      right: -10,
+                      top: -2,
+                      bottom: -2,
+                      backgroundColor: bg,
+                      borderRadius: 10,
+                      zIndex: 0,
+                    }}
+                    aria-hidden
+                  />
+                )}
+                <span style={{ position: "relative", zIndex: 1, color: highlighted ? highlightTextColor : undefined }}>
+                  {w.text}
+                </span>
               </span>
               {i < words.length - 1 ? " " : ""}
             </React.Fragment>
@@ -1095,15 +1095,35 @@ export default function Editor() {
         };
       };
 
+      const removeSubtitleOverlaps = (subs: EditorClip[]): EditorClip[] => {
+        if (subs.length <= 1) return subs;
+        const sorted = [...subs].sort((a, b) => toFinite(a.startTimeSec, 0) - toFinite(b.startTimeSec, 0));
+        const minDur = 0.01;
+        for (let i = 0; i < sorted.length - 1; i++) {
+          const curr = sorted[i];
+          const next = sorted[i + 1];
+          const currStart = toFinite(curr.startTimeSec, 0);
+          const currEnd = currStart + (toFinite(curr.trimEndSec, 0) - toFinite(curr.trimStartSec, 0));
+          const nextStart = toFinite(next.startTimeSec, 0);
+          if (currEnd > nextStart) {
+            const newDur = Math.max(minDur, nextStart - currStart);
+            sorted[i] = { ...curr, trimEndSec: toFinite(curr.trimStartSec, 0) + newDur };
+          }
+        }
+        return sorted;
+      };
+
       setClips((prev) => {
         const existingSubTrack = prev.find((c) => c.kind === "subtitle");
         if (existingSubTrack != null) {
           const subTrackIdx = toFinite(existingSubTrack.trackIndex, 0);
-          const newSubs: EditorClip[] = segments.map((seg, i) => segmentToSubClip(seg, i, subTrackIdx));
-          return [...prev, ...newSubs];
+          const newSubs = segments.map((seg, i) => segmentToSubClip(seg, i, subTrackIdx));
+          const existingSubs = prev.filter((c) => c.kind === "subtitle");
+          const allSubs = removeSubtitleOverlaps([...existingSubs, ...newSubs]);
+          return [...prev.filter((c) => c.kind !== "subtitle"), ...allSubs];
         }
         const shifted = prev.map((c) => ({ ...c, trackIndex: toFinite(c.trackIndex, 0) + 1 }));
-        const subtitleClips: EditorClip[] = segments.map((seg, i) => segmentToSubClip(seg, i, 0));
+        const subtitleClips = removeSubtitleOverlaps(segments.map((seg, i) => segmentToSubClip(seg, i, 0)));
         return [...subtitleClips, ...shifted];
       });
     } catch (err) {
