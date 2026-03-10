@@ -186,3 +186,37 @@ export function saveEditorSubtitleSettings(projectId: string, settings: EditorSu
     // ignore
   }
 }
+
+export interface EditorTransformSettings {
+  zoom: string;
+}
+
+const DEFAULT_TRANSFORM_SETTINGS: EditorTransformSettings = {
+  zoom: "1",
+};
+
+export function loadEditorTransformSettings(projectId: string): EditorTransformSettings {
+  try {
+    const raw = localStorage.getItem(getStorageKey(projectId, "editor-transform-settings"));
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<EditorTransformSettings>;
+      return {
+        zoom: typeof parsed.zoom === "string" ? parsed.zoom : DEFAULT_TRANSFORM_SETTINGS.zoom,
+      };
+    }
+  } catch {
+    // ignore
+  }
+  return { ...DEFAULT_TRANSFORM_SETTINGS };
+}
+
+export function saveEditorTransformSettings(projectId: string, settings: EditorTransformSettings): void {
+  try {
+    localStorage.setItem(
+      getStorageKey(projectId, "editor-transform-settings"),
+      JSON.stringify(settings)
+    );
+  } catch {
+    // ignore
+  }
+}

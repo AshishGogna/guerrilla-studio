@@ -9,8 +9,10 @@ import { AbsoluteFill, Audio, Sequence, useCurrentFrame, useVideoConfig } from "
 import {
   loadEditorState,
   loadEditorSubtitleSettings,
+  loadEditorTransformSettings,
   saveEditorState,
   saveEditorSubtitleSettings,
+  saveEditorTransformSettings,
 } from "@/lib/panels-storage";
 
 const RemotionPlayer = dynamic(
@@ -732,6 +734,7 @@ export default function Editor() {
   const [transformOpen, setTransformOpen] = useState(false);
   const [transcribeOpen, setTranscribeOpen] = useState(false);
   const [zoomInput, setZoomInput] = useState("1");
+  const transformSettingsLoadedRef = useRef(false);
   const [subtitleTextSize, setSubtitleTextSize] = useState(24);
   const [subtitleTextColor, setSubtitleTextColor] = useState("#ffffff");
   const [subtitleBgColor, setSubtitleBgColor] = useState("#000000");
@@ -768,9 +771,13 @@ export default function Editor() {
     setSubtitleMaxWidth(s.maxWidth);
     setSubtitlePositionX(s.positionX);
     setSubtitlePositionY(s.positionY);
-    // Defer so the save effect runs first (with ref still false) and doesn't overwrite with initial state
     queueMicrotask(() => {
       subtitleSettingsLoadedRef.current = true;
+    });
+    const t = loadEditorTransformSettings(EDITOR_PROJECT_ID);
+    setZoomInput(t.zoom);
+    queueMicrotask(() => {
+      transformSettingsLoadedRef.current = true;
     });
   }, []);
 
@@ -798,6 +805,11 @@ export default function Editor() {
     subtitlePositionX,
     subtitlePositionY,
   ]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !transformSettingsLoadedRef.current) return;
+    saveEditorTransformSettings(EDITOR_PROJECT_ID, { zoom: zoomInput });
+  }, [zoomInput]);
 
   useEffect(() => {
     if (typeof window === "undefined" || hasHydratedRef.current) return;
