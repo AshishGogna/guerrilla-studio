@@ -734,6 +734,8 @@ export default function Editor() {
   const [transformOpen, setTransformOpen] = useState(false);
   const [transcribeOpen, setTranscribeOpen] = useState(false);
   const [zoomInput, setZoomInput] = useState("1");
+  const [compWidthInput, setCompWidthInput] = useState("1920");
+  const [compHeightInput, setCompHeightInput] = useState("1080");
   const transformSettingsLoadedRef = useRef(false);
   const [subtitleTextSize, setSubtitleTextSize] = useState(24);
   const [subtitleTextColor, setSubtitleTextColor] = useState("#ffffff");
@@ -776,6 +778,8 @@ export default function Editor() {
     });
     const t = loadEditorTransformSettings(EDITOR_PROJECT_ID);
     setZoomInput(t.zoom);
+    setCompWidthInput(t.compWidth);
+    setCompHeightInput(t.compHeight);
     queueMicrotask(() => {
       transformSettingsLoadedRef.current = true;
     });
@@ -808,8 +812,12 @@ export default function Editor() {
 
   useEffect(() => {
     if (typeof window === "undefined" || !transformSettingsLoadedRef.current) return;
-    saveEditorTransformSettings(EDITOR_PROJECT_ID, { zoom: zoomInput });
-  }, [zoomInput]);
+    saveEditorTransformSettings(EDITOR_PROJECT_ID, {
+      zoom: zoomInput,
+      compWidth: compWidthInput,
+      compHeight: compHeightInput,
+    });
+  }, [zoomInput, compWidthInput, compHeightInput]);
 
   useEffect(() => {
     if (typeof window === "undefined" || hasHydratedRef.current) return;
@@ -1891,6 +1899,14 @@ export default function Editor() {
                 const z = parseFloat(zoomInput);
                 return Number.isFinite(z) && z > 0 ? z : 1;
               })()}
+              compWidth={(() => {
+                const n = parseInt(compWidthInput, 10);
+                return Number.isFinite(n) && n > 0 ? n : undefined;
+              })()}
+              compHeight={(() => {
+                const n = parseInt(compHeightInput, 10);
+                return Number.isFinite(n) && n > 0 ? n : undefined;
+              })()}
             />
           </div>
         </div>
@@ -1915,6 +1931,28 @@ export default function Editor() {
                     onChange={(e) => setZoomInput(e.target.value)}
                     className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
                     placeholder="e.g. 1 or 1.5"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-foreground/50">Resolution X</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={compWidthInput}
+                    onChange={(e) => setCompWidthInput(e.target.value)}
+                    className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
+                    placeholder="e.g. 1920"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-foreground/50">Resolution Y</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={compHeightInput}
+                    onChange={(e) => setCompHeightInput(e.target.value)}
+                    className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
+                    placeholder="e.g. 1080"
                   />
                 </label>
               </div>
@@ -2696,11 +2734,11 @@ export default function Editor() {
 
 const RemotionPlayerPreview = React.forwardRef<
   PlayerRefType | null,
-  { clips: EditorClip[]; durationInFrames: number; subtitleStyle?: SubtitleStyle; zoom?: number }
->(function RemotionPlayerPreview({ clips, durationInFrames, subtitleStyle, zoom }, ref) {
+  { clips: EditorClip[]; durationInFrames: number; subtitleStyle?: SubtitleStyle; zoom?: number; compWidth?: number; compHeight?: number }
+>(function RemotionPlayerPreview({ clips, durationInFrames, subtitleStyle, zoom, compWidth: compWidthProp, compHeight: compHeightProp }, ref) {
   const safeDurationInFrames = Math.max(1, Math.floor(toFinite(durationInFrames, 1)));
-  const compWidth = toFinite(COMP_WIDTH, 1920);
-  const compHeight = toFinite(COMP_HEIGHT, 1080);
+  const compWidth = compWidthProp != null && Number.isFinite(compWidthProp) && compWidthProp > 0 ? compWidthProp : toFinite(COMP_WIDTH, 1920);
+  const compHeight = compHeightProp != null && Number.isFinite(compHeightProp) && compHeightProp > 0 ? compHeightProp : toFinite(COMP_HEIGHT, 1080);
   const playerWidth = 640;
   const playerHeight = 360;
   const safeStyle: React.CSSProperties = {

@@ -189,10 +189,14 @@ export function saveEditorSubtitleSettings(projectId: string, settings: EditorSu
 
 export interface EditorTransformSettings {
   zoom: string;
+  compWidth: string;
+  compHeight: string;
 }
 
 const DEFAULT_TRANSFORM_SETTINGS: EditorTransformSettings = {
   zoom: "1",
+  compWidth: "1920",
+  compHeight: "1080",
 };
 
 export function loadEditorTransformSettings(projectId: string): EditorTransformSettings {
@@ -202,6 +206,8 @@ export function loadEditorTransformSettings(projectId: string): EditorTransformS
       const parsed = JSON.parse(raw) as Partial<EditorTransformSettings>;
       return {
         zoom: typeof parsed.zoom === "string" ? parsed.zoom : DEFAULT_TRANSFORM_SETTINGS.zoom,
+        compWidth: typeof parsed.compWidth === "string" ? parsed.compWidth : DEFAULT_TRANSFORM_SETTINGS.compWidth,
+        compHeight: typeof parsed.compHeight === "string" ? parsed.compHeight : DEFAULT_TRANSFORM_SETTINGS.compHeight,
       };
     }
   } catch {
