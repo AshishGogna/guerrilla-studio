@@ -326,6 +326,7 @@ export type SubtitleStyle = {
   maxWidth: number;
   positionX: number;
   positionY: number;
+  borderColor: string;
 };
 
 export function EditorCompositionWithProps({
@@ -603,6 +604,14 @@ export function EditorCompositionWithProps({
                       fontFamily: "sans-serif",
                       textAlign: "center",
                       maxWidth: subtitleStyle?.maxWidth != null ? `${subtitleStyle.maxWidth}%` : "80%",
+                      textShadow: subtitleStyle?.borderColor
+                        ? [
+                            `-1px -1px 0 ${subtitleStyle.borderColor}`,
+                            `1px -1px 0 ${subtitleStyle.borderColor}`,
+                            `-1px 1px 0 ${subtitleStyle.borderColor}`,
+                            `1px 1px 0 ${subtitleStyle.borderColor}`,
+                          ].join(", ")
+                        : undefined,
                     }}
                   >
                     {sub.text}
@@ -650,12 +659,14 @@ export default function Editor() {
   const [subtitleTextSize, setSubtitleTextSize] = useState(24);
   const [subtitleTextColor, setSubtitleTextColor] = useState("#ffffff");
   const [subtitleBgColor, setSubtitleBgColor] = useState("#000000");
+   const [subtitleBorderColor, setSubtitleBorderColor] = useState("#ffffff");
   const [subtitleMaxWidth, setSubtitleMaxWidth] = useState(80);
   const [subtitlePositionX, setSubtitlePositionX] = useState(Math.round(COMP_WIDTH / 2));
   const [subtitlePositionY, setSubtitlePositionY] = useState(Math.round(COMP_HEIGHT * 0.3));
-  const [colorPickerOpen, setColorPickerOpen] = useState<null | "text" | "bg">(null);
+  const [colorPickerOpen, setColorPickerOpen] = useState<null | "text" | "bg" | "border">(null);
   const textColorAnchorRef = useRef<HTMLButtonElement>(null);
   const bgColorAnchorRef = useRef<HTMLButtonElement>(null);
+  const borderColorAnchorRef = useRef<HTMLButtonElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const playheadLineRef = useRef<HTMLDivElement>(null);
@@ -671,6 +682,7 @@ export default function Editor() {
     setSubtitleTextSize(s.textSize);
     setSubtitleTextColor(s.textColor);
     setSubtitleBgColor(s.backgroundColor);
+    setSubtitleBorderColor(s.borderColor);
     setSubtitleMaxWidth(s.maxWidth);
     setSubtitlePositionX(s.positionX);
     setSubtitlePositionY(s.positionY);
@@ -686,6 +698,7 @@ export default function Editor() {
       textSize: subtitleTextSize,
       textColor: subtitleTextColor,
       backgroundColor: subtitleBgColor,
+      borderColor: subtitleBorderColor,
       maxWidth: subtitleMaxWidth,
       positionX: subtitlePositionX,
       positionY: subtitlePositionY,
@@ -694,6 +707,7 @@ export default function Editor() {
     subtitleTextSize,
     subtitleTextColor,
     subtitleBgColor,
+    subtitleBorderColor,
     subtitleMaxWidth,
     subtitlePositionX,
     subtitlePositionY,
@@ -1634,6 +1648,7 @@ export default function Editor() {
               textSize: subtitleTextSize,
               textColor: subtitleTextColor,
               backgroundColor: subtitleBgColor,
+              borderColor: subtitleBorderColor,
               maxWidth: subtitleMaxWidth,
               positionX: subtitlePositionX,
               positionY: subtitlePositionY,
@@ -1744,6 +1759,7 @@ export default function Editor() {
                 textSize: subtitleTextSize,
                 textColor: subtitleTextColor,
                 backgroundColor: subtitleBgColor,
+                borderColor: subtitleBorderColor,
                 maxWidth: subtitleMaxWidth,
                 positionX: subtitlePositionX,
                 positionY: subtitlePositionY,
@@ -1819,6 +1835,18 @@ export default function Editor() {
                   </button>
                 </label>
                 <label className="flex flex-col gap-1">
+                  <span className="text-xs text-foreground/50">Border color</span>
+                  <button
+                    ref={borderColorAnchorRef}
+                    type="button"
+                    onClick={() => setColorPickerOpen((v) => (v === "border" ? null : "border"))}
+                    className="flex items-center gap-2 rounded border border-foreground/20 bg-foreground/5 px-2 py-1.5 text-sm hover:bg-foreground/10"
+                  >
+                    <span className="w-5 h-5 rounded border border-foreground/30 shrink-0" style={{ backgroundColor: subtitleBorderColor }} />
+                    <span className="font-mono text-xs">{subtitleBorderColor}</span>
+                  </button>
+                </label>
+                <label className="flex flex-col gap-1">
                   <span className="text-xs text-foreground/50">Max width (%)</span>
                   <input
                     type="text"
@@ -1875,6 +1903,13 @@ export default function Editor() {
                   onClose={() => setColorPickerOpen(null)}
                   anchorRef={bgColorAnchorRef}
                   allowTransparent
+                />
+                <ColorPickerPopover
+                  isOpen={colorPickerOpen === "border"}
+                  value={subtitleBorderColor}
+                  onChange={setSubtitleBorderColor}
+                  onClose={() => setColorPickerOpen(null)}
+                  anchorRef={borderColorAnchorRef}
                 />
                 <button
                   type="button"

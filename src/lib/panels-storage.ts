@@ -112,6 +112,7 @@ export interface EditorSubtitleSettings {
   maxWidth: number;
   positionX: number;
   positionY: number;
+  borderColor: string;
 }
 
 const DEFAULT_SUBTITLE_SETTINGS: EditorSubtitleSettings = {
@@ -121,6 +122,7 @@ const DEFAULT_SUBTITLE_SETTINGS: EditorSubtitleSettings = {
   maxWidth: 80,
   positionX: 960,
   positionY: 324,
+  borderColor: "#ffffff",
 };
 
 export function loadEditorState(projectId: string): EditorState {
@@ -159,6 +161,7 @@ export function loadEditorSubtitleSettings(projectId: string): EditorSubtitleSet
         maxWidth: typeof parsed.maxWidth === "number" ? parsed.maxWidth : DEFAULT_SUBTITLE_SETTINGS.maxWidth,
         positionX: typeof parsed.positionX === "number" ? parsed.positionX : DEFAULT_SUBTITLE_SETTINGS.positionX,
         positionY: typeof parsed.positionY === "number" ? parsed.positionY : DEFAULT_SUBTITLE_SETTINGS.positionY,
+        borderColor: typeof parsed.borderColor === "string" ? parsed.borderColor : DEFAULT_SUBTITLE_SETTINGS.borderColor,
       };
     }
   } catch {
