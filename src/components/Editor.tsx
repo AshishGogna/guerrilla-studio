@@ -40,6 +40,150 @@ function formatPlayheadTime(sec: number): string {
   ].join(":");
 }
 
+function hexToRgba(hex: string, alpha: number): string {
+  if (hex === TRANSPARENT_VALUE) return "transparent";
+  const m = hex.replace(/^#/, "").match(/^([0-9a-f]{6})$/i);
+  if (!m) return hex;
+  const r = parseInt(m[1].slice(0, 2), 16);
+  const g = parseInt(m[1].slice(2, 4), 16);
+  const b = parseInt(m[1].slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+const SUBTITLE_RECOMMENDED_COLORS = [
+  "#ffffff", "#000000", "#ffff00", "#00ffff", "#00ff00", "#ff6600",
+  "#ff00ff", "#c0c0c0", "#333333", "#1a1a1a", "#ffeb3b", "#e3f2fd",
+];
+
+const TRANSPARENT_VALUE = "transparent";
+
+function ColorPickerPopover({
+  value,
+  onChange,
+  onClose,
+  anchorRef,
+  isOpen,
+  allowTransparent,
+}: {
+  value: string;
+  onChange: (hex: string) => void;
+  onClose: () => void;
+  anchorRef: React.RefObject<HTMLElement | null>;
+  isOpen: boolean;
+  allowTransparent?: boolean;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const isTransparent = value === TRANSPARENT_VALUE;
+  const normalizedHex = isTransparent ? "#000000" : (value.startsWith("#") ? value : `#${value}`.replace(/^##/, "#"));
+  const [hexInput, setHexInput] = useState(isTransparent ? TRANSPARENT_VALUE : normalizedHex);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setHexInput(isTransparent ? TRANSPARENT_VALUE : normalizedHex);
+  }, [isOpen, isTransparent, normalizedHex]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handle = (e: MouseEvent) => {
+      const el = e.target as Node;
+      if (panelRef.current?.contains(el) || anchorRef.current?.contains(el)) return;
+      onClose();
+    };
+    document.addEventListener("mousedown", handle, true);
+    return () => document.removeEventListener("mousedown", handle, true);
+  }, [isOpen, onClose, anchorRef]);
+
+  if (!isOpen) return null;
+
+  const rect = anchorRef.current?.getBoundingClientRect();
+  const style: React.CSSProperties = rect
+    ? { position: "fixed", left: rect.left, top: rect.bottom + 4, zIndex: 9999 }
+    : {};
+
+  const commitHex = (raw: string) => {
+    const t = raw.trim().toLowerCase();
+    if (allowTransparent && (t === "transparent" || t === "trans")) {
+      onChange(TRANSPARENT_VALUE);
+      setHexInput(TRANSPARENT_VALUE);
+      return;
+    }
+    const h = t.replace(/^#/, "").trim();
+    if (/^[0-9a-fA-F]{6}$/.test(h)) {
+      const hex = `#${h}`;
+      onChange(hex);
+      setHexInput(hex);
+    } else {
+      setHexInput(value.startsWith("#") ? value : value === TRANSPARENT_VALUE ? TRANSPARENT_VALUE : `#${value}`);
+    }
+  };
+
+  const recommendedColors = allowTransparent ? [TRANSPARENT_VALUE, ...SUBTITLE_RECOMMENDED_COLORS] : SUBTITLE_RECOMMENDED_COLORS;
+
+  return createPortal(
+    <div
+      ref={panelRef}
+      className="rounded-lg border border-foreground/20 bg-background shadow-xl p-3 min-w-[200px]"
+      style={style}
+    >
+      <div className="flex items-center gap-2 mb-2">
+        {!isTransparent && (
+          <input
+            type="color"
+            value={normalizedHex}
+            onChange={(e) => {
+              const v = e.target.value;
+              onChange(v);
+              setHexInput(v);
+            }}
+            className="w-10 h-10 rounded border border-foreground/20 cursor-pointer"
+            title="Color wheel"
+          />
+        )}
+        <input
+          type="text"
+          value={hexInput}
+          onChange={(e) => setHexInput(e.target.value)}
+          onBlur={() => commitHex(hexInput)}
+          onKeyDown={(e) => e.key === "Enter" && commitHex(hexInput)}
+          className="flex-1 rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm font-mono"
+          placeholder={allowTransparent ? "#hex or transparent" : "#ffffff"}
+        />
+      </div>
+      <div className="text-[10px] text-foreground/50 mb-1">Recommended</div>
+      <div className="grid grid-cols-6 gap-1">
+        {recommendedColors.map((item) =>
+          item === TRANSPARENT_VALUE ? (
+            <button
+              key={TRANSPARENT_VALUE}
+              type="button"
+              onClick={() => { onChange(TRANSPARENT_VALUE); setHexInput(TRANSPARENT_VALUE); }}
+              className="w-6 h-6 rounded border border-foreground/20 hover:ring-2 ring-accent flex items-center justify-center bg-transparent"
+              style={{
+                backgroundImage: "linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%)",
+                backgroundSize: "4px 4px",
+                backgroundPosition: "0 0, 0 2px, 2px -2px, -2px 0",
+              }}
+              title="Transparent"
+            >
+              <span className="text-[8px] text-foreground/60 font-medium">T</span>
+            </button>
+          ) : (
+            <button
+              key={item}
+              type="button"
+              onClick={() => { onChange(item); setHexInput(item); }}
+              className="w-6 h-6 rounded border border-foreground/20 hover:ring-2 ring-accent"
+              style={{ backgroundColor: item }}
+              title={item}
+            />
+          )
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 /** Effective trim for display: per-track for combined, else main trim. */
 function getEffectiveTrim(
   clip: EditorClip,
@@ -170,7 +314,20 @@ async function decodeAudioWaveform(src: string): Promise<number[]> {
   return out.map((v) => v / peak);
 }
 
-export function EditorCompositionWithProps({ clips: rawClips = [] }: { clips?: EditorClip[] }) {
+export type SubtitleStyle = {
+  textSize: number;
+  textColor: string;
+  backgroundColor: string;
+  maxWidth: number;
+};
+
+export function EditorCompositionWithProps({
+  clips: rawClips = [],
+  subtitleStyle,
+}: {
+  clips?: EditorClip[];
+  subtitleStyle?: SubtitleStyle;
+}) {
   const { fps } = useVideoConfig();
   const allEnabled = rawClips.filter((c) => !c.disabled);
   const clips = allEnabled.filter((c) => c.kind !== "subtitle");
@@ -420,14 +577,18 @@ export function EditorCompositionWithProps({ clips: rawClips = [] }: { clips?: E
                 >
                   <div
                     style={{
-                      backgroundColor: "rgba(0,0,0,0.7)",
-                      color: "#fff",
+                      backgroundColor: subtitleStyle
+                        ? (subtitleStyle.backgroundColor === TRANSPARENT_VALUE
+                          ? "transparent"
+                          : hexToRgba(subtitleStyle.backgroundColor, 0.7))
+                        : "rgba(0,0,0,0.7)",
+                      color: subtitleStyle?.textColor ?? "#fff",
                       padding: "6px 16px",
                       borderRadius: 4,
-                      fontSize: 24,
+                      fontSize: subtitleStyle?.textSize ?? 24,
                       fontFamily: "sans-serif",
                       textAlign: "center",
-                      maxWidth: "80%",
+                      maxWidth: subtitleStyle?.maxWidth != null ? `${subtitleStyle.maxWidth}%` : "80%",
                     }}
                   >
                     {sub.text}
@@ -472,6 +633,13 @@ export default function Editor() {
   const [silenceBuffer, setSilenceBuffer] = useState(0.5);
   const [cutSilencesOpen, setCutSilencesOpen] = useState(true);
   const [transcribeOpen, setTranscribeOpen] = useState(true);
+  const [subtitleTextSize, setSubtitleTextSize] = useState(24);
+  const [subtitleTextColor, setSubtitleTextColor] = useState("#ffffff");
+  const [subtitleBgColor, setSubtitleBgColor] = useState("#000000");
+  const [subtitleMaxWidth, setSubtitleMaxWidth] = useState(80);
+  const [colorPickerOpen, setColorPickerOpen] = useState<null | "text" | "bg">(null);
+  const textColorAnchorRef = useRef<HTMLButtonElement>(null);
+  const bgColorAnchorRef = useRef<HTMLButtonElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const playheadLineRef = useRef<HTMLDivElement>(null);
@@ -1409,7 +1577,15 @@ export default function Editor() {
             height: h,
             defaultProps: { clips: [] },
           },
-          inputProps: { clips },
+          inputProps: {
+            clips,
+            subtitleStyle: {
+              textSize: subtitleTextSize,
+              textColor: subtitleTextColor,
+              backgroundColor: subtitleBgColor,
+              maxWidth: subtitleMaxWidth,
+            },
+          },
         });
         const blob = await getBlob();
         const url = URL.createObjectURL(blob);
@@ -1425,7 +1601,7 @@ export default function Editor() {
         setExporting(false);
       }
     },
-    [clips, durationInFrames]
+    [clips, durationInFrames, subtitleTextSize, subtitleTextColor, subtitleBgColor, subtitleMaxWidth]
   );
 
   const openExportModal = useCallback(() => {
@@ -1511,6 +1687,12 @@ export default function Editor() {
               ref={playerRef}
               clips={clips}
               durationInFrames={durationInFrames}
+              subtitleStyle={{
+                textSize: subtitleTextSize,
+                textColor: subtitleTextColor,
+                backgroundColor: subtitleBgColor,
+                maxWidth: subtitleMaxWidth,
+              }}
             />
           </div>
         </div>
@@ -1527,6 +1709,83 @@ export default function Editor() {
             </button>
             {transcribeOpen && (
               <div className="flex flex-col gap-3 px-3 pb-3">
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-foreground/50">Font size</span>
+                  <input
+                    type="number"
+                    min={8}
+                    max={120}
+                    value={subtitleTextSize}
+                    onChange={(e) => setSubtitleTextSize(Math.max(8, Math.min(120, parseInt(e.target.value, 10) || 24)))}
+                    className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-foreground/50">Text color</span>
+                  <button
+                    ref={textColorAnchorRef}
+                    type="button"
+                    onClick={() => setColorPickerOpen((v) => (v === "text" ? null : "text"))}
+                    className="flex items-center gap-2 rounded border border-foreground/20 bg-foreground/5 px-2 py-1.5 text-sm hover:bg-foreground/10"
+                  >
+                    <span className="w-5 h-5 rounded border border-foreground/30 shrink-0" style={{ backgroundColor: subtitleTextColor }} />
+                    <span className="font-mono text-xs">{subtitleTextColor}</span>
+                  </button>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-foreground/50">Background color</span>
+                  <button
+                    ref={bgColorAnchorRef}
+                    type="button"
+                    onClick={() => setColorPickerOpen((v) => (v === "bg" ? null : "bg"))}
+                    className="flex items-center gap-2 rounded border border-foreground/20 bg-foreground/5 px-2 py-1.5 text-sm hover:bg-foreground/10"
+                  >
+                    {subtitleBgColor === TRANSPARENT_VALUE ? (
+                      <>
+                        <span
+                          className="w-5 h-5 rounded border border-foreground/30 shrink-0"
+                          style={{
+                            backgroundImage: "linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%)",
+                            backgroundSize: "4px 4px",
+                            backgroundPosition: "0 0, 0 2px, 2px -2px, -2px 0",
+                          }}
+                        />
+                        <span className="font-mono text-xs">Transparent</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="w-5 h-5 rounded border border-foreground/30 shrink-0" style={{ backgroundColor: subtitleBgColor }} />
+                        <span className="font-mono text-xs">{subtitleBgColor}</span>
+                      </>
+                    )}
+                  </button>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-foreground/50">Max width (%)</span>
+                  <input
+                    type="number"
+                    min={10}
+                    max={100}
+                    value={subtitleMaxWidth}
+                    onChange={(e) => setSubtitleMaxWidth(Math.max(10, Math.min(100, parseInt(e.target.value, 10) || 80)))}
+                    className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
+                  />
+                </label>
+                <ColorPickerPopover
+                  isOpen={colorPickerOpen === "text"}
+                  value={subtitleTextColor}
+                  onChange={setSubtitleTextColor}
+                  onClose={() => setColorPickerOpen(null)}
+                  anchorRef={textColorAnchorRef}
+                />
+                <ColorPickerPopover
+                  isOpen={colorPickerOpen === "bg"}
+                  value={subtitleBgColor}
+                  onChange={setSubtitleBgColor}
+                  onClose={() => setColorPickerOpen(null)}
+                  anchorRef={bgColorAnchorRef}
+                  allowTransparent
+                />
                 <button
                   type="button"
                   onClick={transcribeAll}
@@ -2068,8 +2327,8 @@ export default function Editor() {
 
 const RemotionPlayerPreview = React.forwardRef<
   PlayerRefType | null,
-  { clips: EditorClip[]; durationInFrames: number }
->(function RemotionPlayerPreview({ clips, durationInFrames }, ref) {
+  { clips: EditorClip[]; durationInFrames: number; subtitleStyle?: SubtitleStyle }
+>(function RemotionPlayerPreview({ clips, durationInFrames, subtitleStyle }, ref) {
   const safeDurationInFrames = Math.max(1, Math.floor(toFinite(durationInFrames, 1)));
   const compWidth = toFinite(COMP_WIDTH, 1920);
   const compHeight = toFinite(COMP_HEIGHT, 1080);
@@ -2094,7 +2353,7 @@ const RemotionPlayerPreview = React.forwardRef<
       <RemotionPlayer
         ref={ref as React.Ref<PlayerRefType | null>}
         component={EditorCompositionWithProps}
-        inputProps={{ clips }}
+        inputProps={{ clips, subtitleStyle }}
         durationInFrames={safeDurationInFrames}
         compositionWidth={compWidth}
         compositionHeight={compHeight}
