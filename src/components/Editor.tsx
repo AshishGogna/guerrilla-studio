@@ -4,8 +4,8 @@ import { renderMediaOnWeb } from "@remotion/web-renderer";
 import dynamic from "next/dynamic";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Video } from "@remotion/media";
-import { AbsoluteFill, Audio, Sequence, useCurrentFrame, useVideoConfig } from "remotion";
+import { Audio, Video } from "@remotion/media";
+import { AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig } from "remotion";
 import {
   loadEditorState,
   loadEditorSubtitleSettings,
@@ -584,7 +584,7 @@ export function EditorCompositionWithProps({
                       {useAudioElement ? (
                         <Audio
                           src={clip.src}
-                          startFrom={trimBefore}
+                          trimBefore={trimBefore}
                           volume={vol}
                         />
                       ) : (
