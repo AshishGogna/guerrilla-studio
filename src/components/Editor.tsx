@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Video } from "@remotion/media";
-import { AbsoluteFill, Audio, Sequence, useVideoConfig } from "remotion";
+import { AbsoluteFill, Audio, Sequence, useCurrentFrame, useVideoConfig } from "remotion";
 import {
   loadEditorState,
   loadEditorSubtitleSettings,
@@ -277,6 +277,8 @@ export interface EditorClip {
   disabled?: boolean;
   /** Subtitle text (for subtitle clips). */
   text?: string;
+  /** Word-level timing for karaoke-style highlight (start/end in timeline seconds). */
+  words?: { start: number; end: number; text: string }[];
 }
 
 /** Remove one clip from an array and clear partner's linkedClipId. Same logic as removeClip but pure. */
@@ -328,6 +330,64 @@ export type SubtitleStyle = {
   positionY: number;
   borderColor: string;
 };
+
+/** Renders subtitle text with optional word-level highlight (yellow) at current time. */
+function SubtitleBlock({
+  sub,
+  subtitleStyle,
+}: {
+  sub: EditorClip;
+  subtitleStyle?: SubtitleStyle;
+}) {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const currentTimeSec = frame / Math.max(1, fps);
+
+  const baseStyle: React.CSSProperties = {
+    backgroundColor: subtitleStyle
+      ? (subtitleStyle.backgroundColor === TRANSPARENT_VALUE
+        ? "transparent"
+        : hexToRgba(subtitleStyle.backgroundColor, 0.7))
+      : "rgba(0,0,0,0.7)",
+    color: subtitleStyle?.textColor ?? "#fff",
+    padding: "6px 16px",
+    borderRadius: 4,
+    fontSize: subtitleStyle?.textSize ?? 24,
+    fontFamily: "sans-serif",
+    textAlign: "center",
+    maxWidth: subtitleStyle?.maxWidth != null ? `${subtitleStyle.maxWidth}%` : "80%",
+    textShadow: subtitleStyle?.borderColor
+      ? [
+          `-1px -1px 0 ${subtitleStyle.borderColor}`,
+          `1px -1px 0 ${subtitleStyle.borderColor}`,
+          `-1px 1px 0 ${subtitleStyle.borderColor}`,
+          `1px 1px 0 ${subtitleStyle.borderColor}`,
+        ].join(", ")
+      : undefined,
+  };
+
+  const words = sub.words;
+  if (words != null && words.length > 0) {
+    return (
+      <div style={baseStyle}>
+        {words.map((w, i) => {
+          const highlighted = currentTimeSec >= w.start && currentTimeSec < w.end;
+          return (
+            <span
+              key={i}
+              style={highlighted ? { color: "yellow" } : undefined}
+            >
+              {w.text}
+              {i < words.length - 1 ? " " : ""}
+            </span>
+          );
+        })}
+      </div>
+    );
+  }
+
+  return <div style={baseStyle}>{sub.text}</div>;
+}
 
 export function EditorCompositionWithProps({
   clips: rawClips = [],
@@ -608,32 +668,7 @@ export function EditorCompositionWithProps({
                     alignItems: "center" as const,
                   }}
                 >
-                  <div
-                    style={{
-                      backgroundColor: subtitleStyle
-                        ? (subtitleStyle.backgroundColor === TRANSPARENT_VALUE
-                          ? "transparent"
-                          : hexToRgba(subtitleStyle.backgroundColor, 0.7))
-                        : "rgba(0,0,0,0.7)",
-                      color: subtitleStyle?.textColor ?? "#fff",
-                      padding: "6px 16px",
-                      borderRadius: 4,
-                      fontSize: subtitleStyle?.textSize ?? 24,
-                      fontFamily: "sans-serif",
-                      textAlign: "center",
-                      maxWidth: subtitleStyle?.maxWidth != null ? `${subtitleStyle.maxWidth}%` : "80%",
-                      textShadow: subtitleStyle?.borderColor
-                        ? [
-                            `-1px -1px 0 ${subtitleStyle.borderColor}`,
-                            `1px -1px 0 ${subtitleStyle.borderColor}`,
-                            `-1px 1px 0 ${subtitleStyle.borderColor}`,
-                            `1px 1px 0 ${subtitleStyle.borderColor}`,
-                          ].join(", ")
-                        : undefined,
-                    }}
-                  >
-                    {sub.text}
-                  </div>
+                  <SubtitleBlock sub={sub} subtitleStyle={subtitleStyle} />
                 </AbsoluteFill>
               </Sequence>
             );
@@ -967,40 +1002,57 @@ export default function Editor() {
       const data = await response.json();
       console.log("Transcription result:", data);
 
-      const segments: { start: number; end: number; text: string }[] = data.segments ?? [];
+      type Seg = { start: number; end: number; text: string; words?: { start: number; end: number; word?: string; text?: string }[] };
+      const segments: Seg[] = data.segments ?? [];
       if (segments.length === 0) return;
 
       const clipOffset = toFinite(clip.startTimeSec, 0);
 
-      setClips((prev) => {
-        const existingSubTrack = prev.find((c) => c.kind === "subtitle");
-        if (existingSubTrack != null) {
-          const subTrackIdx = toFinite(existingSubTrack.trackIndex, 0);
-          const newSubs: EditorClip[] = segments.map((seg, i) => ({
-            id: `sub-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 7)}`,
-            src: "",
-            trimStartSec: 0,
-            trimEndSec: seg.end - seg.start,
-            durationSec: seg.end - seg.start,
-            startTimeSec: clipOffset + seg.start,
-            trackIndex: subTrackIdx,
-            kind: "subtitle" as const,
-            text: seg.text.trim(),
-          }));
-          return [...prev, ...newSubs];
+      const segmentToSubClip = (seg: Seg, i: number, trackIdx: number): EditorClip => {
+        const segStart = toFinite(seg.start, 0);
+        const segEnd = toFinite(seg.end, segStart);
+        const segDur = Math.max(0.01, segEnd - segStart);
+        const trimText = seg.text.trim();
+        let words: { start: number; end: number; text: string }[] | undefined;
+        if (seg.words?.length) {
+          words = seg.words.map((w) => ({
+            start: clipOffset + segStart + toFinite(w.start, 0),
+            end: clipOffset + segStart + toFinite(w.end, 0),
+            text: (w.word ?? w.text ?? "").trim(),
+          })).filter((w) => w.text.length > 0);
         }
-        const shifted = prev.map((c) => ({ ...c, trackIndex: toFinite(c.trackIndex, 0) + 1 }));
-        const subtitleClips: EditorClip[] = segments.map((seg, i) => ({
+        if (!words?.length && trimText) {
+          const tokens = trimText.split(/\s+/);
+          const n = tokens.length;
+          words = tokens.map((text, j) => ({
+            start: clipOffset + segStart + (j / n) * segDur,
+            end: clipOffset + segStart + ((j + 1) / n) * segDur,
+            text,
+          }));
+        }
+        return {
           id: `sub-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 7)}`,
           src: "",
           trimStartSec: 0,
           trimEndSec: seg.end - seg.start,
           durationSec: seg.end - seg.start,
           startTimeSec: clipOffset + seg.start,
-          trackIndex: 0,
+          trackIndex: trackIdx,
           kind: "subtitle" as const,
-          text: seg.text.trim(),
-        }));
+          text: trimText,
+          words,
+        };
+      };
+
+      setClips((prev) => {
+        const existingSubTrack = prev.find((c) => c.kind === "subtitle");
+        if (existingSubTrack != null) {
+          const subTrackIdx = toFinite(existingSubTrack.trackIndex, 0);
+          const newSubs: EditorClip[] = segments.map((seg, i) => segmentToSubClip(seg, i, subTrackIdx));
+          return [...prev, ...newSubs];
+        }
+        const shifted = prev.map((c) => ({ ...c, trackIndex: toFinite(c.trackIndex, 0) + 1 }));
+        const subtitleClips: EditorClip[] = segments.map((seg, i) => segmentToSubClip(seg, i, 0));
         return [...subtitleClips, ...shifted];
       });
     } catch (err) {
