@@ -359,7 +359,7 @@ function SubtitleBlock({
     fontSize: subtitleStyle?.textSize ?? 24,
     fontFamily: "sans-serif",
     textAlign: "center",
-    maxWidth: subtitleStyle?.maxWidth != null ? `${subtitleStyle.maxWidth}%` : "80%",
+    maxWidth: subtitleStyle?.maxWidth != null && subtitleStyle.maxWidth > 0 ? `${subtitleStyle.maxWidth}px` : "800px",
     textShadow: subtitleStyle?.borderColor
       ? [
           `-1px -1px 0 ${subtitleStyle.borderColor}`,
@@ -743,7 +743,7 @@ export default function Editor() {
    const [subtitleBorderColor, setSubtitleBorderColor] = useState("#ffffff");
   const [subtitleHighlightTextColor, setSubtitleHighlightTextColor] = useState("#ffff00");
   const [subtitleHighlightBgColor, setSubtitleHighlightBgColor] = useState("#000000");
-  const [subtitleMaxWidth, setSubtitleMaxWidth] = useState(80);
+  const [subtitleMaxWidth, setSubtitleMaxWidth] = useState(800);
   const [subtitlePositionX, setSubtitlePositionX] = useState(Math.round(COMP_WIDTH / 2));
   const [subtitlePositionY, setSubtitlePositionY] = useState(Math.round(COMP_HEIGHT * 0.3));
   const [colorPickerOpen, setColorPickerOpen] = useState<null | "text" | "bg" | "border" | "highlightText" | "highlightBg">(null);
@@ -2076,17 +2076,17 @@ export default function Editor() {
                   </button>
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="text-xs text-foreground/50">Max width (%)</span>
+                  <span className="text-xs text-foreground/50">Max width (px)</span>
                   <input
                     type="text"
                     inputMode="numeric"
                     value={subtitleMaxWidth}
                     onChange={(e) => {
                       const n = parseInt(e.target.value, 10);
-                      if (!Number.isNaN(n)) setSubtitleMaxWidth(Math.max(10, Math.min(100, n)));
-                      else if (e.target.value === "") setSubtitleMaxWidth(80);
+                      setSubtitleMaxWidth(Number.isNaN(n) ? 0 : n);
                     }}
                     className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
+                    placeholder="e.g. 800"
                   />
                 </label>
                 <div className="flex flex-col gap-1">

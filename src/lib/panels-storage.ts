@@ -121,7 +121,7 @@ const DEFAULT_SUBTITLE_SETTINGS: EditorSubtitleSettings = {
   textSize: 24,
   textColor: "#ffffff",
   backgroundColor: "#000000",
-  maxWidth: 80,
+  maxWidth: 800,
   positionX: 960,
   positionY: 324,
   borderColor: "#ffffff",
