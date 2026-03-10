@@ -327,7 +327,7 @@ export type SubtitleStyle = {
   textSize: number;
   textColor: string;
   backgroundColor: string;
-  maxWidth: number;
+  width: number;
   positionX: number;
   positionY: number;
   borderColor: string;
@@ -356,10 +356,10 @@ function SubtitleBlock({
     color: subtitleStyle?.textColor ?? "#fff",
     padding: "6px 16px",
     borderRadius: 4,
-    fontSize: subtitleStyle?.textSize ?? 24,
+    fontSize: (subtitleStyle?.textSize != null && subtitleStyle.textSize > 0) ? subtitleStyle.textSize : 24,
     fontFamily: "sans-serif",
     textAlign: "center",
-    maxWidth: subtitleStyle?.maxWidth != null && subtitleStyle.maxWidth > 0 ? `${subtitleStyle.maxWidth}px` : "800px",
+    width: subtitleStyle?.width != null && subtitleStyle.width > 0 ? `${subtitleStyle.width}px` : "800px",
     textShadow: subtitleStyle?.borderColor
       ? [
           `-1px -1px 0 ${subtitleStyle.borderColor}`,
@@ -743,7 +743,7 @@ export default function Editor() {
    const [subtitleBorderColor, setSubtitleBorderColor] = useState("#ffffff");
   const [subtitleHighlightTextColor, setSubtitleHighlightTextColor] = useState("#ffff00");
   const [subtitleHighlightBgColor, setSubtitleHighlightBgColor] = useState("#000000");
-  const [subtitleMaxWidth, setSubtitleMaxWidth] = useState(800);
+  const [subtitleWidth, setSubtitleWidth] = useState(800);
   const [subtitlePositionX, setSubtitlePositionX] = useState(Math.round(COMP_WIDTH / 2));
   const [subtitlePositionY, setSubtitlePositionY] = useState(Math.round(COMP_HEIGHT * 0.3));
   const [colorPickerOpen, setColorPickerOpen] = useState<null | "text" | "bg" | "border" | "highlightText" | "highlightBg">(null);
@@ -770,7 +770,7 @@ export default function Editor() {
     setSubtitleBorderColor(s.borderColor);
     setSubtitleHighlightTextColor(s.highlightTextColor);
     setSubtitleHighlightBgColor(s.highlightBgColor);
-    setSubtitleMaxWidth(s.maxWidth);
+    setSubtitleWidth(s.width);
     setSubtitlePositionX(s.positionX);
     setSubtitlePositionY(s.positionY);
     queueMicrotask(() => {
@@ -794,7 +794,7 @@ export default function Editor() {
       borderColor: subtitleBorderColor,
       highlightTextColor: subtitleHighlightTextColor,
       highlightBgColor: subtitleHighlightBgColor,
-      maxWidth: subtitleMaxWidth,
+      width: subtitleWidth,
       positionX: subtitlePositionX,
       positionY: subtitlePositionY,
     });
@@ -805,7 +805,7 @@ export default function Editor() {
     subtitleBorderColor,
     subtitleHighlightTextColor,
     subtitleHighlightBgColor,
-    subtitleMaxWidth,
+    subtitleWidth,
     subtitlePositionX,
     subtitlePositionY,
   ]);
@@ -1774,7 +1774,7 @@ export default function Editor() {
               borderColor: subtitleBorderColor,
               highlightTextColor: subtitleHighlightTextColor,
               highlightBgColor: subtitleHighlightBgColor,
-              maxWidth: subtitleMaxWidth,
+              width: subtitleWidth,
               positionX: subtitlePositionX,
               positionY: subtitlePositionY,
             },
@@ -1798,7 +1798,7 @@ export default function Editor() {
         setExporting(false);
       }
     },
-    [clips, durationInFrames, subtitleTextSize, subtitleTextColor, subtitleBgColor, subtitleMaxWidth, subtitlePositionX, subtitlePositionY]
+    [clips, durationInFrames, subtitleTextSize, subtitleTextColor, subtitleBgColor, subtitleWidth, subtitlePositionX, subtitlePositionY]
   );
 
   const openExportModal = useCallback(() => {
@@ -1891,7 +1891,7 @@ export default function Editor() {
                 borderColor: subtitleBorderColor,
                 highlightTextColor: subtitleHighlightTextColor,
                 highlightBgColor: subtitleHighlightBgColor,
-                maxWidth: subtitleMaxWidth,
+                width: subtitleWidth,
                 positionX: subtitlePositionX,
                 positionY: subtitlePositionY,
               }}
@@ -1977,10 +1977,10 @@ export default function Editor() {
                     value={subtitleTextSize}
                     onChange={(e) => {
                       const n = parseInt(e.target.value, 10);
-                      if (!Number.isNaN(n)) setSubtitleTextSize(Math.max(8, Math.min(120, n)));
-                      else if (e.target.value === "") setSubtitleTextSize(24);
+                      setSubtitleTextSize(Number.isNaN(n) ? 0 : n);
                     }}
                     className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
+                    placeholder="e.g. 24"
                   />
                 </label>
                 <label className="flex flex-col gap-1">
@@ -2076,14 +2076,14 @@ export default function Editor() {
                   </button>
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="text-xs text-foreground/50">Max width (px)</span>
+                  <span className="text-xs text-foreground/50">Width (px)</span>
                   <input
                     type="text"
                     inputMode="numeric"
-                    value={subtitleMaxWidth}
+                    value={subtitleWidth}
                     onChange={(e) => {
                       const n = parseInt(e.target.value, 10);
-                      setSubtitleMaxWidth(Number.isNaN(n) ? 0 : n);
+                      setSubtitleWidth(Number.isNaN(n) ? 0 : n);
                     }}
                     className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
                     placeholder="e.g. 800"

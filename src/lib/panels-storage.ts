@@ -109,7 +109,7 @@ export interface EditorSubtitleSettings {
   textSize: number;
   textColor: string;
   backgroundColor: string;
-  maxWidth: number;
+  width: number;
   positionX: number;
   positionY: number;
   borderColor: string;
@@ -121,7 +121,7 @@ const DEFAULT_SUBTITLE_SETTINGS: EditorSubtitleSettings = {
   textSize: 24,
   textColor: "#ffffff",
   backgroundColor: "#000000",
-  maxWidth: 800,
+  width: 800,
   positionX: 960,
   positionY: 324,
   borderColor: "#ffffff",
@@ -162,7 +162,7 @@ export function loadEditorSubtitleSettings(projectId: string): EditorSubtitleSet
         textSize: typeof parsed.textSize === "number" ? parsed.textSize : DEFAULT_SUBTITLE_SETTINGS.textSize,
         textColor: typeof parsed.textColor === "string" ? parsed.textColor : DEFAULT_SUBTITLE_SETTINGS.textColor,
         backgroundColor: typeof parsed.backgroundColor === "string" ? parsed.backgroundColor : DEFAULT_SUBTITLE_SETTINGS.backgroundColor,
-        maxWidth: typeof parsed.maxWidth === "number" ? parsed.maxWidth : DEFAULT_SUBTITLE_SETTINGS.maxWidth,
+        width: typeof parsed.width === "number" ? parsed.width : (typeof (parsed as { maxWidth?: number }).maxWidth === "number" ? (parsed as { maxWidth: number }).maxWidth : DEFAULT_SUBTITLE_SETTINGS.width),
         positionX: typeof parsed.positionX === "number" ? parsed.positionX : DEFAULT_SUBTITLE_SETTINGS.positionX,
         positionY: typeof parsed.positionY === "number" ? parsed.positionY : DEFAULT_SUBTITLE_SETTINGS.positionY,
         borderColor: typeof parsed.borderColor === "string" ? parsed.borderColor : DEFAULT_SUBTITLE_SETTINGS.borderColor,
