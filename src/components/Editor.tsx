@@ -332,11 +332,14 @@ export type SubtitleStyle = {
 export function EditorCompositionWithProps({
   clips: rawClips = [],
   subtitleStyle,
+  zoom: zoomProp = 1,
 }: {
   clips?: EditorClip[];
   subtitleStyle?: SubtitleStyle;
+  zoom?: number;
 }) {
   const { fps, width: compW, height: compH } = useVideoConfig();
+  const zoom = Number.isFinite(zoomProp) && zoomProp > 0 ? zoomProp : 1;
   const allEnabled = rawClips.filter((c) => !c.disabled);
   const clips = allEnabled.filter((c) => c.kind !== "subtitle");
   const subtitleClips = allEnabled.filter((c) => c.kind === "subtitle");
@@ -483,7 +486,18 @@ export function EditorCompositionWithProps({
                     durationInFrames={durationInFrames}
                     name={`Clip ${clip.id} ${keySuffix}`}
                   >
-                    <AbsoluteFill>
+                    <AbsoluteFill
+                      style={
+                        useAudioElement
+                          ? undefined
+                          : {
+                              overflow: "hidden",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }
+                      }
+                    >
                       {useAudioElement ? (
                         <Audio
                           src={clip.src}
@@ -491,24 +505,28 @@ export function EditorCompositionWithProps({
                           volume={vol}
                         />
                       ) : (
-                        <Video
-                          src={clip.src}
-                          trimBefore={trimBefore}
-                          volume={vol}
+                        <div
                           style={{
                             width: "100%",
                             height: "100%",
-                            objectFit: "contain",
-                            ...(isAudioOnly && {
-                              position: "absolute",
-                              width: 0,
-                              height: 0,
-                              overflow: "hidden",
-                              opacity: 0,
-                              pointerEvents: "none",
-                            }),
+                            transform: `scale(${zoom})`,
+                            transformOrigin: "center center",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
                           }}
-                        />
+                        >
+                          <Video
+                            src={clip.src}
+                            trimBefore={trimBefore}
+                            volume={vol}
+                            style={{
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "contain",
+                            }}
+                          />
+                        </div>
                       )}
                     </AbsoluteFill>
                   </Sequence>
@@ -655,7 +673,9 @@ export default function Editor() {
   const [isCuttingSilences, setIsCuttingSilences] = useState(false);
   const [silenceBuffer, setSilenceBuffer] = useState(0.5);
   const [cutSilencesOpen, setCutSilencesOpen] = useState(false);
+  const [transformOpen, setTransformOpen] = useState(false);
   const [transcribeOpen, setTranscribeOpen] = useState(false);
+  const [zoomInput, setZoomInput] = useState("1");
   const [subtitleTextSize, setSubtitleTextSize] = useState(24);
   const [subtitleTextColor, setSubtitleTextColor] = useState("#ffffff");
   const [subtitleBgColor, setSubtitleBgColor] = useState("#000000");
@@ -1653,6 +1673,10 @@ export default function Editor() {
               positionX: subtitlePositionX,
               positionY: subtitlePositionY,
             },
+            zoom: (() => {
+              const z = parseFloat(zoomInput);
+              return Number.isFinite(z) && z > 0 ? z : 1;
+            })(),
           },
         });
         const blob = await getBlob();
@@ -1764,11 +1788,39 @@ export default function Editor() {
                 positionX: subtitlePositionX,
                 positionY: subtitlePositionY,
               }}
+              zoom={(() => {
+                const z = parseFloat(zoomInput);
+                return Number.isFinite(z) && z > 0 ? z : 1;
+              })()}
             />
           </div>
         </div>
         {/* AI Tools Panel */}
         <div className="w-64 shrink-0 border-l border-foreground/10 overflow-y-auto bg-foreground/[0.02]">
+          <div className="border-b border-foreground/10">
+            <button
+              type="button"
+              onClick={() => setTransformOpen((v) => !v)}
+              className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium text-foreground/80 hover:bg-foreground/5"
+            >
+              Transform
+              <span className="text-xs text-foreground/40">{transformOpen ? "▾" : "▸"}</span>
+            </button>
+            {transformOpen && (
+              <div className="flex flex-col gap-3 px-3 pb-3">
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-foreground/50">Zoom</span>
+                  <input
+                    type="text"
+                    value={zoomInput}
+                    onChange={(e) => setZoomInput(e.target.value)}
+                    className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
+                    placeholder="e.g. 1 or 1.5"
+                  />
+                </label>
+              </div>
+            )}
+          </div>
           <div className="border-b border-foreground/10">
             <button
               type="button"
@@ -2473,8 +2525,8 @@ export default function Editor() {
 
 const RemotionPlayerPreview = React.forwardRef<
   PlayerRefType | null,
-  { clips: EditorClip[]; durationInFrames: number; subtitleStyle?: SubtitleStyle }
->(function RemotionPlayerPreview({ clips, durationInFrames, subtitleStyle }, ref) {
+  { clips: EditorClip[]; durationInFrames: number; subtitleStyle?: SubtitleStyle; zoom?: number }
+>(function RemotionPlayerPreview({ clips, durationInFrames, subtitleStyle, zoom }, ref) {
   const safeDurationInFrames = Math.max(1, Math.floor(toFinite(durationInFrames, 1)));
   const compWidth = toFinite(COMP_WIDTH, 1920);
   const compHeight = toFinite(COMP_HEIGHT, 1080);
@@ -2499,7 +2551,7 @@ const RemotionPlayerPreview = React.forwardRef<
       <RemotionPlayer
         ref={ref as React.Ref<PlayerRefType | null>}
         component={EditorCompositionWithProps}
-        inputProps={{ clips, subtitleStyle }}
+        inputProps={{ clips, subtitleStyle, zoom: zoom ?? 1 }}
         durationInFrames={safeDurationInFrames}
         compositionWidth={compWidth}
         compositionHeight={compHeight}
