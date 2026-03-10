@@ -329,6 +329,8 @@ export type SubtitleStyle = {
   positionX: number;
   positionY: number;
   borderColor: string;
+  highlightTextColor: string;
+  highlightBgColor: string;
 };
 
 /** Renders subtitle text with optional word-level highlight (yellow) at current time. */
@@ -367,22 +369,38 @@ function SubtitleBlock({
   };
 
   const words = sub.words;
+  const highlightTextColor = subtitleStyle?.highlightTextColor ?? "#ffff00";
+  const highlightBgColor = subtitleStyle?.highlightBgColor ?? "#000000";
   if (words != null && words.length > 0) {
     return (
       <div style={baseStyle}>
         {words.map((w, i) => {
-          console.log("CURRENT TIME:", currentTimeSec);
-          console.log("WORD:", w.text, ":", w.start, ":", w.end);
-
           const highlighted = currentTimeSec >= w.start && currentTimeSec < w.end;
           return (
-            <span
-              key={i}
-              style={highlighted ? { color: "yellow" } : undefined}
-            >
-              {w.text}
+            <React.Fragment key={i}>
+              <span
+                style={
+                  highlighted
+                    ? (() => {
+                        const bg = highlightBgColor === TRANSPARENT_VALUE ? "transparent" : highlightBgColor;
+                        const horizontalPx = 5;
+                        return {
+                          display: "inline-block",
+                          color: highlightTextColor,
+                          backgroundColor: bg,
+                          padding: "0 0",
+                          borderLeft: `${horizontalPx}px solid ${bg}`,
+                          borderRight: `${horizontalPx}px solid ${bg}`,
+                          borderRadius: 4,
+                        };
+                      })()
+                    : undefined
+                }
+              >
+                {w.text}
+              </span>
               {i < words.length - 1 ? " " : ""}
-            </span>
+            </React.Fragment>
           );
         })}
       </div>
@@ -718,13 +736,17 @@ export default function Editor() {
   const [subtitleTextColor, setSubtitleTextColor] = useState("#ffffff");
   const [subtitleBgColor, setSubtitleBgColor] = useState("#000000");
    const [subtitleBorderColor, setSubtitleBorderColor] = useState("#ffffff");
+  const [subtitleHighlightTextColor, setSubtitleHighlightTextColor] = useState("#ffff00");
+  const [subtitleHighlightBgColor, setSubtitleHighlightBgColor] = useState("#000000");
   const [subtitleMaxWidth, setSubtitleMaxWidth] = useState(80);
   const [subtitlePositionX, setSubtitlePositionX] = useState(Math.round(COMP_WIDTH / 2));
   const [subtitlePositionY, setSubtitlePositionY] = useState(Math.round(COMP_HEIGHT * 0.3));
-  const [colorPickerOpen, setColorPickerOpen] = useState<null | "text" | "bg" | "border">(null);
+  const [colorPickerOpen, setColorPickerOpen] = useState<null | "text" | "bg" | "border" | "highlightText" | "highlightBg">(null);
   const textColorAnchorRef = useRef<HTMLButtonElement>(null);
   const bgColorAnchorRef = useRef<HTMLButtonElement>(null);
   const borderColorAnchorRef = useRef<HTMLButtonElement>(null);
+  const highlightTextColorAnchorRef = useRef<HTMLButtonElement>(null);
+  const highlightBgColorAnchorRef = useRef<HTMLButtonElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const playheadLineRef = useRef<HTMLDivElement>(null);
@@ -741,6 +763,8 @@ export default function Editor() {
     setSubtitleTextColor(s.textColor);
     setSubtitleBgColor(s.backgroundColor);
     setSubtitleBorderColor(s.borderColor);
+    setSubtitleHighlightTextColor(s.highlightTextColor);
+    setSubtitleHighlightBgColor(s.highlightBgColor);
     setSubtitleMaxWidth(s.maxWidth);
     setSubtitlePositionX(s.positionX);
     setSubtitlePositionY(s.positionY);
@@ -757,6 +781,8 @@ export default function Editor() {
       textColor: subtitleTextColor,
       backgroundColor: subtitleBgColor,
       borderColor: subtitleBorderColor,
+      highlightTextColor: subtitleHighlightTextColor,
+      highlightBgColor: subtitleHighlightBgColor,
       maxWidth: subtitleMaxWidth,
       positionX: subtitlePositionX,
       positionY: subtitlePositionY,
@@ -766,6 +792,8 @@ export default function Editor() {
     subtitleTextColor,
     subtitleBgColor,
     subtitleBorderColor,
+    subtitleHighlightTextColor,
+    subtitleHighlightBgColor,
     subtitleMaxWidth,
     subtitlePositionX,
     subtitlePositionY,
@@ -1724,6 +1752,8 @@ export default function Editor() {
               textColor: subtitleTextColor,
               backgroundColor: subtitleBgColor,
               borderColor: subtitleBorderColor,
+              highlightTextColor: subtitleHighlightTextColor,
+              highlightBgColor: subtitleHighlightBgColor,
               maxWidth: subtitleMaxWidth,
               positionX: subtitlePositionX,
               positionY: subtitlePositionY,
@@ -1839,6 +1869,8 @@ export default function Editor() {
                 textColor: subtitleTextColor,
                 backgroundColor: subtitleBgColor,
                 borderColor: subtitleBorderColor,
+                highlightTextColor: subtitleHighlightTextColor,
+                highlightBgColor: subtitleHighlightBgColor,
                 maxWidth: subtitleMaxWidth,
                 positionX: subtitlePositionX,
                 positionY: subtitlePositionY,
@@ -1954,6 +1986,46 @@ export default function Editor() {
                   </button>
                 </label>
                 <label className="flex flex-col gap-1">
+                  <span className="text-xs text-foreground/50">Highlight text color</span>
+                  <button
+                    ref={highlightTextColorAnchorRef}
+                    type="button"
+                    onClick={() => setColorPickerOpen((v) => (v === "highlightText" ? null : "highlightText"))}
+                    className="flex items-center gap-2 rounded border border-foreground/20 bg-foreground/5 px-2 py-1.5 text-sm hover:bg-foreground/10"
+                  >
+                    <span className="w-5 h-5 rounded border border-foreground/30 shrink-0" style={{ backgroundColor: subtitleHighlightTextColor }} />
+                    <span className="font-mono text-xs">{subtitleHighlightTextColor}</span>
+                  </button>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-foreground/50">Highlight bg color</span>
+                  <button
+                    ref={highlightBgColorAnchorRef}
+                    type="button"
+                    onClick={() => setColorPickerOpen((v) => (v === "highlightBg" ? null : "highlightBg"))}
+                    className="flex items-center gap-2 rounded border border-foreground/20 bg-foreground/5 px-2 py-1.5 text-sm hover:bg-foreground/10"
+                  >
+                    {subtitleHighlightBgColor === TRANSPARENT_VALUE ? (
+                      <>
+                        <span
+                          className="w-5 h-5 rounded border border-foreground/30 shrink-0"
+                          style={{
+                            backgroundImage: "linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%)",
+                            backgroundSize: "4px 4px",
+                            backgroundPosition: "0 0, 0 2px, 2px -2px, -2px 0",
+                          }}
+                        />
+                        <span className="font-mono text-xs">Transparent</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="w-5 h-5 rounded border border-foreground/30 shrink-0" style={{ backgroundColor: subtitleHighlightBgColor }} />
+                        <span className="font-mono text-xs">{subtitleHighlightBgColor}</span>
+                      </>
+                    )}
+                  </button>
+                </label>
+                <label className="flex flex-col gap-1">
                   <span className="text-xs text-foreground/50">Max width (%)</span>
                   <input
                     type="text"
@@ -2038,6 +2110,21 @@ export default function Editor() {
                   onChange={setSubtitleBorderColor}
                   onClose={() => setColorPickerOpen(null)}
                   anchorRef={borderColorAnchorRef}
+                />
+                <ColorPickerPopover
+                  isOpen={colorPickerOpen === "highlightText"}
+                  value={subtitleHighlightTextColor}
+                  onChange={setSubtitleHighlightTextColor}
+                  onClose={() => setColorPickerOpen(null)}
+                  anchorRef={highlightTextColorAnchorRef}
+                />
+                <ColorPickerPopover
+                  isOpen={colorPickerOpen === "highlightBg"}
+                  value={subtitleHighlightBgColor}
+                  onChange={setSubtitleHighlightBgColor}
+                  onClose={() => setColorPickerOpen(null)}
+                  anchorRef={highlightBgColorAnchorRef}
+                  allowTransparent
                 />
                 <button
                   type="button"

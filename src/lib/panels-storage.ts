@@ -113,6 +113,8 @@ export interface EditorSubtitleSettings {
   positionX: number;
   positionY: number;
   borderColor: string;
+  highlightTextColor: string;
+  highlightBgColor: string;
 }
 
 const DEFAULT_SUBTITLE_SETTINGS: EditorSubtitleSettings = {
@@ -123,6 +125,8 @@ const DEFAULT_SUBTITLE_SETTINGS: EditorSubtitleSettings = {
   positionX: 960,
   positionY: 324,
   borderColor: "#ffffff",
+  highlightTextColor: "#ffff00",
+  highlightBgColor: "#000000",
 };
 
 export function loadEditorState(projectId: string): EditorState {
@@ -162,6 +166,8 @@ export function loadEditorSubtitleSettings(projectId: string): EditorSubtitleSet
         positionX: typeof parsed.positionX === "number" ? parsed.positionX : DEFAULT_SUBTITLE_SETTINGS.positionX,
         positionY: typeof parsed.positionY === "number" ? parsed.positionY : DEFAULT_SUBTITLE_SETTINGS.positionY,
         borderColor: typeof parsed.borderColor === "string" ? parsed.borderColor : DEFAULT_SUBTITLE_SETTINGS.borderColor,
+        highlightTextColor: typeof parsed.highlightTextColor === "string" ? parsed.highlightTextColor : DEFAULT_SUBTITLE_SETTINGS.highlightTextColor,
+        highlightBgColor: typeof parsed.highlightBgColor === "string" ? parsed.highlightBgColor : DEFAULT_SUBTITLE_SETTINGS.highlightBgColor,
       };
     }
   } catch {
