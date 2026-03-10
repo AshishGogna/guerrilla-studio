@@ -105,6 +105,24 @@ export interface EditorState {
   clips: unknown[];
 }
 
+export interface EditorSubtitleSettings {
+  textSize: number;
+  textColor: string;
+  backgroundColor: string;
+  maxWidth: number;
+  positionX: number;
+  positionY: number;
+}
+
+const DEFAULT_SUBTITLE_SETTINGS: EditorSubtitleSettings = {
+  textSize: 24,
+  textColor: "#ffffff",
+  backgroundColor: "#000000",
+  maxWidth: 80,
+  positionX: 960,
+  positionY: 324,
+};
+
 export function loadEditorState(projectId: string): EditorState {
   try {
     const raw = localStorage.getItem(getStorageKey(projectId, "editor-clips"));
@@ -123,6 +141,37 @@ export function saveEditorState(projectId: string, state: EditorState): void {
     localStorage.setItem(
       getStorageKey(projectId, "editor-clips"),
       JSON.stringify(state.clips)
+    );
+  } catch {
+    // ignore
+  }
+}
+
+export function loadEditorSubtitleSettings(projectId: string): EditorSubtitleSettings {
+  try {
+    const raw = localStorage.getItem(getStorageKey(projectId, "editor-subtitle-settings"));
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<EditorSubtitleSettings>;
+      return {
+        textSize: typeof parsed.textSize === "number" ? parsed.textSize : DEFAULT_SUBTITLE_SETTINGS.textSize,
+        textColor: typeof parsed.textColor === "string" ? parsed.textColor : DEFAULT_SUBTITLE_SETTINGS.textColor,
+        backgroundColor: typeof parsed.backgroundColor === "string" ? parsed.backgroundColor : DEFAULT_SUBTITLE_SETTINGS.backgroundColor,
+        maxWidth: typeof parsed.maxWidth === "number" ? parsed.maxWidth : DEFAULT_SUBTITLE_SETTINGS.maxWidth,
+        positionX: typeof parsed.positionX === "number" ? parsed.positionX : DEFAULT_SUBTITLE_SETTINGS.positionX,
+        positionY: typeof parsed.positionY === "number" ? parsed.positionY : DEFAULT_SUBTITLE_SETTINGS.positionY,
+      };
+    }
+  } catch {
+    // ignore
+  }
+  return { ...DEFAULT_SUBTITLE_SETTINGS };
+}
+
+export function saveEditorSubtitleSettings(projectId: string, settings: EditorSubtitleSettings): void {
+  try {
+    localStorage.setItem(
+      getStorageKey(projectId, "editor-subtitle-settings"),
+      JSON.stringify(settings)
     );
   } catch {
     // ignore

@@ -6,7 +6,12 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Video } from "@remotion/media";
 import { AbsoluteFill, Audio, Sequence, useVideoConfig } from "remotion";
-import { loadEditorState, saveEditorState } from "@/lib/panels-storage";
+import {
+  loadEditorState,
+  loadEditorSubtitleSettings,
+  saveEditorState,
+  saveEditorSubtitleSettings,
+} from "@/lib/panels-storage";
 
 const RemotionPlayer = dynamic(
   () =>
@@ -319,6 +324,8 @@ export type SubtitleStyle = {
   textColor: string;
   backgroundColor: string;
   maxWidth: number;
+  positionX: number;
+  positionY: number;
 };
 
 export function EditorCompositionWithProps({
@@ -328,7 +335,7 @@ export function EditorCompositionWithProps({
   clips?: EditorClip[];
   subtitleStyle?: SubtitleStyle;
 }) {
-  const { fps } = useVideoConfig();
+  const { fps, width: compW, height: compH } = useVideoConfig();
   const allEnabled = rawClips.filter((c) => !c.disabled);
   const clips = allEnabled.filter((c) => c.kind !== "subtitle");
   const subtitleClips = allEnabled.filter((c) => c.kind === "subtitle");
@@ -555,12 +562,14 @@ export function EditorCompositionWithProps({
         );
       })}
       {subtitleClips.length > 0 && (
-        <AbsoluteFill style={{ pointerEvents: "none" }}>
+        <AbsoluteFill style={{ pointerEvents: "none", position: "relative", width: compW, height: compH }}>
           {subtitleClips.map((sub) => {
             const durSec = Math.max(0, toFinite(sub.trimEndSec, 0) - toFinite(sub.trimStartSec, 0));
             const subStart = toFinite(sub.startTimeSec, 0);
             const fromFrame = Math.round(subStart * safeFps);
             const durationInFrames = Math.max(1, Math.round((subStart + durSec) * safeFps) - fromFrame);
+            const posX = subtitleStyle?.positionX ?? compW / 2;
+            const posY = subtitleStyle?.positionY ?? Math.round(compH * 0.3);
             return (
               <Sequence
                 key={sub.id}
@@ -570,9 +579,14 @@ export function EditorCompositionWithProps({
               >
                 <AbsoluteFill
                   style={{
-                    justifyContent: "flex-end",
-                    alignItems: "center",
-                    paddingBottom: 40,
+                    position: "absolute" as const,
+                    left: posX,
+                    bottom: posY,
+                    width: "auto",
+                    height: "auto",
+                    transform: "translateX(-50%)",
+                    justifyContent: "flex-end" as const,
+                    alignItems: "center" as const,
                   }}
                 >
                   <div
@@ -637,6 +651,8 @@ export default function Editor() {
   const [subtitleTextColor, setSubtitleTextColor] = useState("#ffffff");
   const [subtitleBgColor, setSubtitleBgColor] = useState("#000000");
   const [subtitleMaxWidth, setSubtitleMaxWidth] = useState(80);
+  const [subtitlePositionX, setSubtitlePositionX] = useState(Math.round(COMP_WIDTH / 2));
+  const [subtitlePositionY, setSubtitlePositionY] = useState(Math.round(COMP_HEIGHT * 0.3));
   const [colorPickerOpen, setColorPickerOpen] = useState<null | "text" | "bg">(null);
   const textColorAnchorRef = useRef<HTMLButtonElement>(null);
   const bgColorAnchorRef = useRef<HTMLButtonElement>(null);
@@ -647,6 +663,41 @@ export default function Editor() {
   timelinePxPerSecRef.current = timelinePxPerSec;
   const skipNextSaveRef = useRef(true);
   const hasHydratedRef = useRef(false);
+  const subtitleSettingsLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const s = loadEditorSubtitleSettings(EDITOR_PROJECT_ID);
+    setSubtitleTextSize(s.textSize);
+    setSubtitleTextColor(s.textColor);
+    setSubtitleBgColor(s.backgroundColor);
+    setSubtitleMaxWidth(s.maxWidth);
+    setSubtitlePositionX(s.positionX);
+    setSubtitlePositionY(s.positionY);
+    // Defer so the save effect runs first (with ref still false) and doesn't overwrite with initial state
+    queueMicrotask(() => {
+      subtitleSettingsLoadedRef.current = true;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !subtitleSettingsLoadedRef.current) return;
+    saveEditorSubtitleSettings(EDITOR_PROJECT_ID, {
+      textSize: subtitleTextSize,
+      textColor: subtitleTextColor,
+      backgroundColor: subtitleBgColor,
+      maxWidth: subtitleMaxWidth,
+      positionX: subtitlePositionX,
+      positionY: subtitlePositionY,
+    });
+  }, [
+    subtitleTextSize,
+    subtitleTextColor,
+    subtitleBgColor,
+    subtitleMaxWidth,
+    subtitlePositionX,
+    subtitlePositionY,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined" || hasHydratedRef.current) return;
@@ -1584,6 +1635,8 @@ export default function Editor() {
               textColor: subtitleTextColor,
               backgroundColor: subtitleBgColor,
               maxWidth: subtitleMaxWidth,
+              positionX: subtitlePositionX,
+              positionY: subtitlePositionY,
             },
           },
         });
@@ -1601,7 +1654,7 @@ export default function Editor() {
         setExporting(false);
       }
     },
-    [clips, durationInFrames, subtitleTextSize, subtitleTextColor, subtitleBgColor, subtitleMaxWidth]
+    [clips, durationInFrames, subtitleTextSize, subtitleTextColor, subtitleBgColor, subtitleMaxWidth, subtitlePositionX, subtitlePositionY]
   );
 
   const openExportModal = useCallback(() => {
@@ -1692,6 +1745,8 @@ export default function Editor() {
                 textColor: subtitleTextColor,
                 backgroundColor: subtitleBgColor,
                 maxWidth: subtitleMaxWidth,
+                positionX: subtitlePositionX,
+                positionY: subtitlePositionY,
               }}
             />
           </div>
@@ -1712,11 +1767,14 @@ export default function Editor() {
                 <label className="flex flex-col gap-1">
                   <span className="text-xs text-foreground/50">Font size</span>
                   <input
-                    type="number"
-                    min={8}
-                    max={120}
+                    type="text"
+                    inputMode="numeric"
                     value={subtitleTextSize}
-                    onChange={(e) => setSubtitleTextSize(Math.max(8, Math.min(120, parseInt(e.target.value, 10) || 24)))}
+                    onChange={(e) => {
+                      const n = parseInt(e.target.value, 10);
+                      if (!Number.isNaN(n)) setSubtitleTextSize(Math.max(8, Math.min(120, n)));
+                      else if (e.target.value === "") setSubtitleTextSize(24);
+                    }}
                     className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
                   />
                 </label>
@@ -1763,14 +1821,46 @@ export default function Editor() {
                 <label className="flex flex-col gap-1">
                   <span className="text-xs text-foreground/50">Max width (%)</span>
                   <input
-                    type="number"
-                    min={10}
-                    max={100}
+                    type="text"
+                    inputMode="numeric"
                     value={subtitleMaxWidth}
-                    onChange={(e) => setSubtitleMaxWidth(Math.max(10, Math.min(100, parseInt(e.target.value, 10) || 80)))}
+                    onChange={(e) => {
+                      const n = parseInt(e.target.value, 10);
+                      if (!Number.isNaN(n)) setSubtitleMaxWidth(Math.max(10, Math.min(100, n)));
+                      else if (e.target.value === "") setSubtitleMaxWidth(80);
+                    }}
                     className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
                   />
                 </label>
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs text-foreground/50">Position (X × Y)</span>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={subtitlePositionX}
+                      onChange={(e) => {
+                        const n = parseInt(e.target.value, 10);
+                        if (!Number.isNaN(n)) setSubtitlePositionX(Math.max(0, n));
+                        else if (e.target.value === "") setSubtitlePositionX(0);
+                      }}
+                      className="flex-1 rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
+                      placeholder="X"
+                    />
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={subtitlePositionY}
+                      onChange={(e) => {
+                        const n = parseInt(e.target.value, 10);
+                        if (!Number.isNaN(n)) setSubtitlePositionY(Math.max(0, n));
+                        else if (e.target.value === "") setSubtitlePositionY(0);
+                      }}
+                      className="flex-1 rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
+                      placeholder="Y"
+                    />
+                  </div>
+                </div>
                 <ColorPickerPopover
                   isOpen={colorPickerOpen === "text"}
                   value={subtitleTextColor}
