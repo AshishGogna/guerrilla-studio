@@ -2,19 +2,17 @@
 
 import { useState } from "react";
 import Editor from "./Editor";
-import ImageGen from "./ImageGen";
+import Metadata from "./Metadata";
 import Scripting from "./Scripting";
 import Storyboarding from "./Storyboarding";
-import VideoGen from "./VideoGen";
 
-type TabId = "scripting" | "storyboarding" | "editing" | "image-gen" | "video-gen";
+type TabId = "scripting" | "storyboarding" | "editing" | "metadata";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "scripting", label: "Scripting" },
   { id: "storyboarding", label: "Storyboarding" },
   { id: "editing", label: "Editing" },
-  { id: "image-gen", label: "Image Gen" },
-  { id: "video-gen", label: "Video Gen" },
+  { id: "metadata", label: "Metadata" },
 ];
 
 export default function TopTabs() {
@@ -44,8 +42,7 @@ export default function TopTabs() {
         {activeTab === "scripting" && <Scripting />}
         {activeTab === "storyboarding" && <Storyboarding />}
         {activeTab === "editing" && <Editor />}
-        {activeTab === "image-gen" && <ImageGen />}
-        {activeTab === "video-gen" && <VideoGen />}
+        {activeTab === "metadata" && <Metadata />}
       </div>
     </div>
   );
