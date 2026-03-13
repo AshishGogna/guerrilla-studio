@@ -88,6 +88,28 @@ function UnhideIcon() {
   );
 }
 
+function RemoveIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 6h18" />
+      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+      <line x1="10" y1="11" x2="10" y2="17" />
+      <line x1="14" y1="11" x2="14" y2="17" />
+    </svg>
+  );
+}
+
 export default function Scripting() {
   const [templates, setTemplates] = useState(INITIAL_TEMPLATES);
   const [modalOpen, setModalOpen] = useState(false);
@@ -107,6 +129,37 @@ export default function Scripting() {
       else next.add(templateId);
       return next;
     });
+  };
+
+  const addTemplate = () => {
+    setTemplates((prev) => [
+      ...prev,
+      { id: `t-${Date.now()}`, name: "", steps: [""] },
+    ]);
+  };
+
+  const removeTemplate = (templateIndex: number) => {
+    const template = templates[templateIndex];
+    if (!template) return;
+    setHiddenTemplateIds((prev) => {
+      const next = new Set(prev);
+      next.delete(template.id);
+      return next;
+    });
+    setTemplates((prev) => prev.filter((_, i) => i !== templateIndex));
+  };
+
+  const removeStep = (templateIndex: number, stepIndex: number) => {
+    setTemplates((prev) =>
+      prev.map((t, i) =>
+        i === templateIndex
+          ? {
+              ...t,
+              steps: t.steps.filter((_, j) => j !== stepIndex),
+            }
+          : t
+      )
+    );
   };
 
   const updateStep = (templateIndex: number, stepIndex: number, value: string) => {
@@ -153,7 +206,15 @@ export default function Scripting() {
             <div className="text-sm text-muted-foreground font-medium flex items-center gap-2">
               <button
                 type="button"
-                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground/40 hover:text-foreground transition-colors shrink-0"
+                title="Remove"
+                onClick={() => removeTemplate(templateIndex)}
+              >
+                <RemoveIcon />
+              </button>
+              <button
+                type="button"
+                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground/40 hover:text-foreground transition-colors shrink-0"
                 title={hiddenTemplateIds.has(template.id) ? "Show" : "Hide"}
                 onClick={() => toggleTemplateHidden(template.id)}
               >
@@ -184,22 +245,32 @@ export default function Scripting() {
                         updateStep(templateIndex, stepIndex, e.target.value)
                       }
                     />
-                    <div className="flex justify-end gap-1 px-2 pb-2">
+                    <div className="flex justify-between items-center gap-1 px-2 pb-2">
                       <button
                         type="button"
-                        className="p-2 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                        title="Open"
-                        onClick={() => openStepModal(templateIndex, stepIndex)}
+                        className="p-2 rounded-md hover:bg-muted text-muted-foreground/40 hover:text-foreground transition-colors"
+                        title="Remove"
+                        onClick={() => removeStep(templateIndex, stepIndex)}
                       >
-                        <FullScreenIcon />
+                        <RemoveIcon />
                       </button>
-                      <button
-                        type="button"
-                        className="p-2 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                        title="Generate"
-                      >
-                        <SendIcon />
-                      </button>
+                      <div className="flex gap-1 ml-auto">
+                        <button
+                          type="button"
+                          className="p-2 rounded-md hover:bg-muted text-muted-foreground/40 hover:text-foreground transition-colors"
+                          title="Open"
+                          onClick={() => openStepModal(templateIndex, stepIndex)}
+                        >
+                          <FullScreenIcon />
+                        </button>
+                        <button
+                          type="button"
+                          className="p-2 rounded-md hover:bg-muted text-muted-foreground/40 hover:text-foreground transition-colors"
+                          title="Generate"
+                        >
+                          <SendIcon />
+                        </button>
+                      </div>
                     </div>
                   </div>
                   {stepIndex < template.steps.length - 1 && (
@@ -216,6 +287,17 @@ export default function Scripting() {
           </li>
         ))}
       </ul>
+
+      <div className="mt-6">
+        <button
+          type="button"
+          className="p-2 rounded-md border border-dashed border-border hover:bg-muted text-muted-foreground/40 hover:text-foreground transition-colors flex items-center justify-center min-w-[2.5rem]"
+          title="Add template"
+          onClick={addTemplate}
+        >
+          <span className="text-xl leading-none">+</span>
+        </button>
+      </div>
 
       {modalOpen && (
         <div
@@ -235,7 +317,7 @@ export default function Scripting() {
             <div className="flex justify-end pt-2">
               <button
                 type="button"
-                className="px-4 py-2 rounded-md bg-muted hover:bg-muted/80 text-foreground"
+                className="px-4 py-2 rounded-md bg-muted hover:bg-muted/80 text-muted-foreground/40 hover:text-foreground transition-colors"
                 onClick={closeModal}
               >
                 Close
