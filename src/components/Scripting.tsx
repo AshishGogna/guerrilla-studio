@@ -191,6 +191,17 @@ export default function Scripting({ projectId }: ScriptingProps) {
     }
   };
 
+  const handleGenerateAllSteps = async (templateIndex: number) => {
+    const template = templates[templateIndex];
+    if (!template?.steps.length) return;
+    for (let stepIndex = 0; stepIndex < template.steps.length; stepIndex++) {
+      await handleGenerate(templateIndex, stepIndex);
+      if (stepIndex < template.steps.length - 1) {
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    }
+  };
+
   useEffect(() => {
     const state = loadScriptingState(projectId);
     setTemplates(state.templates);
@@ -334,6 +345,22 @@ export default function Scripting({ projectId }: ScriptingProps) {
                   <UnhideIcon />
                 ) : (
                   <HideIcon />
+                )}
+              </button>
+              <button
+                type="button"
+                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground/40 hover:text-foreground transition-colors shrink-0 disabled:opacity-50 disabled:pointer-events-none"
+                title="Generate all steps"
+                disabled={
+                  template.steps.length === 0 ||
+                  (generatingStep?.templateIndex === templateIndex)
+                }
+                onClick={() => handleGenerateAllSteps(templateIndex)}
+              >
+                {generatingStep?.templateIndex === templateIndex ? (
+                  <LoaderIcon />
+                ) : (
+                  <SendIcon />
                 )}
               </button>
               <input
