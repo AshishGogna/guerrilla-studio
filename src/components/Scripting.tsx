@@ -7,6 +7,11 @@ import {
   type ScriptingTemplate,
 } from "@/lib/panels-storage";
 
+const MODEL_OPTIONS = [
+  "gpt-5.4",
+  "gpt-5-mini-2025-08-07",
+] as const;
+
 function SendIcon() {
   return (
     <svg
@@ -122,6 +127,7 @@ export default function Scripting({ projectId }: ScriptingProps) {
   const [hiddenTemplateIds, setHiddenTemplateIds] = useState<Set<string>>(
     new Set()
   );
+  const [selectedModel, setSelectedModel] = useState<string>(MODEL_OPTIONS[0]);
   const scriptingLoadedRef = useRef(false);
 
   useEffect(() => {
@@ -226,7 +232,25 @@ export default function Scripting({ projectId }: ScriptingProps) {
   };
 
   return (
-    <div className="flex-1 bg-background text-foreground p-6 overflow-auto">
+    <div className="flex-1 flex flex-col min-h-0 bg-background text-foreground">
+      <div className="shrink-0 flex items-center gap-3 px-4 py-2 border-b border-foreground/10 bg-foreground/5">
+        <label htmlFor="scripting-model" className="text-sm text-muted-foreground">
+          Model
+        </label>
+        <select
+          id="scripting-model"
+          className="rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20"
+          value={selectedModel}
+          onChange={(e) => setSelectedModel(e.target.value)}
+        >
+          {MODEL_OPTIONS.map((model) => (
+            <option key={model} value={model}>
+              {model}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="flex-1 overflow-auto p-6">
       <ul className="flex flex-col gap-8 list-none p-0 m-0">
         {templates.map((template, templateIndex) => (
           <li key={template.id} className="flex flex-col gap-2">
@@ -264,7 +288,7 @@ export default function Scripting({ projectId }: ScriptingProps) {
             <div className="flex flex-wrap items-stretch gap-2">
               {template.steps.map((stepValue, stepIndex) => (
                 <span key={stepIndex} className="contents">
-                  <div className="flex flex-col border border-border border-foreground/10 rounded-lg bg-card overflow-hidden min-w-[200px] w-[280px] focus:border-foreground">
+                  <div className="flex flex-col border border-border border-foreground/10 rounded-lg bg-foreground/5 overflow-hidden min-w-[200px] w-[280px] focus:border-foreground">
                     <textarea
                       className="flex-1 min-h-[100px] p-3 resize-y bg-transparent text-foreground placeholder:text-muted-foreground border-0 focus:outline-none focus:ring-0"
                       value={stepValue}
@@ -340,14 +364,15 @@ export default function Scripting({ projectId }: ScriptingProps) {
           <span className="text-xl leading-none">+</span>
         </button>
       </div>
+      </div>
 
       {modalOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
           onClick={closeModal}
         >
           <div
-            className="bg-background border border-border rounded-lg shadow-lg w-[90vw] max-w-2xl h-[80vh] flex flex-col"
+            className="bg-[#222222] border border-foreground/10 rounded-lg shadow-lg w-[90vw] max-w-2xl h-[80vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <textarea

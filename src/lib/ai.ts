@@ -1,21 +1,23 @@
 const MODEL = "gpt-5-mini-2025-08-07";
 const IMAGE_MODEL = "gemini-2.5-flash-image";
 
-export async function generateScript(
-  world: string,
-  systemPrompt: string
+export async function generateText(
+  userPrompt: string,
+  systemPrompt: string,
+  model: string
 ): Promise<string> {
-  console.log('AI: generateScript:', world, systemPrompt);
-  const res = await fetch("/api/generate-script", {
+  const textModel = model ?? MODEL;
+  console.log('AI: generateText:', userPrompt, systemPrompt, textModel);
+  const res = await fetch("/api/generate-text", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ world, systemPrompt, model: MODEL }),
+    body: JSON.stringify({ userPrompt, systemPrompt, model: textModel }),
   });
 
   const data = await res.json();
 
   if (!res.ok) {
-    const message = typeof data?.error === "string" ? data.error : "Failed to generate script";
+    const message = typeof data?.error === "string" ? data.error : "Failed to generate text";
     throw new Error(message);
   }
 
@@ -23,7 +25,7 @@ export async function generateScript(
     throw new Error("Invalid response from server");
   }
 
-  console.log('AI: generateScript response:', data.content);
+  console.log('AI: generateText response:', data.content);
   return data.content;
 }
 
