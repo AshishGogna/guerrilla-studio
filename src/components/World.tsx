@@ -61,18 +61,18 @@ export default function World({ projectId }: WorldProps) {
         {items.map((item, index) => (
           <li
             key={index}
-            className="flex items-center gap-2 rounded-lg border border-border bg-card p-2"
+            className="flex items-center gap-2 bg-card p-2"
           >
             <input
               type="text"
-              className="min-w-0 flex-1 rounded border border-border bg-transparent px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-foreground/20"
+              className="min-w-0 flex-1 rounded border border-foreground/10 bg-transparent px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-foreground/20"
               placeholder="Key"
               value={item.key}
               onChange={(e) => updateKey(index, e.target.value)}
             />
             <input
               type="text"
-              className="min-w-0 flex-1 rounded border border-border bg-transparent px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-foreground/20"
+              className="min-w-0 flex-1 rounded border border-foreground/10 bg-transparent px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-foreground/20"
               placeholder="Value"
               value={item.value}
               onChange={(e) => updateValue(index, e.target.value)}
