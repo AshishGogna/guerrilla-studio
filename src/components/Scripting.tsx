@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { addData } from "@/lib/data";
+import { generateText } from "@/lib/ai";
 import {
   loadScriptingState,
   saveScriptingState,
@@ -114,6 +116,25 @@ function RemoveIcon() {
   );
 }
 
+function LoaderIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="animate-spin"
+    >
+      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+    </svg>
+  );
+}
+
 type ScriptingProps = { projectId: string };
 
 export default function Scripting({ projectId }: ScriptingProps) {
@@ -128,7 +149,31 @@ export default function Scripting({ projectId }: ScriptingProps) {
     new Set()
   );
   const [selectedModel, setSelectedModel] = useState<string>(MODEL_OPTIONS[0]);
+  const [generatingStep, setGeneratingStep] = useState<{
+    templateIndex: number;
+    stepIndex: number;
+  } | null>(null);
   const scriptingLoadedRef = useRef(false);
+
+  const handleGenerate = async (templateIndex: number, stepIndex: number) => {
+    const stepValue = templates[templateIndex]?.steps[stepIndex] ?? "";
+    setGeneratingStep({ templateIndex, stepIndex });
+    try {
+      const content = await generateText(stepValue, "", selectedModel);
+      const parsed = JSON.parse(content) as Record<string, unknown>;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        for (const [key, value] of Object.entries(parsed)) {
+          addData(key, value);
+        }
+      }
+      console.log("Generate response:", content);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Generate failed";
+      alert(message);
+    } finally {
+      setGeneratingStep(null);
+    }
+  };
 
   useEffect(() => {
     const state = loadScriptingState(projectId);
@@ -316,10 +361,20 @@ export default function Scripting({ projectId }: ScriptingProps) {
                         </button>
                         <button
                           type="button"
-                          className="p-2 rounded-md hover:bg-muted text-muted-foreground/40 hover:text-foreground transition-colors"
+                          className="p-2 rounded-md hover:bg-muted text-muted-foreground/40 hover:text-foreground transition-colors disabled:opacity-50 disabled:pointer-events-none"
                           title="Generate"
+                          disabled={
+                            generatingStep?.templateIndex === templateIndex &&
+                            generatingStep?.stepIndex === stepIndex
+                          }
+                          onClick={() => handleGenerate(templateIndex, stepIndex)}
                         >
-                          <SendIcon />
+                          {generatingStep?.templateIndex === templateIndex &&
+                          generatingStep?.stepIndex === stepIndex ? (
+                            <LoaderIcon />
+                          ) : (
+                            <SendIcon />
+                          )}
                         </button>
                       </div>
                     </div>
