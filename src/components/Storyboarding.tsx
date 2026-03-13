@@ -341,6 +341,16 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
   async function handleGenerateImage(panelIndex: number) {
     const panel = panels[panelIndex];
     if (panel.mode !== "image" || !panel.promptImage.trim() || panel.generating) return;
+    const promptTrimmed = panel.promptImage.trim();
+    const sourcePanelIndex = /^\d+$/.test(promptTrimmed) ? parseInt(promptTrimmed, 10) : -1;
+    if (
+      sourcePanelIndex >= 0 &&
+      sourcePanelIndex < panels.length &&
+      panels[sourcePanelIndex].imageUrl
+    ) {
+      updatePanel(panelIndex, { imageUrl: panels[sourcePanelIndex].imageUrl ?? null });
+      return;
+    }
     updatePanel(panelIndex, { generating: true });
     try {
       const attachedImages =
@@ -354,7 +364,7 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
           : undefined;
       const fileName = `panel-${panelIndex}`;
       const imagePath = await generateImage(
-        panel.promptImage.trim(),
+        promptTrimmed,
         projectId,
         fileName,
         aspectRatio,
@@ -365,6 +375,15 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
     } catch (err) {
       updatePanel(panelIndex, { generating: false });
       alert(err instanceof Error ? err.message : "Failed to generate image");
+    }
+  }
+
+  async function handleGenerateAll() {
+    for (let i = 0; i < panels.length; i++) {
+      await handleGenerateImage(i);
+      if (i < panels.length - 1) {
+        await new Promise((r) => setTimeout(r, 1000));
+      }
     }
   }
 
@@ -417,35 +436,65 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
         </button>
         <button
           type="button"
-          onClick={() => {
+          onClick={async () => {
             const raw = getData("scenes");
             if (!Array.isArray(raw)) {
               alert("No scenes found. Save a list as data.scenes first.");
               return;
             }
-            const newPanels: PanelItem[] = raw.map((scene) => {
-              const sceneObj =
-                typeof scene === "object" && scene !== null ? (scene as Record<string, unknown>) : null;
-              const imageGenerationPrompt =
-                sceneObj && "imageGenerationPrompt" in sceneObj
-                  ? String(sceneObj.imageGenerationPrompt ?? "")
-                  : "";
-              const prompt =
-                typeof scene === "string"
-                  ? scene
-                  : sceneObj && "prompt" in sceneObj
-                    ? String(sceneObj.prompt ?? "")
-                    : sceneObj && "promptImage" in sceneObj
-                      ? String(sceneObj.promptImage ?? "")
-                      : sceneObj && "description" in sceneObj
-                        ? String(sceneObj.description ?? "")
-                        : "";
-              return {
-                ...defaultPanel,
-                promptImage: imageGenerationPrompt || prompt,
-                promptVideo: "",
-              };
-            });
+            const newPanels: PanelItem[] = await Promise.all(
+              raw.map(async (scene) => {
+                const sceneObj =
+                  typeof scene === "object" && scene !== null ? (scene as Record<string, unknown>) : null;
+                const imageGenerationPrompt =
+                  sceneObj && "imageGenerationPrompt" in sceneObj
+                    ? String(sceneObj.imageGenerationPrompt ?? "")
+                    : "";
+                const prompt =
+                  typeof scene === "string"
+                    ? scene
+                    : sceneObj && "prompt" in sceneObj
+                      ? String(sceneObj.prompt ?? "")
+                      : sceneObj && "promptImage" in sceneObj
+                        ? String(sceneObj.promptImage ?? "")
+                        : sceneObj && "description" in sceneObj
+                          ? String(sceneObj.description ?? "")
+                          : "";
+                const referenceImages: RefImage[] = [];
+                const refEntries = sceneObj && "references" in sceneObj && Array.isArray(sceneObj.references)
+                  ? (sceneObj.references as unknown[]).filter((r): r is string => typeof r === "string")
+                  : [];
+                for (const ref of refEntries) {
+                  const key = ref.startsWith("data.") ? ref.slice(5).trim() : ref.trim();
+                  if (!key) continue;
+                  const pathValue = getData(key);
+                  if (typeof pathValue !== "string" || !pathValue.trim()) continue;
+                  let url = pathValue.trim();
+                  if (url.startsWith("file://")) {
+                    try {
+                      const res = await fetch("/api/upload-from-path", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ projectId, filePath: url }),
+                      });
+                      const data = await res.json();
+                      if (res.ok && typeof data?.filePath === "string") {
+                        url = `/${data.filePath}`;
+                      }
+                    } catch {
+                      // skip this reference on upload failure
+                    }
+                  }
+                  referenceImages.push({ url });
+                }
+                return {
+                  ...defaultPanel,
+                  promptImage: imageGenerationPrompt || prompt,
+                  promptVideo: "",
+                  referenceImages,
+                };
+              })
+            );
             if (newPanels.length === 0) {
               alert("data.scenes is empty.");
               return;
@@ -466,6 +515,14 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
           className="rounded border border-foreground/20 bg-transparent px-3 py-1.5 text-sm hover:bg-foreground/10"
         >
           Clear
+        </button>
+        <button
+          type="button"
+          onClick={handleGenerateAll}
+          disabled={panels.length === 0 || panels.some((p) => p.generating)}
+          className="rounded border border-foreground/20 bg-transparent px-3 py-1.5 text-sm hover:bg-foreground/10 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Generate All
         </button>
         <button
           type="button"
