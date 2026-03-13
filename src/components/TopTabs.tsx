@@ -5,10 +5,12 @@ import Editor, { type EditorProps } from "./Editor";
 import Metadata, { type MetadataProps } from "./Metadata";
 import Scripting from "./Scripting";
 import Storyboarding, { type StoryboardingProps } from "./Storyboarding";
+import World, { type WorldProps } from "./World";
 
-type TabId = "scripting" | "storyboarding" | "editing" | "metadata";
+type TabId = "world" | "scripting" | "storyboarding" | "editing" | "metadata";
 
 const TABS: { id: TabId; label: string }[] = [
+  { id: "world", label: "World" },
   { id: "scripting", label: "Scripting" },
   { id: "storyboarding", label: "Storyboarding" },
   { id: "editing", label: "Editing" },
@@ -18,7 +20,7 @@ const TABS: { id: TabId; label: string }[] = [
 type Props = { projectId: string };
 
 export default function TopTabs({ projectId }: Props) {
-  const [activeTab, setActiveTab] = useState<TabId>("scripting");
+  const [activeTab, setActiveTab] = useState<TabId>("world");
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -41,6 +43,7 @@ export default function TopTabs({ projectId }: Props) {
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
+        {activeTab === "world" && <World projectId={projectId} />}
         {activeTab === "scripting" && <Scripting projectId={projectId} />}
         {activeTab === "storyboarding" && <Storyboarding projectId={projectId} />}
         {activeTab === "editing" && <Editor projectId={projectId} />}
