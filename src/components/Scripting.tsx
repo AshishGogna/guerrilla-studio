@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { addData } from "@/lib/data";
+import { addData, getData } from "@/lib/data";
 import { generateText } from "@/lib/ai";
 import {
   loadScriptingState,
@@ -13,6 +13,21 @@ const MODEL_OPTIONS = [
   "gpt-5.4",
   "gpt-5-mini-2025-08-07",
 ] as const;
+
+/** Replaces backtick-enclosed placeholders like `data.speech` with values from the data lib. */
+function resolveDataPlaceholders(text: string): string {
+  return text.replace(/`([^`]+)`/g, (_, inner) => {
+    const trimmed = inner.trim();
+    if (trimmed.startsWith("data.")) {
+      const key = trimmed.slice(5).trim();
+      const value = getData(key);
+      if (value === undefined) return "";
+      return typeof value === "string" ? value : JSON.stringify(value);
+    }
+    // return "`" + inner + "`"; // dont remove
+    return inner;
+  });
+}
 
 function SendIcon() {
   return (
@@ -157,9 +172,10 @@ export default function Scripting({ projectId }: ScriptingProps) {
 
   const handleGenerate = async (templateIndex: number, stepIndex: number) => {
     const stepValue = templates[templateIndex]?.steps[stepIndex] ?? "";
+    const prompt = resolveDataPlaceholders(stepValue);
     setGeneratingStep({ templateIndex, stepIndex });
     try {
-      const content = await generateText(stepValue, "", selectedModel);
+      const content = await generateText(prompt, "", selectedModel);
       const parsed = JSON.parse(content) as Record<string, unknown>;
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         for (const [key, value] of Object.entries(parsed)) {
