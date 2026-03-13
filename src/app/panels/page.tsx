@@ -1,13 +1,5 @@
-"use client";
-
-import TopBar from "@/components/TopBar";
-import TopTabs from "@/components/TopTabs";
+import { redirect } from "next/navigation";
 
 export default function PanelsPage() {
-  return (
-    <div className="flex min-h-screen flex-col bg-background text-foreground">
-      <TopBar title="Panels" />
-      <TopTabs />
-    </div>
-  );
+  redirect("/panels/default");
 }

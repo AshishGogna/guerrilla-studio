@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import Editor from "./Editor";
-import Metadata from "./Metadata";
+import Editor, { type EditorProps } from "./Editor";
+import Metadata, { type MetadataProps } from "./Metadata";
 import Scripting from "./Scripting";
-import Storyboarding from "./Storyboarding";
+import Storyboarding, { type StoryboardingProps } from "./Storyboarding";
 
 type TabId = "scripting" | "storyboarding" | "editing" | "metadata";
 
@@ -15,7 +15,9 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "metadata", label: "Metadata" },
 ];
 
-export default function TopTabs() {
+type Props = { projectId: string };
+
+export default function TopTabs({ projectId }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>("scripting");
 
   return (
@@ -40,9 +42,9 @@ export default function TopTabs() {
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
         {activeTab === "scripting" && <Scripting />}
-        {activeTab === "storyboarding" && <Storyboarding />}
-        {activeTab === "editing" && <Editor />}
-        {activeTab === "metadata" && <Metadata />}
+        {activeTab === "storyboarding" && <Storyboarding projectId={projectId} />}
+        {activeTab === "editing" && <Editor projectId={projectId} />}
+        {activeTab === "metadata" && <Metadata projectId={projectId} />}
       </div>
     </div>
   );

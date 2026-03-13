@@ -10,7 +10,6 @@ import JSZip from "jszip";
 import { createPortal } from "react-dom";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-const STORYBOARD_PROJECT_ID = "X";
 const MIN_TEXTAREA_HEIGHT = 44;
 
 const IMAGE_MODELS = ["gemini-2.5-flash-image", "gemini-3-pro-image-preview"] as const;
@@ -91,26 +90,28 @@ function panelToPersisted(panel: PanelItem): StoryboardPanelPersisted {
   };
 }
 
-export default function Storyboarding() {
+export type StoryboardingProps = { projectId: string };
+
+export default function Storyboarding({ projectId }: StoryboardingProps) {
   const [panels, setPanels] = useState<PanelItem[]>(() => {
     if (typeof window === "undefined") return [{ ...defaultPanel }];
-    const saved = loadStoryboardState(STORYBOARD_PROJECT_ID);
+    const saved = loadStoryboardState(projectId);
     if (!saved.panels?.length) return [{ ...defaultPanel }];
     return saved.panels.map(persistedToPanel);
   });
   const [imageModel, setImageModel] = useState<string>(() => {
     if (typeof window === "undefined") return IMAGE_MODELS[0];
-    const saved = loadStoryboardState(STORYBOARD_PROJECT_ID);
+    const saved = loadStoryboardState(projectId);
     return saved.imageModel ?? IMAGE_MODELS[0];
   });
   const [aspectRatio, setAspectRatio] = useState<string>(() => {
     if (typeof window === "undefined") return "16:9";
-    const saved = loadStoryboardState(STORYBOARD_PROJECT_ID);
+    const saved = loadStoryboardState(projectId);
     return saved.aspectRatio ?? "16:9";
   });
   const [scale, setScale] = useState<string>(() => {
     if (typeof window === "undefined") return "1x";
-    const saved = loadStoryboardState(STORYBOARD_PROJECT_ID);
+    const saved = loadStoryboardState(projectId);
     return saved.scale ?? "1x";
   });
   const textareaRefs = useRef<(HTMLTextAreaElement | null)[]>([]);
@@ -120,13 +121,13 @@ export default function Storyboarding() {
   }, [panels]);
 
   useEffect(() => {
-    saveStoryboardState(STORYBOARD_PROJECT_ID, {
+    saveStoryboardState(projectId, {
       imageModel,
       aspectRatio,
       scale,
       panels: panels.map(panelToPersisted),
     });
-  }, [panels, imageModel, aspectRatio, scale]);
+  }, [projectId, panels, imageModel, aspectRatio, scale]);
 
   function updatePanel(index: number, updates: Partial<PanelItem>) {
     setPanels((prev) => {
@@ -190,7 +191,7 @@ export default function Storyboarding() {
     setDownloadingAll(true);
     try {
       const zip = new JSZip();
-      const folder = zip.folder(STORYBOARD_PROJECT_ID);
+      const folder = zip.folder(projectId);
       if (!folder) throw new Error("Could not create zip folder");
       for (let i = 0; i < urls.length; i++) {
         const url = urls[i];
@@ -204,7 +205,7 @@ export default function Storyboarding() {
       const blob = await zip.generateAsync({ type: "blob" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `${STORYBOARD_PROJECT_ID}.zip`;
+      a.download = `${projectId}.zip`;
       a.click();
       URL.revokeObjectURL(a.href);
     } catch (err) {
@@ -229,7 +230,7 @@ export default function Storyboarding() {
     setSelectPanelIndex(panelIndex);
     try {
       const res = await fetch(
-        `/api/list-project-images?projectId=${encodeURIComponent(STORYBOARD_PROJECT_ID)}`
+        `/api/list-project-images?projectId=${encodeURIComponent(projectId)}`
       );
       const data = await res.json();
       setProjectImages(Array.isArray(data.images) ? data.images : []);
@@ -242,7 +243,7 @@ export default function Storyboarding() {
     setAttachRefSelectMode(true);
     try {
       const res = await fetch(
-        `/api/list-project-images?projectId=${encodeURIComponent(STORYBOARD_PROJECT_ID)}`
+        `/api/list-project-images?projectId=${encodeURIComponent(projectId)}`
       );
       const data = await res.json();
       setAttachRefSelectImages(Array.isArray(data.images) ? data.images : []);
@@ -271,7 +272,6 @@ export default function Storyboarding() {
     const fileName = `upload-${panelIndex}-${Date.now()}`;
     setAttachPanelIndex(null);
     setAttachMenuPanelIndex(null);
-    const projectId = STORYBOARD_PROJECT_ID;
     const newRefs: RefImage[] = [];
     for (const file of Array.from(files)) {
       const form = new FormData();
@@ -307,7 +307,7 @@ export default function Storyboarding() {
     setPreviewUploadPanelIndex(null);
     const form = new FormData();
     form.set("file", file);
-    form.set("projectId", STORYBOARD_PROJECT_ID);
+    form.set("projectId", projectId);
     form.set("fileName", fileName);
     try {
       const res = await fetch("/api/upload-attachment", { method: "POST", body: form });
@@ -351,7 +351,6 @@ export default function Storyboarding() {
               }))
             )
           : undefined;
-      const projectId = "X";
       const fileName = `panel-${panelIndex}`;
       const imagePath = await generateImage(
         panel.promptImage.trim(),

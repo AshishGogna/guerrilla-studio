@@ -702,16 +702,16 @@ export function EditorCompositionWithProps({
   );
 }
 
-const EDITOR_PROJECT_ID = "X";
-
 function isEditorSavePath(src: string): boolean {
   return typeof src === "string" && src.startsWith("/editor-saves/");
 }
 
-export default function Editor() {
+export type EditorProps = { projectId: string };
+
+export default function Editor({ projectId }: EditorProps) {
   const [clips, setClips] = useState<EditorClip[]>(() => {
     if (typeof window === "undefined") return [];
-    const raw = loadEditorState(EDITOR_PROJECT_ID).clips as unknown as EditorClip[];
+    const raw = loadEditorState(projectId).clips as unknown as EditorClip[];
     return raw.filter((c) => !c.src.startsWith("blob:"));
   });
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
@@ -763,7 +763,7 @@ export default function Editor() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const s = loadEditorSubtitleSettings(EDITOR_PROJECT_ID);
+    const s = loadEditorSubtitleSettings(projectId);
     setSubtitleTextSize(s.textSize);
     setSubtitleTextColor(s.textColor);
     setSubtitleBgColor(s.backgroundColor);
@@ -776,7 +776,7 @@ export default function Editor() {
     queueMicrotask(() => {
       subtitleSettingsLoadedRef.current = true;
     });
-    const t = loadEditorTransformSettings(EDITOR_PROJECT_ID);
+    const t = loadEditorTransformSettings(projectId);
     setZoomInput(t.zoom);
     setCompWidthInput(t.compWidth);
     setCompHeightInput(t.compHeight);
@@ -787,7 +787,7 @@ export default function Editor() {
 
   useEffect(() => {
     if (typeof window === "undefined" || !subtitleSettingsLoadedRef.current) return;
-    saveEditorSubtitleSettings(EDITOR_PROJECT_ID, {
+    saveEditorSubtitleSettings(projectId, {
       textSize: subtitleTextSize,
       textColor: subtitleTextColor,
       backgroundColor: subtitleBgColor,
@@ -812,7 +812,7 @@ export default function Editor() {
 
   useEffect(() => {
     if (typeof window === "undefined" || !transformSettingsLoadedRef.current) return;
-    saveEditorTransformSettings(EDITOR_PROJECT_ID, {
+    saveEditorTransformSettings(projectId, {
       zoom: zoomInput,
       compWidth: compWidthInput,
       compHeight: compHeightInput,
@@ -868,7 +868,7 @@ export default function Editor() {
               const blob = await res.blob();
               const form = new FormData();
               form.append("file", blob, c.fileName || `${c.id}.mp4`);
-              form.append("projectId", EDITOR_PROJECT_ID);
+              form.append("projectId", projectId);
               form.append("clipId", c.id);
               const r = await fetch("/api/editor-save-blob", {
                 method: "POST",
@@ -883,10 +883,10 @@ export default function Editor() {
           })
         );
         setClips(updated);
-        saveEditorState(EDITOR_PROJECT_ID, { clips: updated });
+        saveEditorState(projectId, { clips: updated });
       })();
     } else {
-      saveEditorState(EDITOR_PROJECT_ID, { clips });
+      saveEditorState(projectId, { clips });
     }
   }, [clips]);
 
@@ -2370,12 +2370,12 @@ export default function Editor() {
                 setSelectedClipId(null);
                 setPlayheadTimeSec(0);
                 playerRef.current?.seekTo(0);
-                saveEditorState(EDITOR_PROJECT_ID, { clips: [] });
+                saveEditorState(projectId, { clips: [] });
                 try {
                   await fetch("/api/editor-clear-saves", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ projectId: EDITOR_PROJECT_ID }),
+                    body: JSON.stringify({ projectId: projectId }),
                   });
                 } catch {
                   // ignore

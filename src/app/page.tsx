@@ -10,7 +10,7 @@ export default function Home() {
             <a href="/projects" className="text-foreground/70 transition hover:text-accent">
               Projects
             </a>
-            <a href="/panels" className="text-foreground/70 transition hover:text-accent">
+            <a href="/panels/default" className="text-foreground/70 transition hover:text-accent">
               Panels
             </a>
             <a href="#work" className="text-foreground/70 transition hover:text-accent">
