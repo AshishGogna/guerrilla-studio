@@ -138,8 +138,10 @@ export default function Scripting() {
                     </div>
                   </div>
                   {stepIndex < template.steps.length - 1 && (
-                    <span className="self-center text-muted-foreground font-medium">
-                      →
+                    <span className="self-center text-muted-foreground flex items-center shrink-0 opacity-40" aria-hidden>
+                      <svg width="64" height="16" viewBox="0 0 64 16" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-current">
+                        <path d="M4 8h56m0 0l-6-6m6 6l-6 6" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
                     </span>
                   )}
                 </span>
