@@ -48,6 +48,46 @@ function FullScreenIcon() {
   );
 }
 
+function HideIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49" />
+      <path d="M14.084 14.158a3 3 0 0 1-4.242-4.242" />
+      <path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143" />
+      <path d="m2 2 20 20" />
+    </svg>
+  );
+}
+
+function UnhideIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
 export default function Scripting() {
   const [templates, setTemplates] = useState(INITIAL_TEMPLATES);
   const [modalOpen, setModalOpen] = useState(false);
@@ -56,6 +96,18 @@ export default function Scripting() {
     templateIndex: number;
     stepIndex: number;
   } | null>(null);
+  const [hiddenTemplateIds, setHiddenTemplateIds] = useState<Set<string>>(
+    new Set()
+  );
+
+  const toggleTemplateHidden = (templateId: string) => {
+    setHiddenTemplateIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(templateId)) next.delete(templateId);
+      else next.add(templateId);
+      return next;
+    });
+  };
 
   const updateStep = (templateIndex: number, stepIndex: number, value: string) => {
     setTemplates((prev) => {
@@ -98,16 +150,29 @@ export default function Scripting() {
       <ul className="flex flex-col gap-8 list-none p-0 m-0">
         {templates.map((template, templateIndex) => (
           <li key={template.id} className="flex flex-col gap-2">
-            <div className="text-sm text-muted-foreground font-medium flex items-baseline gap-1">
+            <div className="text-sm text-muted-foreground font-medium flex items-center gap-2">
+              <button
+                type="button"
+                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                title={hiddenTemplateIds.has(template.id) ? "Show" : "Hide"}
+                onClick={() => toggleTemplateHidden(template.id)}
+              >
+                {hiddenTemplateIds.has(template.id) ? (
+                  <UnhideIcon />
+                ) : (
+                  <HideIcon />
+                )}
+              </button>
               <input
                 type="text"
-                className="min-w-[2ch] max-w-[12rem] bg-transparent border-b border-current text-foreground focus:outline-none focus:ring-0 px-0.5 border-foreground/10 focus:border-foreground"
+                className="min-w-[2ch] max-w-[12rem] bg-transparent border-b border-current text-foreground focus:outline-none focus:ring-0 px-0.5 border-foreground/0 focus:border-foreground"
                 value={template.name}
                 onChange={(e) =>
                   updateTemplateName(templateIndex, e.target.value)
                 }
               />
             </div>
+            {!hiddenTemplateIds.has(template.id) && (
             <div className="flex flex-wrap items-stretch gap-2">
               {template.steps.map((stepValue, stepIndex) => (
                 <span key={stepIndex} className="contents">
@@ -147,6 +212,7 @@ export default function Scripting() {
                 </span>
               ))}
             </div>
+            )}
           </li>
         ))}
       </ul>
