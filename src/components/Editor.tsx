@@ -2529,8 +2529,6 @@ export default function Editor({ projectId }: EditorProps) {
                           );
                         }
                         if (k === "subtitle") {
-                          const subDur = Math.max(0, toFinite(clip.trimEndSec, 0) - toFinite(clip.trimStartSec, 0));
-                          const subWidthPx = Math.max(24, subDur * timelinePxPerSec);
                           const subLeft = `${(clip.startTimeSec ?? 0) * timelinePxPerSec}px`;
                           return (
                             <div
@@ -2538,16 +2536,14 @@ export default function Editor({ projectId }: EditorProps) {
                               className="absolute top-0 h-full"
                               style={{ left: subLeft, pointerEvents: "none", opacity: clipOpacity }}
                             >
-                              <div
-                                role="button"
-                                tabIndex={0}
-                                onClick={(e) => { e.stopPropagation(); setSelectedClipId(clip.id); }}
-                                onContextMenu={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  setClipContextMenu({ clipId: clip.id, x: e.clientX, y: e.clientY });
-                                }}
-                                onMouseDown={(e) => {
+                              <TimelineSubtitleBlock
+                                clip={clip}
+                                pxPerSec={timelinePxPerSec}
+                                isSelected={selectedClipId === clip.id}
+                                isDragged={draggedId === clip.id}
+                                onSelect={() => setSelectedClipId(clip.id)}
+                                onUpdate={(patch) => updateClip(clip.id, patch)}
+                                onPositionDragStart={(e) => {
                                   if (e.button === 0)
                                     handlePositionDragStart(
                                       clip.id,
@@ -2557,18 +2553,12 @@ export default function Editor({ projectId }: EditorProps) {
                                       () => setSelectedClipId(clip.id)
                                     );
                                 }}
-                                className={`relative h-12 shrink-0 cursor-grab active:cursor-grabbing overflow-hidden rounded border-2 transition ${
-                                  selectedClipId === clip.id
-                                    ? "border-accent"
-                                    : "border-green-500/40 hover:border-green-500/60"
-                                } ${draggedId === clip.id ? "opacity-50" : ""}`}
-                                style={{ width: `${subWidthPx}px`, pointerEvents: "auto" }}
-                              >
-                                <div className="absolute inset-0 bg-green-500/15" />
-                                <span className="absolute left-1 right-1 top-1/2 -translate-y-1/2 truncate text-[10px] font-medium text-green-300">
-                                  {clip.text}
-                                </span>
-                              </div>
+                                onContextMenu={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setClipContextMenu({ clipId: clip.id, x: e.clientX, y: e.clientY });
+                                }}
+                              />
                             </div>
                           );
                         }
@@ -3166,6 +3156,131 @@ function TimelineAudioBlock({
           }}
         />
       )}
+    </div>
+  );
+}
+
+function TimelineSubtitleBlock({
+  clip,
+  pxPerSec,
+  isSelected,
+  isDragged,
+  onSelect,
+  onUpdate,
+  onPositionDragStart,
+  onContextMenu: onContextMenuProp,
+}: {
+  clip: EditorClip;
+  pxPerSec: number;
+  isSelected: boolean;
+  isDragged: boolean;
+  onSelect: () => void;
+  onUpdate: (patch: Partial<EditorClip>) => void;
+  onPositionDragStart: (e: React.MouseEvent) => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
+}) {
+  const barRef = useRef<HTMLDivElement>(null);
+  const [trimDrag, setTrimDrag] = useState<{
+    side: "left" | "right";
+    startX: number;
+    startValue: number;
+  } | null>(null);
+
+  const trimStart = toFinite(clip.trimStartSec, 0);
+  const trimEnd = toFinite(clip.trimEndSec, 10);
+  const durationSec = Math.max(0, trimEnd - trimStart);
+  const fullDuration = Math.max(durationSec, toFinite(clip.durationSec, trimEnd || 10));
+  const minClipWidthPx = Math.max(24, 0.1 * pxPerSec);
+  const widthPx = Math.max(minClipWidthPx, durationSec * pxPerSec);
+  const safeWidth = toFinite(widthPx, minClipWidthPx);
+  const wrapperWidthPx = Math.max(safeWidth, safeWidth);
+
+  useEffect(() => {
+    if (!trimDrag || !barRef.current) return;
+    const fullDur = Math.max(fullDuration, 0.1);
+    const onMouseMove = (e: MouseEvent) => {
+      const rect = barRef.current!.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width;
+      const sec = Math.max(0, Math.min(1, x)) * fullDur;
+      if (trimDrag.side === "left") {
+        const newStart = Math.max(0, Math.min(sec, trimEnd - MIN_TRIM_DURATION_SEC));
+        const delta = newStart - trimStart;
+        const newStartTimeSec = toFinite(clip.startTimeSec, 0) + delta;
+        onUpdate({
+          trimStartSec: newStart,
+          startTimeSec: newStartTimeSec,
+        });
+      } else {
+        onUpdate({
+          trimEndSec: Math.max(
+            trimStart + MIN_TRIM_DURATION_SEC,
+            Math.min(fullDur, sec)
+          ),
+        });
+      }
+    };
+    const onMouseUp = () => setTrimDrag(null);
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, [trimDrag, fullDuration, trimStart, trimEnd, onUpdate, clip.startTimeSec]);
+
+  return (
+    <div
+      ref={barRef}
+      className="relative h-12 shrink-0"
+      style={{ width: `${Math.max(1, wrapperWidthPx)}px`, pointerEvents: "none" }}
+    >
+      <div
+        role="button"
+        tabIndex={0}
+        onMouseDown={(e) => {
+          if (e.button === 0) onPositionDragStart(e);
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onSelect();
+        }}
+        onContextMenu={onContextMenuProp}
+        className={`absolute top-0 bottom-0 flex items-center overflow-hidden rounded border-2 cursor-grab active:cursor-grabbing transition ${
+          isSelected
+            ? "border-accent"
+            : "border-green-500/40 hover:border-green-500/60"
+        } ${isDragged ? "opacity-50" : ""}`}
+        style={{
+          left: 0,
+          width: `${Math.max(1, safeWidth)}px`,
+          pointerEvents: "auto",
+        }}
+      >
+        <div className="absolute inset-0 bg-green-500/15" />
+        <span className="absolute left-1 right-1 top-1/2 -translate-y-1/2 truncate text-[10px] font-medium text-green-300">
+          {clip.text}
+        </span>
+        <div
+          role="slider"
+          aria-label="Trim start"
+          className="absolute left-0 inset-y-0 z-10 w-2 cursor-ew-resize border-r border-foreground/30 hover:bg-foreground/20"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setTrimDrag({ side: "left", startX: e.clientX, startValue: trimStart });
+          }}
+        />
+        <div
+          role="slider"
+          aria-label="Trim end"
+          className="absolute right-0 inset-y-0 z-10 w-2 cursor-ew-resize border-l border-foreground/30 hover:bg-foreground/20"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setTrimDrag({ side: "right", startX: e.clientX, startValue: trimEnd });
+          }}
+        />
+      </div>
     </div>
   );
 }
