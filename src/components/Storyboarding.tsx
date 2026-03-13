@@ -527,6 +527,71 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
         </button>
         <button
           type="button"
+          onClick={async () => {
+            const raw = getData("scenes");
+            if (!Array.isArray(raw)) {
+              alert("No scenes found. Save a list as data.scenes first.");
+              return;
+            }
+            const prompts = raw
+              .map((scene) => {
+                if (typeof scene === "string") return scene;
+                const obj =
+                  scene && typeof scene === "object"
+                    ? (scene as Record<string, unknown>)
+                    : null;
+                if (!obj) return "";
+                if ("videoGenerationPrompt" in obj) {
+                  return String(
+                    (obj as { videoGenerationPrompt?: unknown }).videoGenerationPrompt ??
+                      ""
+                  );
+                }
+                if ("video_prompt" in obj) {
+                  return String((obj as { video_prompt?: unknown }).video_prompt ?? "");
+                }
+                if ("videoPrompt" in obj) {
+                  return String((obj as { videoPrompt?: unknown }).videoPrompt ?? "");
+                }
+                if ("promptVideo" in obj) {
+                  return String((obj as { promptVideo?: unknown }).promptVideo ?? "");
+                }
+                return "";
+              })
+              .map((s) => s.trim())
+              .filter((s) => s.length > 0);
+            if (prompts.length === 0) {
+              alert("No video generation prompts found in data.scenes.");
+              return;
+            }
+            const text = prompts.join("\n\n");
+            try {
+              if (navigator.clipboard && "writeText" in navigator.clipboard) {
+                await navigator.clipboard.writeText(text);
+              } else {
+                const textarea = document.createElement("textarea");
+                textarea.value = text;
+                textarea.style.position = "fixed";
+                textarea.style.opacity = "0";
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand("copy");
+                document.body.removeChild(textarea);
+              }
+            } catch (err) {
+              alert(
+                err instanceof Error
+                  ? `Failed to copy prompts: ${err.message}`
+                  : "Failed to copy prompts"
+              );
+            }
+          }}
+          className="rounded border border-foreground/20 bg-transparent px-3 py-1.5 text-xs sm:text-sm hover:bg-foreground/10"
+        >
+          Copy Video Gen Prompts for Grok
+        </button>
+        <button
+          type="button"
           onClick={handleDownloadAll}
           disabled={downloadingAll || panels.every((p) => !p.imageUrl)}
           className="rounded border border-foreground/20 bg-transparent px-3 py-1.5 text-sm hover:bg-foreground/10 disabled:opacity-50 disabled:cursor-not-allowed"
