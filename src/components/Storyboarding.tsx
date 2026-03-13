@@ -116,6 +116,8 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
     return saved.scale ?? "1x";
   });
   const textareaRefs = useRef<(HTMLTextAreaElement | null)[]>([]);
+  const panelsRef = useRef(panels);
+  panelsRef.current = panels;
 
   useEffect(() => {
     textareaRefs.current.forEach(resizeTextarea);
@@ -339,16 +341,17 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
   }
 
   async function handleGenerateImage(panelIndex: number) {
-    const panel = panels[panelIndex];
+    const currentPanels = panelsRef.current;
+    const panel = currentPanels[panelIndex];
     if (panel.mode !== "image" || !panel.promptImage.trim() || panel.generating) return;
     const promptTrimmed = panel.promptImage.trim();
     const sourcePanelIndex = /^\d+$/.test(promptTrimmed) ? parseInt(promptTrimmed, 10) : -1;
     if (
       sourcePanelIndex >= 0 &&
-      sourcePanelIndex < panels.length &&
-      panels[sourcePanelIndex].imageUrl
+      sourcePanelIndex < currentPanels.length &&
+      currentPanels[sourcePanelIndex].imageUrl
     ) {
-      updatePanel(panelIndex, { imageUrl: panels[sourcePanelIndex].imageUrl ?? null });
+      updatePanel(panelIndex, { imageUrl: currentPanels[sourcePanelIndex].imageUrl ?? null });
       return;
     }
     updatePanel(panelIndex, { generating: true });
@@ -381,9 +384,7 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
   async function handleGenerateAll() {
     for (let i = 0; i < panels.length; i++) {
       await handleGenerateImage(i);
-      if (i < panels.length - 1) {
-        await new Promise((r) => setTimeout(r, 1000));
-      }
+      await new Promise((r) => setTimeout(r, 2000));
     }
   }
 
