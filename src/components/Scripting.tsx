@@ -157,11 +157,11 @@ export default function Scripting() {
           onClick={closeModal}
         >
           <div
-            className="bg-background border border-border rounded-lg shadow-lg w-[90vw] max-w-2xl h-[80vh] flex flex-col p-4"
+            className="bg-background border border-border rounded-lg shadow-lg w-[90vw] max-w-2xl h-[80vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <textarea
-              className="flex-1 min-h-0 p-3 resize-none bg-transparent text-foreground placeholder:text-muted-foreground border border-border rounded focus:outline-none focus:ring-2 focus:ring-ring"
+              className="flex-1 min-h-0 p-3 resize-none bg-transparent text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-0"
               placeholder="Step content..."
               value={modalValue}
               onChange={(e) => setModalValue(e.target.value)}
