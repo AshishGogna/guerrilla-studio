@@ -25,7 +25,7 @@ export async function POST(request: Request) {
     );
   }
 
-  let body: { world?: string; systemPrompt?: string; model?: string };
+  let body: { userPrompt?: string; systemPrompt?: string; model?: string };
   try {
     body = await request.json();
   } catch {
@@ -35,10 +35,10 @@ export async function POST(request: Request) {
     );
   }
 
-  const world = typeof body.world === "string" ? body.world : "";
-  if (!world.trim()) {
+  const userPrompt = typeof body.userPrompt === "string" ? body.userPrompt : "";
+  if (!userPrompt.trim()) {
     return NextResponse.json(
-      { error: "world is required" },
+      { error: "userPrompt is required" },
       { status: 400 }
     );
   }
@@ -46,12 +46,12 @@ export async function POST(request: Request) {
   const systemPrompt =
     typeof body.systemPrompt === "string" && body.systemPrompt.trim()
       ? body.systemPrompt.trim()
-      : "You are a scriptwriter. Generate a script based on the user's world and characters description. Output only the script text, no meta commentary.";
+      : "";
 
   const model =
     typeof body.model === "string" && body.model.trim()
       ? body.model.trim()
-      : "gpt-4o-mini";
+      : "gpt-5-mini-2025-08-07";
 
   try {
     const res = await fetch("https://api.openai.com/v1/responses", {
@@ -63,7 +63,7 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         model,
         instructions: systemPrompt,
-        input: world,
+        input: userPrompt,
       }),
     });
 
