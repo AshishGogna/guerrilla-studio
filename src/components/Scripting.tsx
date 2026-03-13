@@ -1,12 +1,11 @@
 "use client";
 
-import { useState } from "react";
-
-// Fixed test data: 2 templates, 2–3 steps each
-const INITIAL_TEMPLATES = [
-  { id: "t1", name: "Template 1", steps: ["", ""] },
-  { id: "t2", name: "Template 2", steps: ["", "", ""] },
-];
+import { useEffect, useRef, useState } from "react";
+import {
+  loadScriptingState,
+  saveScriptingState,
+  type ScriptingTemplate,
+} from "@/lib/panels-storage";
 
 function SendIcon() {
   return (
@@ -110,8 +109,10 @@ function RemoveIcon() {
   );
 }
 
-export default function Scripting() {
-  const [templates, setTemplates] = useState(INITIAL_TEMPLATES);
+type ScriptingProps = { projectId: string };
+
+export default function Scripting({ projectId }: ScriptingProps) {
+  const [templates, setTemplates] = useState<ScriptingTemplate[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalValue, setModalValue] = useState("");
   const [modalSource, setModalSource] = useState<{
@@ -121,6 +122,24 @@ export default function Scripting() {
   const [hiddenTemplateIds, setHiddenTemplateIds] = useState<Set<string>>(
     new Set()
   );
+  const scriptingLoadedRef = useRef(false);
+
+  useEffect(() => {
+    const state = loadScriptingState(projectId);
+    setTemplates(state.templates);
+    setHiddenTemplateIds(new Set(state.hiddenTemplateIds));
+    queueMicrotask(() => {
+      scriptingLoadedRef.current = true;
+    });
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!scriptingLoadedRef.current) return;
+    saveScriptingState(projectId, {
+      templates,
+      hiddenTemplateIds: Array.from(hiddenTemplateIds),
+    });
+  }, [projectId, templates, hiddenTemplateIds]);
 
   const toggleTemplateHidden = (templateId: string) => {
     setHiddenTemplateIds((prev) => {
@@ -134,7 +153,7 @@ export default function Scripting() {
   const addTemplate = () => {
     setTemplates((prev) => [
       ...prev,
-      { id: `t-${Date.now()}`, name: "", steps: [""] },
+      { id: `t-${Date.now()}`, name: "New Template", steps: [""] },
     ]);
   };
 
@@ -158,6 +177,14 @@ export default function Scripting() {
               steps: t.steps.filter((_, j) => j !== stepIndex),
             }
           : t
+      )
+    );
+  };
+
+  const addStep = (templateIndex: number) => {
+    setTemplates((prev) =>
+      prev.map((t, i) =>
+        i === templateIndex ? { ...t, steps: [...t.steps, ""] } : t
       )
     );
   };
@@ -282,6 +309,21 @@ export default function Scripting() {
                   )}
                 </span>
               ))}
+              {template.steps.length > 0 && (
+                <span className="self-center text-muted-foreground flex items-center shrink-0 opacity-40" aria-hidden>
+                  <svg width="64" height="16" viewBox="0 0 64 16" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-current">
+                    <path d="M4 8h56m0 0l-6-6m6 6l-6 6" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </span>
+              )}
+              <button
+                type="button"
+                className="flex flex-col min-w-[200px] w-[280px] min-h-[164px] rounded-lg border border-dashed border-foreground/10 hover:bg-muted/50 hover:border-foreground/30 text-muted-foreground/10 hover:text-foreground transition-colors items-center justify-center shrink-0"
+                title="Add step"
+                onClick={() => addStep(templateIndex)}
+              >
+                <span className="text-2xl leading-none">+</span>
+              </button>
             </div>
             )}
           </li>

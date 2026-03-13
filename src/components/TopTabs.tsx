@@ -41,7 +41,7 @@ export default function TopTabs({ projectId }: Props) {
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
-        {activeTab === "scripting" && <Scripting />}
+        {activeTab === "scripting" && <Scripting projectId={projectId} />}
         {activeTab === "storyboarding" && <Storyboarding projectId={projectId} />}
         {activeTab === "editing" && <Editor projectId={projectId} />}
         {activeTab === "metadata" && <Metadata projectId={projectId} />}

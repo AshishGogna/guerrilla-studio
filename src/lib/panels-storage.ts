@@ -226,3 +226,53 @@ export function saveEditorTransformSettings(projectId: string, settings: EditorT
     // ignore
   }
 }
+
+export interface ScriptingTemplate {
+  id: string;
+  name: string;
+  steps: string[];
+}
+
+export interface ScriptingState {
+  templates: ScriptingTemplate[];
+  hiddenTemplateIds: string[];
+}
+
+export function loadScriptingState(projectId: string): ScriptingState {
+  try {
+    const raw = localStorage.getItem(getStorageKey(projectId, "scripting"));
+    if (raw) {
+      const parsed = JSON.parse(raw) as { templates?: unknown[]; hiddenTemplateIds?: string[] };
+      const templates = Array.isArray(parsed.templates)
+        ? parsed.templates.filter(
+            (t): t is ScriptingTemplate =>
+              t != null &&
+              typeof (t as ScriptingTemplate).id === "string" &&
+              typeof (t as ScriptingTemplate).name === "string" &&
+              Array.isArray((t as ScriptingTemplate).steps)
+          )
+        : [];
+      const hiddenTemplateIds = Array.isArray(parsed.hiddenTemplateIds)
+        ? parsed.hiddenTemplateIds.filter((id) => typeof id === "string")
+        : [];
+      return { templates, hiddenTemplateIds };
+    }
+  } catch {
+    // ignore
+  }
+  return { templates: [], hiddenTemplateIds: [] };
+}
+
+export function saveScriptingState(projectId: string, state: ScriptingState): void {
+  try {
+    localStorage.setItem(
+      getStorageKey(projectId, "scripting"),
+      JSON.stringify({
+        templates: state.templates,
+        hiddenTemplateIds: state.hiddenTemplateIds,
+      })
+    );
+  } catch {
+    // ignore
+  }
+}
