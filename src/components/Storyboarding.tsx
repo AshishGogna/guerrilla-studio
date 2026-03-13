@@ -1,6 +1,7 @@
 "use client";
 
 import { generateImage } from "@/lib/ai";
+import { getData } from "@/lib/data";
 import {
   loadStoryboardState,
   saveStoryboardState,
@@ -413,6 +414,47 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
           className="rounded border border-foreground/20 bg-transparent px-3 py-1.5 text-sm hover:bg-foreground/10"
         >
           Import
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const raw = getData("scenes");
+            if (!Array.isArray(raw)) {
+              alert("No scenes found. Save a list as data.scenes first.");
+              return;
+            }
+            const newPanels: PanelItem[] = raw.map((scene) => {
+              const sceneObj =
+                typeof scene === "object" && scene !== null ? (scene as Record<string, unknown>) : null;
+              const imageGenerationPrompt =
+                sceneObj && "imageGenerationPrompt" in sceneObj
+                  ? String(sceneObj.imageGenerationPrompt ?? "")
+                  : "";
+              const prompt =
+                typeof scene === "string"
+                  ? scene
+                  : sceneObj && "prompt" in sceneObj
+                    ? String(sceneObj.prompt ?? "")
+                    : sceneObj && "promptImage" in sceneObj
+                      ? String(sceneObj.promptImage ?? "")
+                      : sceneObj && "description" in sceneObj
+                        ? String(sceneObj.description ?? "")
+                        : "";
+              return {
+                ...defaultPanel,
+                promptImage: imageGenerationPrompt || prompt,
+                promptVideo: "",
+              };
+            });
+            if (newPanels.length === 0) {
+              alert("data.scenes is empty.");
+              return;
+            }
+            setPanels(newPanels);
+          }}
+          className="rounded border border-foreground/20 bg-transparent px-3 py-1.5 text-sm hover:bg-foreground/10"
+        >
+          Import Scenes
         </button>
         <button
           type="button"
