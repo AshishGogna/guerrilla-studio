@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { addData, getAll, getData } from "@/lib/data";
-import { sendEmail } from "@/lib/emailer";
 import { generateText } from "@/lib/ai";
 import {
   loadScriptingState,
@@ -316,26 +315,44 @@ export default function Scripting({ projectId }: ScriptingProps) {
 
   const handleSendEmail = async () => {
     const selected = emailEntries.filter(([key]) => emailSelectedKeys.has(key));
+
     if (selected.length === 0) {
       alert("Select at least one metadata item to include.");
       return;
     }
-    const lines = selected.map(([key, value]) => {
-      const normalKey = camelToNormalCase(key);
-      const v =
-        typeof value === "string"
-          ? value
-          : value == null
-          ? ""
-          : JSON.stringify(value);
-      return `<b>${escapeHtml(normalKey)}</b>: ${escapeHtml(v)}`;
-    });
-    const bodyHtml = lines.join("<br><br>");
-    await sendEmail({
-      to: selectedEmail,
-      subject: "Metadata",
-      bodyHtml,
-    });
+
+    let body = "";
+    for (const [key, value] of selected) {
+      body += key + " - ";
+      body += value;
+      body += "\n\n";
+    }
+
+    const now = new Date();
+    const dd = String(now.getDate()).padStart(2, "0");
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const yyyy = now.getFullYear();
+    const subject = `New Video: ${dd}/${mm}/${yyyy}`;
+
+    try {
+      const res = await fetch("/api/send-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: selectedEmail,
+          subject,
+          body,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data?.error ?? `Failed to send email (${res.status})`);
+        return;
+      }
+      alert("Email sent.");
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to send email");
+    }
   };
 
   const updateStep = (templateIndex: number, stepIndex: number, value: string) => {
