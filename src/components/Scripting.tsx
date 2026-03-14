@@ -193,6 +193,7 @@ export default function Scripting({ projectId }: ScriptingProps) {
   const [selectedEmail, setSelectedEmail] = useState(
     "esha.verma.18.09.1998@gmail.com"
   );
+  const [sendingEmail, setSendingEmail] = useState(false);
   const scriptingLoadedRef = useRef(false);
 
   const handleGenerate = async (templateIndex: number, stepIndex: number) => {
@@ -347,6 +348,7 @@ export default function Scripting({ projectId }: ScriptingProps) {
     const yyyy = now.getFullYear();
     const subject = `New Video: ${dd}/${mm}/${yyyy}`;
 
+    setSendingEmail(true);
     try {
       const res = await fetch("/api/send-email", {
         method: "POST",
@@ -363,9 +365,11 @@ export default function Scripting({ projectId }: ScriptingProps) {
         alert(data?.error ?? `Failed to send email (${res.status})`);
         return;
       }
-      alert("Email sent.");
+      setEmailModalOpen(false);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to send email");
+    } finally {
+      setSendingEmail(false);
     }
   };
 
@@ -676,10 +680,18 @@ export default function Scripting({ projectId }: ScriptingProps) {
               </button>
               <button
                 type="button"
-                className="rounded bg-accent px-3 py-1.5 text-sm text-background hover:opacity-90 transition-colors"
+                disabled={sendingEmail}
+                className="rounded bg-accent px-3 py-1.5 text-sm text-background hover:opacity-90 transition-colors disabled:opacity-60 disabled:pointer-events-none flex items-center gap-2"
                 onClick={handleSendEmail}
               >
-                Send
+                {sendingEmail ? (
+                  <>
+                    <LoaderIcon />
+                    Sending…
+                  </>
+                ) : (
+                  "Send"
+                )}
               </button>
             </div>
           </div>
