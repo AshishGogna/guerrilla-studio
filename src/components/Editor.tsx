@@ -6,6 +6,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Audio, Video } from "@remotion/media";
 import { AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig } from "remotion";
+import { addData } from "@/lib/data";
 import {
   loadEditorState,
   loadEditorSubtitleSettings,
@@ -1811,6 +1812,18 @@ export default function Editor({ projectId }: EditorProps) {
         a.download = "edited-video.mp4";
         a.click();
         URL.revokeObjectURL(url);
+        const form = new FormData();
+        form.append("file", blob, "exported-video.mp4");
+        form.append("projectId", projectId);
+        form.append("clipId", "exported-video");
+        const saveRes = await fetch("/api/editor-save-blob", {
+          method: "POST",
+          body: form,
+        });
+        const saveData = (await saveRes.json()) as { path?: string };
+        if (saveData.path) {
+          addData("exportedVideo", saveData.path);
+        }
         setShowExportModal(false);
       } catch (err) {
         alert(err instanceof Error ? err.message : "Export failed");
@@ -1818,7 +1831,7 @@ export default function Editor({ projectId }: EditorProps) {
         setExporting(false);
       }
     },
-    [clips, durationInFrames, subtitleTextSize, subtitleTextColor, subtitleBgColor, subtitleWidth, subtitlePositionX, subtitlePositionY]
+    [clips, durationInFrames, projectId, subtitleTextSize, subtitleTextColor, subtitleBgColor, subtitleWidth, subtitlePositionX, subtitlePositionY]
   );
 
   const openExportModal = useCallback(() => {

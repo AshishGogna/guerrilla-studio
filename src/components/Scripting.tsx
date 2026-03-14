@@ -292,7 +292,7 @@ export default function Scripting({ projectId }: ScriptingProps) {
     );
   };
 
-  const EMAIL_METADATA_KEY_PREFIXES = ["youtube", "instagram", "facebook"];
+  const EMAIL_METADATA_KEY_PREFIXES = ["youtube", "instagram", "facebook", "exportedVideo"];
 
   const openEmailModal = () => {
     const all = getAll();
@@ -313,6 +313,10 @@ export default function Scripting({ projectId }: ScriptingProps) {
     });
   };
 
+  /** Paths that are server files we can attach (e.g. /editor-saves/X/exported-video.mp4). */
+  const isAttachmentPath = (v: unknown): v is string =>
+    typeof v === "string" && v.startsWith("/editor-saves/");
+
   const handleSendEmail = async () => {
     const selected = emailEntries.filter(([key]) => emailSelectedKeys.has(key));
 
@@ -321,8 +325,13 @@ export default function Scripting({ projectId }: ScriptingProps) {
       return;
     }
 
+    const attachmentPaths: string[] = [];
     let body = "";
     for (const [key, value] of selected) {
+      if (isAttachmentPath(value)) {
+        attachmentPaths.push(value);
+        continue;
+      }
       const v =
         typeof value === "string"
           ? value
@@ -346,6 +355,7 @@ export default function Scripting({ projectId }: ScriptingProps) {
           to: selectedEmail,
           subject,
           body,
+          attachmentPaths: attachmentPaths.length > 0 ? attachmentPaths : undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));
