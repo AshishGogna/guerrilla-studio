@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { addData, getData } from "@/lib/data";
+import { addData, getAll, getData } from "@/lib/data";
+import { sendEmail } from "@/lib/emailer";
 import { generateText } from "@/lib/ai";
 import {
   loadScriptingState,
@@ -13,6 +14,23 @@ const MODEL_OPTIONS = [
   "gpt-5.4",
   "gpt-5-mini-2025-08-07",
 ] as const;
+
+/** Convert camelCase to normal case (e.g. youtubeTitle -> Youtube Title). */
+function camelToNormalCase(key: string): string {
+  const withSpaces = key.replace(/([A-Z])/g, " $1").trim();
+  return withSpaces
+    .split(/\s+/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
 
 /** Replaces backtick-enclosed placeholders like `data.speech` with values from the data lib. */
 function resolveDataPlaceholders(text: string): string {
@@ -168,6 +186,14 @@ export default function Scripting({ projectId }: ScriptingProps) {
     templateIndex: number;
     stepIndex: number;
   } | null>(null);
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [emailEntries, setEmailEntries] = useState<[string, unknown][]>([]);
+  const [emailSelectedKeys, setEmailSelectedKeys] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [selectedEmail, setSelectedEmail] = useState(
+    "esha.verma.18.09.1998@gmail.com"
+  );
   const scriptingLoadedRef = useRef(false);
 
   const handleGenerate = async (templateIndex: number, stepIndex: number) => {
@@ -267,6 +293,51 @@ export default function Scripting({ projectId }: ScriptingProps) {
     );
   };
 
+  const EMAIL_METADATA_KEY_PREFIXES = ["youtube", "instagram", "facebook"];
+
+  const openEmailModal = () => {
+    const all = getAll();
+    const entries = Object.entries(all).filter(([key]) =>
+      EMAIL_METADATA_KEY_PREFIXES.some((prefix) => key.startsWith(prefix))
+    );
+    setEmailEntries(entries);
+    setEmailSelectedKeys(new Set(entries.map(([key]) => key)));
+    setEmailModalOpen(true);
+  };
+
+  const toggleEmailKey = (key: string) => {
+    setEmailSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const handleSendEmail = async () => {
+    const selected = emailEntries.filter(([key]) => emailSelectedKeys.has(key));
+    if (selected.length === 0) {
+      alert("Select at least one metadata item to include.");
+      return;
+    }
+    const lines = selected.map(([key, value]) => {
+      const normalKey = camelToNormalCase(key);
+      const v =
+        typeof value === "string"
+          ? value
+          : value == null
+          ? ""
+          : JSON.stringify(value);
+      return `<b>${escapeHtml(normalKey)}</b>: ${escapeHtml(v)}`;
+    });
+    const bodyHtml = lines.join("<br><br>");
+    await sendEmail({
+      to: selectedEmail,
+      subject: "Metadata",
+      bodyHtml,
+    });
+  };
+
   const updateStep = (templateIndex: number, stepIndex: number, value: string) => {
     setTemplates((prev) => {
       const next = prev.map((t, i) =>
@@ -321,6 +392,13 @@ export default function Scripting({ projectId }: ScriptingProps) {
             </option>
           ))}
         </select>
+        <button
+          type="button"
+          className="ml-auto rounded-md border border-border bg-background px-3 py-1.5 text-xs sm:text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          onClick={openEmailModal}
+        >
+          Email Metadata
+        </button>
       </div>
       <div className="flex-1 overflow-auto p-6">
       <ul className="flex flex-col gap-8 list-none p-0 m-0">
@@ -463,6 +541,119 @@ export default function Scripting({ projectId }: ScriptingProps) {
         </button>
       </div>
       </div>
+
+      {emailModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={() => setEmailModalOpen(false)}
+        >
+          <div
+            className="flex h-[80vh] w-full max-w-2xl flex-col rounded-lg border border-border bg-background shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <h2 className="text-sm font-medium text-foreground">
+                Email Metadata
+              </h2>
+              <button
+                type="button"
+                className="rounded px-2 py-1 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                onClick={() => setEmailModalOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto px-4 py-3 space-y-3">
+              <div>
+                <div className="mb-1 text-xs font-medium text-muted-foreground">
+                  Available metadata
+                </div>
+                <ul className="max-h-64 space-y-1 overflow-auto rounded border border-border bg-card p-2 text-xs">
+                  {emailEntries.length === 0 ? (
+                    <li className="text-muted-foreground">
+                      No metadata with keys starting with youtube, instagram, or facebook.
+                    </li>
+                  ) : (
+                    emailEntries.map(([key, value]) => {
+                      const selected = emailSelectedKeys.has(key);
+                      const v =
+                        typeof value === "string"
+                          ? value
+                          : value == null
+                          ? ""
+                          : JSON.stringify(value);
+                      return (
+                        <li
+                          key={key}
+                          role="button"
+                          tabIndex={0}
+                          className={`flex cursor-pointer items-start gap-2 rounded px-2 py-1 ${
+                            selected ? "bg-muted" : ""
+                          }`}
+                          onClick={() => toggleEmailKey(key)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              toggleEmailKey(key);
+                            }
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            className="mt-0.5 h-3 w-3 pointer-events-none"
+                            checked={selected}
+                            readOnly
+                            tabIndex={-1}
+                            aria-hidden
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="font-mono text-[11px] text-foreground">
+                              {key}
+                            </div>
+                            <div className="truncate text-[11px] text-muted-foreground">
+                              {v}
+                            </div>
+                          </div>
+                        </li>
+                      );
+                    })
+                  )}
+                </ul>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                  Email
+                </label>
+                <select
+                  className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20"
+                  value={selectedEmail}
+                  onChange={(e) => setSelectedEmail(e.target.value)}
+                >
+                  <option value="esha.verma.18.09.1998@gmail.com">
+                    esha.verma.18.09.1998@gmail.com
+                  </option>
+                </select>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
+              <button
+                type="button"
+                className="rounded px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                onClick={() => setEmailModalOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded bg-accent px-3 py-1.5 text-sm text-background hover:opacity-90 transition-colors"
+                onClick={handleSendEmail}
+              >
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {modalOpen && (
         <div
