@@ -13,7 +13,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "world", label: "World" },
   { id: "scripting", label: "Scripting" },
   { id: "storyboarding", label: "Storyboarding" },
-  { id: "editing", label: "Editing" },
+  { id: "editing", label: "Video Editing" },
   { id: "metadata", label: "Metadata" },
 ];
 
