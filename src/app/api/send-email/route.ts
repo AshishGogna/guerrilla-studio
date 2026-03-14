@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { sendEmail } from "@/lib/emailer";
 
 export async function POST(request: Request) {
-  let body: { to?: string; subject?: string; bodyHtml?: string };
+  let payload: { to?: string; subject?: string; body?: string };
   try {
-    body = await request.json();
+    payload = await request.json();
   } catch {
     return NextResponse.json(
       { error: "Invalid JSON body" },
@@ -12,9 +12,9 @@ export async function POST(request: Request) {
     );
   }
 
-  const to = typeof body.to === "string" ? body.to.trim() : "";
-  const subject = typeof body.subject === "string" ? body.subject.trim() : "";
-  const bodyHtml = typeof body.bodyHtml === "string" ? body.bodyHtml : "";
+  const to = typeof payload.to === "string" ? payload.to.trim() : "";
+  const subject = typeof payload.subject === "string" ? payload.subject.trim() : "";
+  const body = typeof payload.body === "string" ? payload.body : "";
 
   if (!to) {
     return NextResponse.json(
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    await sendEmail({ to, subject, bodyHtml });
+    await sendEmail({ to, subject, body });
     return NextResponse.json({ ok: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to send email";

@@ -323,9 +323,13 @@ export default function Scripting({ projectId }: ScriptingProps) {
 
     let body = "";
     for (const [key, value] of selected) {
-      body += key + " - ";
-      body += value;
-      body += "\n\n";
+      const v =
+        typeof value === "string"
+          ? value
+          : value == null
+            ? ""
+            : JSON.stringify(value);
+      body += key + " - " + v + "\n\n";
     }
 
     const now = new Date();
