@@ -150,6 +150,25 @@ function GripVerticalIcon() {
   );
 }
 
+function CopyIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+      <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+    </svg>
+  );
+}
+
 function RemoveIcon() {
   return (
     <svg
@@ -280,6 +299,21 @@ export default function Scripting({ projectId }: ScriptingProps) {
     ]);
   };
 
+  const duplicateTemplate = (templateIndex: number) => {
+    const template = templates[templateIndex];
+    if (!template) return;
+    const copy: ScriptingTemplate = {
+      id: `t-${Date.now()}`,
+      name: `${template.name} Copy`,
+      steps: [...template.steps],
+    };
+    setTemplates((prev) => [
+      ...prev.slice(0, templateIndex + 1),
+      copy,
+      ...prev.slice(templateIndex + 1),
+    ]);
+  };
+
   const removeTemplate = (templateIndex: number) => {
     const template = templates[templateIndex];
     if (!template) return;
@@ -393,6 +427,14 @@ export default function Scripting({ projectId }: ScriptingProps) {
                 onClick={() => removeTemplate(templateIndex)}
               >
                 <RemoveIcon />
+              </button>
+              <button
+                type="button"
+                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground/40 hover:text-foreground transition-colors shrink-0"
+                title="Duplicate"
+                onClick={() => duplicateTemplate(templateIndex)}
+              >
+                <CopyIcon />
               </button>
               <button
                 type="button"
