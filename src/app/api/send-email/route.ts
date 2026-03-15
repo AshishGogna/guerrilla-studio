@@ -34,7 +34,10 @@ export async function POST(request: Request) {
   const subject = typeof payload.subject === "string" ? payload.subject.trim() : "";
   const body = typeof payload.body === "string" ? payload.body : "";
   const attachmentPaths = Array.isArray(payload.attachmentPaths)
-    ? payload.attachmentPaths.filter((p): p is string => typeof p === "string" && p.startsWith("/editor-saves/"))
+    ? payload.attachmentPaths.filter((p): p is string =>
+        typeof p === "string" &&
+        (p.startsWith("/editor-saves/") || p.startsWith("/projects/"))
+      )
     : [];
 
   if (!to) {

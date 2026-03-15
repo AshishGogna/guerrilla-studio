@@ -55,12 +55,30 @@ export default function TopBar({ title = "", children }: TopBarProps) {
 
   const openEmailModal = () => {
     const all = getAll();
-    const entriesFiltered = Object.entries(all).filter(([key]) =>
-      EMAIL_METADATA_KEY_PREFIXES.some((prefix) => key.startsWith(prefix))
-    );
-    setEmailEntries(entriesFiltered);
-    setEmailSelectedKeys(new Set(entriesFiltered.map(([key]) => key)));
+    setEmailEntries(Object.entries(all));
+    setEmailSelectedKeys(new Set());
     setEmailModalOpen(true);
+  };
+
+  const selectForVideo = () => {
+    setEmailSelectedKeys(new Set());
+    setEmailSelectedKeys((prev) => {
+      const next = new Set(prev);
+      emailEntries.forEach(([key]) => {
+        if (EMAIL_METADATA_KEY_PREFIXES.some((p) => key.startsWith(p))) next.add(key);
+      });
+      return next;
+    });
+  };
+
+  const selectForCarousel = () => {
+    setEmailSelectedKeys((prev) => {
+      const next = new Set(prev);
+      emailEntries.forEach(([key]) => {
+        if (key.startsWith("storyboard") || key.startsWith("instagramCarousel")) next.add(key);
+      });
+      return next;
+    });
   };
 
   const toggleEmailKey = (key: string) => {
@@ -73,7 +91,8 @@ export default function TopBar({ title = "", children }: TopBarProps) {
   };
 
   const isAttachmentPath = (v: unknown): v is string =>
-    typeof v === "string" && v.startsWith("/editor-saves/");
+    typeof v === "string" &&
+    (v.startsWith("/editor-saves/") || v.startsWith("/projects/"));
 
   const handleSendEmail = async () => {
     const selected = emailEntries.filter(([key]) => emailSelectedKeys.has(key));
@@ -101,6 +120,7 @@ export default function TopBar({ title = "", children }: TopBarProps) {
     const mm = String(now.getMonth() + 1).padStart(2, "0");
     const yyyy = now.getFullYear();
     const subject = `New Video: ${dd}/${mm}/${yyyy}`;
+
     setSendingEmail(true);
     try {
       const res = await fetch("/api/send-email", {
@@ -254,10 +274,26 @@ export default function TopBar({ title = "", children }: TopBarProps) {
                 <div className="mb-1 text-xs font-medium text-muted-foreground">
                   Available metadata
                 </div>
+                <div className="mb-2 flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    className="text-xs text-foreground/80 hover:text-foreground underline transition-colors"
+                    onClick={selectForVideo}
+                  >
+                    Select for Video
+                  </button>
+                  <button
+                    type="button"
+                    className="text-xs text-foreground/80 hover:text-foreground underline transition-colors"
+                    onClick={selectForCarousel}
+                  >
+                    Select for Carousel
+                  </button>
+                </div>
                 <ul className="max-h-64 space-y-1 overflow-auto rounded border border-border bg-card p-2 text-xs">
                   {emailEntries.length === 0 ? (
                     <li className="text-muted-foreground">
-                      No metadata with keys starting with youtube, instagram, or facebook.
+                      No metadata.
                     </li>
                   ) : (
                     emailEntries.map(([key, value]) => {
