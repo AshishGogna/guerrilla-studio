@@ -8,9 +8,33 @@ interface TopBarProps {
   children?: ReactNode;
 }
 
+function EmailLoaderIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="animate-spin"
+    >
+      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+    </svg>
+  );
+}
+
 export default function TopBar({ title = "", children }: TopBarProps) {
   const [dataModalOpen, setDataModalOpen] = useState(false);
   const [entries, setEntries] = useState<[string, unknown][]>([]);
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [emailEntries, setEmailEntries] = useState<[string, unknown][]>([]);
+  const [emailSelectedKeys, setEmailSelectedKeys] = useState<Set<string>>(new Set());
+  const [selectedEmail, setSelectedEmail] = useState("esha.verma.18.09.1998@gmail.com");
+  const [sendingEmail, setSendingEmail] = useState(false);
 
   const openDataModal = () => {
     setEntries(Object.entries(getAll()));
@@ -27,6 +51,81 @@ export default function TopBar({ title = "", children }: TopBarProps) {
     setEntries([]);
   };
 
+  const EMAIL_METADATA_KEY_PREFIXES = ["youtube", "instagram", "facebook", "exportedVideo"];
+
+  const openEmailModal = () => {
+    const all = getAll();
+    const entriesFiltered = Object.entries(all).filter(([key]) =>
+      EMAIL_METADATA_KEY_PREFIXES.some((prefix) => key.startsWith(prefix))
+    );
+    setEmailEntries(entriesFiltered);
+    setEmailSelectedKeys(new Set(entriesFiltered.map(([key]) => key)));
+    setEmailModalOpen(true);
+  };
+
+  const toggleEmailKey = (key: string) => {
+    setEmailSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const isAttachmentPath = (v: unknown): v is string =>
+    typeof v === "string" && v.startsWith("/editor-saves/");
+
+  const handleSendEmail = async () => {
+    const selected = emailEntries.filter(([key]) => emailSelectedKeys.has(key));
+    if (selected.length === 0) {
+      alert("Select at least one metadata item to include.");
+      return;
+    }
+    const attachmentPaths: string[] = [];
+    let body = "";
+    for (const [key, value] of selected) {
+      if (isAttachmentPath(value)) {
+        attachmentPaths.push(value);
+        continue;
+      }
+      const v =
+        typeof value === "string"
+          ? value
+          : value == null
+            ? ""
+            : JSON.stringify(value);
+      body += key + " - " + v + "\n\n";
+    }
+    const now = new Date();
+    const dd = String(now.getDate()).padStart(2, "0");
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const yyyy = now.getFullYear();
+    const subject = `New Video: ${dd}/${mm}/${yyyy}`;
+    setSendingEmail(true);
+    try {
+      const res = await fetch("/api/send-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: selectedEmail,
+          subject,
+          body,
+          attachmentPaths: attachmentPaths.length > 0 ? attachmentPaths : undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data?.error ?? `Failed to send email (${res.status})`);
+        return;
+      }
+      setEmailModalOpen(false);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to send email");
+    } finally {
+      setSendingEmail(false);
+    }
+  };
+
   return (
     <div className="shrink-0 border-b border-foreground/10 bg-background">
       <div className="flex items-center justify-between px-4 py-3">
@@ -38,14 +137,23 @@ export default function TopBar({ title = "", children }: TopBarProps) {
           )}
           {children}
         </div>
-        <button
-          type="button"
-          className="rounded px-2 py-1 font-mono text-sm text-muted-foreground/70 hover:bg-muted hover:text-foreground transition-colors"
-          title="View stored data"
-          onClick={openDataModal}
-        >
-          {"{ }"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="rounded px-2 py-1 text-sm text-muted-foreground/70 hover:bg-muted hover:text-foreground transition-colors"
+            onClick={openEmailModal}
+          >
+            Email Metadata
+          </button>
+          <button
+            type="button"
+            className="rounded px-2 py-1 font-mono text-sm text-muted-foreground/70 hover:bg-muted hover:text-foreground transition-colors"
+            title="View stored data"
+            onClick={openDataModal}
+          >
+            {"{ }"}
+          </button>
+        </div>
       </div>
 
       {dataModalOpen && (
@@ -114,6 +222,127 @@ export default function TopBar({ title = "", children }: TopBarProps) {
                 disabled={entries.length === 0}
               >
                 Delete all
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {emailModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={() => setEmailModalOpen(false)}
+        >
+          <div
+            className="flex h-[80vh] w-full max-w-2xl flex-col rounded-lg border border-border bg-background shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <h2 className="text-sm font-medium text-foreground">
+                Email Metadata
+              </h2>
+              <button
+                type="button"
+                className="rounded px-2 py-1 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                onClick={() => setEmailModalOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto px-4 py-3 space-y-3">
+              <div>
+                <div className="mb-1 text-xs font-medium text-muted-foreground">
+                  Available metadata
+                </div>
+                <ul className="max-h-64 space-y-1 overflow-auto rounded border border-border bg-card p-2 text-xs">
+                  {emailEntries.length === 0 ? (
+                    <li className="text-muted-foreground">
+                      No metadata with keys starting with youtube, instagram, or facebook.
+                    </li>
+                  ) : (
+                    emailEntries.map(([key, value]) => {
+                      const selected = emailSelectedKeys.has(key);
+                      const v =
+                        typeof value === "string"
+                          ? value
+                          : value == null
+                            ? ""
+                            : JSON.stringify(value);
+                      return (
+                        <li
+                          key={key}
+                          role="button"
+                          tabIndex={0}
+                          className={`flex cursor-pointer items-start gap-2 rounded px-2 py-1 ${
+                            selected ? "bg-muted" : ""
+                          }`}
+                          onClick={() => toggleEmailKey(key)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              toggleEmailKey(key);
+                            }
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            className="mt-0.5 h-3 w-3 pointer-events-none"
+                            checked={selected}
+                            readOnly
+                            tabIndex={-1}
+                            aria-hidden
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="font-mono text-[11px] text-foreground">
+                              {key}
+                            </div>
+                            <div className="truncate text-[11px] text-muted-foreground">
+                              {v}
+                            </div>
+                          </div>
+                        </li>
+                      );
+                    })
+                  )}
+                </ul>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                  Email
+                </label>
+                <select
+                  className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20"
+                  value={selectedEmail}
+                  onChange={(e) => setSelectedEmail(e.target.value)}
+                >
+                  <option value="esha.verma.18.09.1998@gmail.com">
+                    esha.verma.18.09.1998@gmail.com
+                  </option>
+                </select>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
+              <button
+                type="button"
+                className="rounded px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                onClick={() => setEmailModalOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={sendingEmail}
+                className="rounded bg-accent px-3 py-1.5 text-sm text-background hover:opacity-90 transition-colors disabled:opacity-60 disabled:pointer-events-none flex items-center gap-2"
+                onClick={handleSendEmail}
+              >
+                {sendingEmail ? (
+                  <>
+                    <EmailLoaderIcon />
+                    Sending…
+                  </>
+                ) : (
+                  "Send"
+                )}
               </button>
             </div>
           </div>
