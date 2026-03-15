@@ -32,12 +32,12 @@ function escapeHtml(s: string): string {
 }
 
 /** Replaces backtick-enclosed placeholders like `data.speech` with values from the data lib. */
-function resolveDataPlaceholders(text: string): string {
+function resolveDataPlaceholders(text: string, projectId: string): string {
   return text.replace(/`([^`]+)`/g, (_, inner) => {
     const trimmed = inner.trim();
     if (trimmed.startsWith("data.")) {
       const key = trimmed.slice(5).trim();
-      const value = getData(key);
+      const value = getData(projectId, key);
       if (value === undefined) return "";
       return typeof value === "string" ? value : JSON.stringify(value);
     }
@@ -236,14 +236,14 @@ export default function Scripting({ projectId }: ScriptingProps) {
 
   const handleGenerate = async (templateIndex: number, stepIndex: number) => {
     const stepValue = templates[templateIndex]?.steps[stepIndex] ?? "";
-    const prompt = resolveDataPlaceholders(stepValue);
+    const prompt = resolveDataPlaceholders(stepValue, projectId);
     setGeneratingStep({ templateIndex, stepIndex });
     try {
       const content = await generateText(prompt, "", selectedModel);
       const parsed = JSON.parse(content) as Record<string, unknown>;
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         for (const [key, value] of Object.entries(parsed)) {
-          addData(key, value);
+          addData(projectId, key, value);
         }
       }
       console.log("Generate response:", content);

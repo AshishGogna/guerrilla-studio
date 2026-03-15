@@ -5,6 +5,7 @@ import { getAll, removeAll, removeData } from "@/lib/data";
 
 interface TopBarProps {
   title?: string;
+  projectId: string;
   children?: ReactNode;
 }
 
@@ -27,7 +28,7 @@ function EmailLoaderIcon() {
   );
 }
 
-export default function TopBar({ title = "", children }: TopBarProps) {
+export default function TopBar({ title = "", projectId, children }: TopBarProps) {
   const [dataModalOpen, setDataModalOpen] = useState(false);
   const [entries, setEntries] = useState<[string, unknown][]>([]);
   const [emailModalOpen, setEmailModalOpen] = useState(false);
@@ -48,24 +49,24 @@ export default function TopBar({ title = "", children }: TopBarProps) {
   };
 
   const openDataModal = () => {
-    setEntries(Object.entries(getAll()));
+    setEntries(Object.entries(getAll(projectId)));
     setDataModalOpen(true);
   };
 
   const handleRemove = (key: string) => {
-    removeData(key);
-    setEntries(Object.entries(getAll()));
+    removeData(projectId, key);
+    setEntries(Object.entries(getAll(projectId)));
   };
 
   const handleRemoveAll = () => {
-    removeAll();
+    removeAll(projectId);
     setEntries([]);
   };
 
   const EMAIL_METADATA_KEY_PREFIXES = ["youtube", "instagram", "facebook", "exportedVideo"];
 
   const openEmailModal = () => {
-    const all = getAll();
+    const all = getAll(projectId);
     setEmailEntries(Object.entries(all));
     setEmailSelectedKeys(new Set());
     setEmailSubject("");

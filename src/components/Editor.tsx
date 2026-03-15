@@ -1822,7 +1822,7 @@ export default function Editor({ projectId }: EditorProps) {
         });
         const saveData = (await saveRes.json()) as { path?: string };
         if (saveData.path) {
-          addData("exportedVideo", saveData.path);
+          addData(projectId, "exportedVideo", saveData.path);
         }
         setShowExportModal(false);
       } catch (err) {

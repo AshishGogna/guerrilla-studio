@@ -15,7 +15,7 @@ export default function World({ projectId }: WorldProps) {
   const [items, setItems] = useState<{ key: string; value: string }[]>([]);
 
   useEffect(() => {
-    const all = getAll();
+    const all = getAll(projectId);
     setItems(
       Object.entries(all).map(([key, value]) => ({
         key,
@@ -30,7 +30,7 @@ export default function World({ projectId }: WorldProps) {
 
   const removeItem = (index: number) => {
     const item = items[index];
-    if (item?.key) removeData(item.key);
+    if (item?.key) removeData(projectId, item.key);
     setItems((prev) => prev.filter((_, i) => i !== index));
   };
 
@@ -41,8 +41,8 @@ export default function World({ projectId }: WorldProps) {
       next[index] = { ...next[index]!, key: newKey };
       return next;
     });
-    if (oldKey && oldKey !== newKey) removeData(oldKey);
-    if (newKey) addData(newKey, items[index]?.value ?? "");
+    if (oldKey && oldKey !== newKey) removeData(projectId, oldKey);
+    if (newKey) addData(projectId, newKey, items[index]?.value ?? "");
   };
 
   const updateValue = (index: number, newValue: string) => {
@@ -52,7 +52,7 @@ export default function World({ projectId }: WorldProps) {
       return next;
     });
     const key = items[index]?.key;
-    if (key) addData(key, newValue);
+    if (key) addData(projectId, key, newValue);
   };
 
   return (

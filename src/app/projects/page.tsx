@@ -52,7 +52,7 @@ export default function ProjectsPage() {
 
   return (
     <div className="min-h-screen bg-background text-foreground flex-col">
-      <TopBar title="Projects" />
+      <TopBar title="Projects" projectId="__projects_list__" />
       <div className="flex-1 overflow-auto">
         <div className="relative mx-auto max-w-6xl px-6 py-20 sm:px-10 lg:px-16">
           <header className="mb-24 flex items-center justify-between">

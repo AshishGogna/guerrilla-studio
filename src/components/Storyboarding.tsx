@@ -136,9 +136,9 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
     if (updates.imageUrl !== undefined) {
       const key = `storyboard[${index}]`;
       if (updates.imageUrl) {
-        addData(key, updates.imageUrl);
+        addData(projectId, key, updates.imageUrl);
       } else {
-        removeData(key);
+        removeData(projectId, key);
       }
     }
     setPanels((prev) => {
@@ -446,7 +446,7 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
         <button
           type="button"
           onClick={async () => {
-            const raw = getData("scenes");
+            const raw = getData(projectId, "scenes");
             if (!Array.isArray(raw)) {
               alert("No scenes found. Save a list as data.scenes first.");
               return;
@@ -476,7 +476,7 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
                 for (const ref of refEntries) {
                   const key = ref.startsWith("data.") ? ref.slice(5).trim() : ref.trim();
                   if (!key) continue;
-                  const pathValue = getData(key);
+                  const pathValue = getData(projectId, key);
                   if (typeof pathValue !== "string" || !pathValue.trim()) continue;
                   let url = pathValue.trim();
                   if (url.startsWith("file://")) {
@@ -536,7 +536,7 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
         <button
           type="button"
           onClick={async () => {
-            const raw = getData("scenes");
+            const raw = getData(projectId, "scenes");
             if (!Array.isArray(raw)) {
               alert("No scenes found. Save a list as data.scenes first.");
               return;
