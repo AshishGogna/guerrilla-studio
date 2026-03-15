@@ -382,7 +382,7 @@ export default function Scripting({ projectId }: ScriptingProps) {
               </button>
               <input
                 type="text"
-                className="min-w-[2ch] max-w-[12rem] bg-transparent border-b border-current text-foreground focus:outline-none focus:ring-0 px-0.5 border-foreground/0 focus:border-foreground"
+                className="w-100 bg-transparent border-b border-current text-foreground focus:outline-none focus:ring-0 px-0.5 border-foreground/0 focus:border-foreground"
                 value={template.name}
                 onChange={(e) =>
                   updateTemplateName(templateIndex, e.target.value)
