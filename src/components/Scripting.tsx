@@ -126,6 +126,30 @@ function UnhideIcon() {
   );
 }
 
+function GripVerticalIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="text-muted-foreground/60 shrink-0"
+    >
+      <circle cx="9" cy="6" r="1" />
+      <circle cx="9" cy="12" r="1" />
+      <circle cx="9" cy="18" r="1" />
+      <circle cx="15" cy="6" r="1" />
+      <circle cx="15" cy="12" r="1" />
+      <circle cx="15" cy="18" r="1" />
+    </svg>
+  );
+}
+
 function RemoveIcon() {
   return (
     <svg
@@ -182,6 +206,10 @@ export default function Scripting({ projectId }: ScriptingProps) {
   );
   const [selectedModel, setSelectedModel] = useState<string>(MODEL_OPTIONS[0]);
   const [generatingStep, setGeneratingStep] = useState<{
+    templateIndex: number;
+    stepIndex: number;
+  } | null>(null);
+  const [draggedStep, setDraggedStep] = useState<{
     templateIndex: number;
     stepIndex: number;
   } | null>(null);
@@ -281,6 +309,20 @@ export default function Scripting({ projectId }: ScriptingProps) {
       prev.map((t, i) =>
         i === templateIndex ? { ...t, steps: [...t.steps, ""] } : t
       )
+    );
+  };
+
+  const reorderSteps = (templateIndex: number, fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return;
+    setTemplates((prev) =>
+      prev.map((t, i) => {
+        if (i !== templateIndex) return t;
+        const steps = [...t.steps];
+        const [removed] = steps.splice(fromIndex, 1);
+        const insertIndex = fromIndex < toIndex ? toIndex - 1 : toIndex;
+        steps.splice(insertIndex, 0, removed);
+        return { ...t, steps };
+      })
     );
   };
 
@@ -393,7 +435,31 @@ export default function Scripting({ projectId }: ScriptingProps) {
             <div className="flex flex-wrap items-stretch gap-2">
               {template.steps.map((stepValue, stepIndex) => (
                 <span key={stepIndex} className="contents">
-                  <div className="flex flex-col border border-border border-foreground/10 rounded-lg bg-foreground/5 overflow-hidden min-w-[200px] w-[280px] focus:border-foreground">
+                  <div
+                    draggable
+                    className={`flex flex-col border border-border rounded-lg bg-foreground/5 overflow-hidden min-w-[200px] w-[280px] focus:border-foreground cursor-grab active:cursor-grabbing ${
+                      draggedStep?.templateIndex === templateIndex && draggedStep?.stepIndex === stepIndex
+                        ? "opacity-50 border-foreground/30"
+                        : "border-foreground/10"
+                    }`}
+                    onDragStart={(e) => {
+                      setDraggedStep({ templateIndex, stepIndex });
+                      e.dataTransfer.effectAllowed = "move";
+                      e.dataTransfer.setData("text/plain", `${templateIndex}:${stepIndex}`);
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (draggedStep && draggedStep.templateIndex === templateIndex) {
+                        reorderSteps(templateIndex, draggedStep.stepIndex, stepIndex);
+                      }
+                      setDraggedStep(null);
+                    }}
+                    onDragEnd={() => setDraggedStep(null)}
+                  >
                     <textarea
                       className="flex-1 min-h-[100px] p-3 resize-y bg-transparent text-foreground placeholder:text-muted-foreground border-0 focus:outline-none focus:ring-0"
                       value={stepValue}
@@ -402,6 +468,9 @@ export default function Scripting({ projectId }: ScriptingProps) {
                       }
                     />
                     <div className="flex justify-between items-center gap-1 px-2 pb-2">
+                      <div className="flex items-center gap-0.5" title="Drag to reorder">
+                        <GripVerticalIcon />
+                      </div>
                       <button
                         type="button"
                         className="p-2 rounded-md hover:bg-muted text-muted-foreground/40 hover:text-foreground transition-colors"
