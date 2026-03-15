@@ -14,7 +14,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "scripting", label: "Scripting" },
   { id: "storyboarding", label: "Storyboarding" },
   { id: "editing", label: "Video Editing" },
-  { id: "metadata", label: "Metadata" },
+  // { id: "metadata", label: "Metadata" },
 ];
 
 type Props = { projectId: string };
