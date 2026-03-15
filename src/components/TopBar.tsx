@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { ReactNode, useState } from "react";
 import { getAll, removeAll, removeData } from "@/lib/data";
 
@@ -159,9 +160,19 @@ export default function TopBar({ title = "", projectId, children }: TopBarProps)
   };
 
   return (
-    <div className="shrink-0 border-b border-foreground/10 bg-background">
-      <div className="flex items-center justify-between px-4 py-3">
+    <div className="shrink-0">
+      <div className="flex items-center justify-between px-2 py-2">
         <div className="flex items-center gap-2">
+          <Link
+            href="/"
+            className="flex h-8 w-4 shrink-0 items-center justify-center text-xl font-bold text-[#e8b923] transition hover:bg-muted hover:border-foreground/25"
+            title="Home"
+          >
+            G
+          </Link>
+          <div>•</div>
+          <div className="font-mono text-sm uppercase tracking-wider text-foreground/70">{projectId}</div>
+          <div>•</div>
           {title && (
             <h1 className="font-mono text-sm uppercase tracking-wider text-foreground/70">
               {title}
@@ -198,10 +209,10 @@ export default function TopBar({ title = "", projectId, children }: TopBarProps)
           onClick={() => setDataModalOpen(false)}
         >
           <div
-            className="bg-background border border-border rounded-lg shadow-lg w-[90vw] max-w-lg max-h-[80vh] flex flex-col"
+            className="bg-[#222222] border border-foreground/10 rounded-lg shadow-lg w-[90vw] max-w-lg max-h-[80vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-foreground/10">
               <h2 className="font-mono text-sm font-medium text-foreground">
                 Stored data
               </h2>
@@ -220,17 +231,18 @@ export default function TopBar({ title = "", projectId, children }: TopBarProps)
                 entries.map(([key, value]) => (
                   <li
                     key={key}
-                    className="flex items-center justify-between gap-2 rounded border border-border bg-card px-3 py-2"
+                    className="flex items-center justify-between gap-2 rounded border border-foreground/10 bg-card px-3 py-2"
                   >
-                    <div className="min-w-0 flex-1">
-                      <span className="font-mono text-sm text-foreground">
+                    <div className="min-w-0 flex-1 flex items-center gap-2">
+                      <div className="font-mono text-sm text-foreground">
                         {key}
-                      </span>
-                      <span className="text-muted-foreground text-sm truncate block">
+                      </div>
+                      :
+                      <div className="text-muted-foreground text-sm truncate block">
                         {typeof value === "object" && value !== null
                           ? JSON.stringify(value)
                           : String(value)}
-                      </span>
+                      </div>
                     </div>
                     <button
                       type="button"
@@ -243,7 +255,7 @@ export default function TopBar({ title = "", projectId, children }: TopBarProps)
                 ))
               )}
             </ul>
-            <div className="flex justify-end gap-2 px-4 py-3 border-t border-border">
+            <div className="flex justify-end gap-2 px-4 py-3 border-t border-foreground/10">
               <button
                 type="button"
                 className="rounded px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
@@ -270,10 +282,10 @@ export default function TopBar({ title = "", projectId, children }: TopBarProps)
           onClick={() => setEmailModalOpen(false)}
         >
           <div
-            className="flex h-[80vh] w-full max-w-2xl flex-col rounded-lg border border-border bg-background shadow-xl"
+            className="flex h-[80vh] w-full max-w-2xl flex-col rounded-lg border border-foreground/10 bg-[#222222] shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+            <div className="flex items-center justify-between border-b border-foreground/10 px-4 py-3">
               <h2 className="text-sm font-medium text-foreground">
                 Email Metadata
               </h2>
@@ -306,7 +318,7 @@ export default function TopBar({ title = "", projectId, children }: TopBarProps)
                     Select for Carousel
                   </button>
                 </div>
-                <ul className="max-h-64 space-y-1 overflow-auto rounded border border-border bg-card p-2 text-xs">
+                <ul className="max-h-64 space-y-1 overflow-auto rounded border border-foreground/10 bg-card p-2 text-xs">
                   {emailEntries.length === 0 ? (
                     <li className="text-muted-foreground">
                       No metadata.
@@ -344,10 +356,11 @@ export default function TopBar({ title = "", projectId, children }: TopBarProps)
                             tabIndex={-1}
                             aria-hidden
                           />
-                          <div className="min-w-0 flex-1">
+                          <div className="min-w-0 flex-1 flex items-center gap-2">
                             <div className="font-mono text-[11px] text-foreground">
                               {key}
                             </div>
+                            :
                             <div className="truncate text-[11px] text-muted-foreground">
                               {v}
                             </div>
@@ -363,7 +376,7 @@ export default function TopBar({ title = "", projectId, children }: TopBarProps)
                   Email
                 </label>
                 <select
-                  className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20"
+                  className="w-full rounded-md border border-foreground/10 bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20"
                   value={selectedEmail}
                   onChange={(e) => setSelectedEmail(e.target.value)}
                 >
@@ -378,14 +391,14 @@ export default function TopBar({ title = "", projectId, children }: TopBarProps)
                 </label>
                 <input
                   type="text"
-                  className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20"
+                  className="w-full rounded-md border border-foreground/10 bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20"
                   value={emailSubject}
                   onChange={(e) => setEmailSubject(e.target.value)}
                   placeholder="Email subject"
                 />
               </div>
             </div>
-            <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
+            <div className="flex justify-end gap-2 border-t border-foreground/10 px-4 py-3">
               <button
                 type="button"
                 className="rounded px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
