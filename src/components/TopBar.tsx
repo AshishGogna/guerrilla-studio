@@ -170,13 +170,16 @@ export default function TopBar({ title = "", projectId, children }: TopBarProps)
           {children}
         </div>
         <div className="flex items-center gap-2">
+          {title === "Panels" && (
           <button
             type="button"
             className="rounded px-2 py-1 text-sm text-muted-foreground/70 hover:bg-muted hover:text-foreground transition-colors"
             onClick={openEmailModal}
           >
-            Email Metadata
+            Email Output
           </button>
+          )}
+          {title === "Panels" && (
           <button
             type="button"
             className="rounded px-2 py-1 font-mono text-sm text-muted-foreground/70 hover:bg-muted hover:text-foreground transition-colors"
@@ -185,6 +188,7 @@ export default function TopBar({ title = "", projectId, children }: TopBarProps)
           >
             {"{ }"}
           </button>
+          )}
         </div>
       </div>
 
