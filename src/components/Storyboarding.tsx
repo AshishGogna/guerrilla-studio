@@ -1,7 +1,7 @@
 "use client";
 
 import { generateImage } from "@/lib/ai";
-import { getData } from "@/lib/data";
+import { addData, getData, removeData } from "@/lib/data";
 import {
   loadStoryboardState,
   saveStoryboardState,
@@ -133,6 +133,14 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
   }, [projectId, panels, imageModel, aspectRatio, scale]);
 
   function updatePanel(index: number, updates: Partial<PanelItem>) {
+    if (updates.imageUrl !== undefined) {
+      const key = `storyboard[${index}]`;
+      if (updates.imageUrl) {
+        addData(key, updates.imageUrl);
+      } else {
+        removeData(key);
+      }
+    }
     setPanels((prev) => {
       const next = [...prev];
       next[index] = { ...next[index], ...updates };

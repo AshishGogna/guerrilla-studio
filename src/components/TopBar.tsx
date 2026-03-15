@@ -34,7 +34,18 @@ export default function TopBar({ title = "", children }: TopBarProps) {
   const [emailEntries, setEmailEntries] = useState<[string, unknown][]>([]);
   const [emailSelectedKeys, setEmailSelectedKeys] = useState<Set<string>>(new Set());
   const [selectedEmail, setSelectedEmail] = useState("esha.verma.18.09.1998@gmail.com");
+  const [emailSubject, setEmailSubject] = useState("");
   const [sendingEmail, setSendingEmail] = useState(false);
+
+  const formatSubjectDateTime = () => {
+    const now = new Date();
+    const dd = String(now.getDate()).padStart(2, "0");
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const yy = String(now.getFullYear()).slice(-2);
+    const hh = String(now.getHours()).padStart(2, "0");
+    const min = String(now.getMinutes()).padStart(2, "0");
+    return `${dd}/${mm}/${yy} ${hh}:${min}`;
+  };
 
   const openDataModal = () => {
     setEntries(Object.entries(getAll()));
@@ -57,11 +68,13 @@ export default function TopBar({ title = "", children }: TopBarProps) {
     const all = getAll();
     setEmailEntries(Object.entries(all));
     setEmailSelectedKeys(new Set());
+    setEmailSubject("");
     setEmailModalOpen(true);
   };
 
   const selectForVideo = () => {
-    setEmailSelectedKeys(new Set());
+    setEmailSubject(`New Video (${formatSubjectDateTime()})`);
+    setEmailSelectedKeys(new Set()); // do not remove
     setEmailSelectedKeys((prev) => {
       const next = new Set(prev);
       emailEntries.forEach(([key]) => {
@@ -72,10 +85,12 @@ export default function TopBar({ title = "", children }: TopBarProps) {
   };
 
   const selectForCarousel = () => {
+    setEmailSubject(`New Carousel (${formatSubjectDateTime()})`);
+    setEmailSelectedKeys(new Set()); // do not remove
     setEmailSelectedKeys((prev) => {
       const next = new Set(prev);
       emailEntries.forEach(([key]) => {
-        if (key.startsWith("storyboard") || key.startsWith("instagramCarousel")) next.add(key);
+        if (key.startsWith("storyboard") || key.startsWith("carouselCaption")) next.add(key);
       });
       return next;
     });
@@ -115,11 +130,7 @@ export default function TopBar({ title = "", children }: TopBarProps) {
             : JSON.stringify(value);
       body += key + " - " + v + "\n\n";
     }
-    const now = new Date();
-    const dd = String(now.getDate()).padStart(2, "0");
-    const mm = String(now.getMonth() + 1).padStart(2, "0");
-    const yyyy = now.getFullYear();
-    const subject = `New Video: ${dd}/${mm}/${yyyy}`;
+    const subject = emailSubject.trim();
 
     setSendingEmail(true);
     try {
@@ -355,6 +366,18 @@ export default function TopBar({ title = "", children }: TopBarProps) {
                     esha.verma.18.09.1998@gmail.com
                   </option>
                 </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                  Subject
+                </label>
+                <input
+                  type="text"
+                  className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20"
+                  value={emailSubject}
+                  onChange={(e) => setEmailSubject(e.target.value)}
+                  placeholder="Email subject"
+                />
               </div>
             </div>
             <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
