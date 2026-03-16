@@ -289,6 +289,14 @@ export interface EditorClip {
   fontFamily?: string;
   /** Font size in px for text clips. */
   textSize?: number;
+  /** Text color (hex) for text clips. */
+  textColor?: string;
+  /** Background color (hex or transparent) for text clips. */
+  textBgColor?: string;
+  /** Horizontal position in px for text clips. */
+  textPositionX?: number;
+  /** Vertical position in px for text clips. */
+  textPositionY?: number;
 }
 
 /** Remove one clip from an array and clear partner's linkedClipId. Same logic as removeClip but pure. */
@@ -426,6 +434,12 @@ function TextClipOverlay({ clip }: { clip: EditorClip }) {
   const { width: compW, height: compH } = useVideoConfig();
   const fontSize = Math.max(12, toFinite(clip.textSize, 24));
   const fontFamily = clip.fontFamily || "sans-serif";
+  const textColor = clip.textColor ?? "#ffffff";
+  const bgColor = clip.textBgColor === TRANSPARENT_VALUE || clip.textBgColor == null
+    ? "transparent"
+    : clip.textBgColor;
+  const posX = toFinite(clip.textPositionX, compW / 2);
+  const posY = toFinite(clip.textPositionY, compH / 2);
   return (
     <AbsoluteFill
       style={{
@@ -436,11 +450,18 @@ function TextClipOverlay({ clip }: { clip: EditorClip }) {
     >
       <div
         style={{
+          position: "absolute",
+          left: posX,
+          top: posY,
+          transform: "translate(-50%, -50%)",
           maxWidth: compW * 0.9,
           maxHeight: compH * 0.9,
           fontFamily,
           fontSize: `${fontSize}px`,
-          color: "#fff",
+          color: textColor,
+          backgroundColor: bgColor,
+          padding: bgColor !== "transparent" ? "4px 8px" : 0,
+          borderRadius: bgColor !== "transparent" ? 4 : 0,
           textAlign: "center",
           textShadow: "0 1px 2px rgba(0,0,0,0.8)",
           whiteSpace: "pre-wrap",
@@ -801,6 +822,13 @@ export default function Editor({ projectId }: EditorProps) {
   const [textFontFamily, setTextFontFamily] = useState("sans-serif");
   const [textSizeInput, setTextSizeInput] = useState("24");
   const [newTextInput, setNewTextInput] = useState("");
+  const [textColor, setTextColor] = useState("#ffffff");
+  const [textBgColor, setTextBgColor] = useState("#000000");
+  const [textPositionX, setTextPositionX] = useState("");
+  const [textPositionY, setTextPositionY] = useState("");
+  const [textPanelColorPickerOpen, setTextPanelColorPickerOpen] = useState<"textColor" | "textBg" | null>(null);
+  const panelTextColorAnchorRef = useRef<HTMLButtonElement>(null);
+  const panelTextBgColorAnchorRef = useRef<HTMLButtonElement>(null);
   const [transformOpen, setTransformOpen] = useState(false);
   const [transcribeOpen, setTranscribeOpen] = useState(false);
   const [zoomInput, setZoomInput] = useState("1");
@@ -1035,6 +1063,8 @@ export default function Editor({ projectId }: EditorProps) {
     if (!text) return;
     const sizeNum = parseFloat(textSizeInput);
     const textSize = Number.isFinite(sizeNum) && sizeNum > 0 ? sizeNum : 24;
+    const posX = textPositionX === "" ? undefined : parseFloat(textPositionX);
+    const posY = textPositionY === "" ? undefined : parseFloat(textPositionY);
     setClips((prev) => {
       const textClipsList = prev.filter((c) => c.kind === "text");
       const maxTrack = prev.length === 0
@@ -1067,11 +1097,15 @@ export default function Editor({ projectId }: EditorProps) {
         text,
         fontFamily: textFontFamily,
         textSize,
+        textColor,
+        textBgColor,
+        ...(Number.isFinite(posX) ? { textPositionX: posX } : {}),
+        ...(Number.isFinite(posY) ? { textPositionY: posY } : {}),
       };
       return [...prev, newClip];
     });
     setNewTextInput("");
-  }, [newTextInput, textSizeInput, textFontFamily]);
+  }, [newTextInput, textSizeInput, textFontFamily, textColor, textBgColor, textPositionX, textPositionY]);
 
   const [isRecordingPaused, setIsRecordingPaused] = useState(false);
 
@@ -2397,7 +2431,13 @@ export default function Editor({ projectId }: EditorProps) {
                   <span className="text-xs text-foreground/50">Font family</span>
                   <select
                     value={textFontFamily}
-                    onChange={(e) => setTextFontFamily(e.target.value)}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setTextFontFamily(v);
+                      setClips((prev) =>
+                        prev.map((c) => (c.kind === "text" ? { ...c, fontFamily: v } : c))
+                      );
+                    }}
                     className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
                   >
                     <option value="sans-serif">Sans-serif</option>
@@ -2416,9 +2456,92 @@ export default function Editor({ projectId }: EditorProps) {
                     type="text"
                     value={textSizeInput}
                     onChange={(e) => setTextSizeInput(e.target.value)}
+                    onBlur={() => {
+                      const num = parseFloat(textSizeInput);
+                      const size = Number.isFinite(num) && num > 0 ? num : 24;
+                      setClips((prev) =>
+                        prev.map((c) => (c.kind === "text" ? { ...c, textSize: size } : c))
+                      );
+                    }}
                     placeholder="24"
                     className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
                   />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-foreground/50">Text color</span>
+                  <button
+                    ref={panelTextColorAnchorRef}
+                    type="button"
+                    onClick={() => setTextPanelColorPickerOpen((v) => (v === "textColor" ? null : "textColor"))}
+                    className="flex items-center gap-2 rounded border border-foreground/20 bg-foreground/5 px-2 py-1.5 text-sm hover:bg-foreground/10"
+                  >
+                    <span className="w-5 h-5 rounded border border-foreground/30 shrink-0" style={{ backgroundColor: textColor }} />
+                    <span className="font-mono text-xs">{textColor}</span>
+                  </button>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-foreground/50">Background color</span>
+                  <button
+                    ref={panelTextBgColorAnchorRef}
+                    type="button"
+                    onClick={() => setTextPanelColorPickerOpen((v) => (v === "textBg" ? null : "textBg"))}
+                    className="flex items-center gap-2 rounded border border-foreground/20 bg-foreground/5 px-2 py-1.5 text-sm hover:bg-foreground/10"
+                  >
+                    {textBgColor === TRANSPARENT_VALUE ? (
+                      <>
+                        <span
+                          className="w-5 h-5 rounded border border-foreground/30 shrink-0"
+                          style={{
+                            backgroundImage: "linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%)",
+                            backgroundSize: "4px 4px",
+                            backgroundPosition: "0 0, 0 2px, 2px -2px, -2px 0",
+                          }}
+                        />
+                        <span className="font-mono text-xs">Transparent</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="w-5 h-5 rounded border border-foreground/30 shrink-0" style={{ backgroundColor: textBgColor }} />
+                        <span className="font-mono text-xs">{textBgColor}</span>
+                      </>
+                    )}
+                  </button>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-foreground/50">Position (X × Y)</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={textPositionX}
+                      onChange={(e) => setTextPositionX(e.target.value)}
+                      onBlur={() => {
+                        const n = parseFloat(textPositionX);
+                        if (!Number.isFinite(n)) return;
+                        setClips((prev) =>
+                          prev.map((c) => (c.kind === "text" ? { ...c, textPositionX: n } : c))
+                        );
+                      }}
+                      placeholder="X"
+                      className="flex-1 min-w-0 rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
+                    />
+                    <span className="text-foreground/50">×</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={textPositionY}
+                      onChange={(e) => setTextPositionY(e.target.value)}
+                      onBlur={() => {
+                        const n = parseFloat(textPositionY);
+                        if (!Number.isFinite(n)) return;
+                        setClips((prev) =>
+                          prev.map((c) => (c.kind === "text" ? { ...c, textPositionY: n } : c))
+                        );
+                      }}
+                      placeholder="Y"
+                      className="flex-1 min-w-0 rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
+                    />
+                  </div>
                 </label>
                 <div className="flex gap-2">
                   <input
@@ -2438,6 +2561,31 @@ export default function Editor({ projectId }: EditorProps) {
                     +
                   </button>
                 </div>
+                <ColorPickerPopover
+                  isOpen={textPanelColorPickerOpen === "textColor"}
+                  value={textColor}
+                  onChange={(v) => {
+                    setTextColor(v);
+                    setClips((prev) =>
+                      prev.map((c) => (c.kind === "text" ? { ...c, textColor: v } : c))
+                    );
+                  }}
+                  onClose={() => setTextPanelColorPickerOpen(null)}
+                  anchorRef={panelTextColorAnchorRef}
+                />
+                <ColorPickerPopover
+                  isOpen={textPanelColorPickerOpen === "textBg"}
+                  value={textBgColor}
+                  onChange={(v) => {
+                    setTextBgColor(v);
+                    setClips((prev) =>
+                      prev.map((c) => (c.kind === "text" ? { ...c, textBgColor: v } : c))
+                    );
+                  }}
+                  onClose={() => setTextPanelColorPickerOpen(null)}
+                  anchorRef={panelTextBgColorAnchorRef}
+                  allowTransparent
+                />
               </div>
             )}
           </div>
