@@ -246,7 +246,6 @@ export default function Scripting({ projectId }: ScriptingProps) {
           addData(projectId, key, value);
         }
       }
-      console.log("Generate response:", content);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Generate failed";
       alert(message);

@@ -1,7 +1,7 @@
 "use client";
 
 import { generateImage } from "@/lib/ai";
-import { addData, getData, removeData } from "@/lib/data";
+import { addData, getData, getAll, removeData } from "@/lib/data";
 import {
   loadStoryboardState,
   saveStoryboardState,
@@ -519,6 +519,10 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
           onClick={() => {
             if (panels.length === 0) return;
             if (typeof window !== "undefined" && !window.confirm("Remove all storyboard panels?")) return;
+            const all = getAll(projectId);
+            Object.keys(all)
+              .filter((k) => k.startsWith("storyboard"))
+              .forEach((k) => removeData(projectId, k));
             setPanels([]);
           }}
           className="rounded border border-foreground/20 bg-transparent px-3 py-1.5 text-sm hover:bg-foreground/10"

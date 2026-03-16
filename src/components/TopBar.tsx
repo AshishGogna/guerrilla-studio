@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { ReactNode, useState } from "react";
-import { getAll, removeAll, removeData } from "@/lib/data";
+import { addData, getAll, removeAll, removeData } from "@/lib/data";
 
 interface TopBarProps {
   title?: string;
@@ -32,6 +32,7 @@ function EmailLoaderIcon() {
 export default function TopBar({ title = "", projectId, children }: TopBarProps) {
   const [dataModalOpen, setDataModalOpen] = useState(false);
   const [entries, setEntries] = useState<[string, unknown][]>([]);
+  const [editingValues, setEditingValues] = useState<Record<string, string>>({});
   const [emailModalOpen, setEmailModalOpen] = useState(false);
   const [emailEntries, setEmailEntries] = useState<[string, unknown][]>([]);
   const [emailSelectedKeys, setEmailSelectedKeys] = useState<Set<string>>(new Set());
@@ -169,14 +170,16 @@ export default function TopBar({ title = "", projectId, children }: TopBarProps)
             title="Home"
           >
             G
-          </Link>
+          </Link>          
+          {title === "Panels" && (
+            <div className="flex items-center gap-2">
           <div>•</div>
           <div className="font-mono text-sm uppercase tracking-wider text-foreground/70">{projectId}</div>
           <div>•</div>
-          {title && (
-            <h1 className="font-mono text-sm uppercase tracking-wider text-foreground/70">
-              {title}
-            </h1>
+              <h1 className="font-mono text-sm uppercase tracking-wider text-foreground/70">
+                {title}
+              </h1>
+            </div>
           )}
           {children}
         </div>
@@ -228,31 +231,56 @@ export default function TopBar({ title = "", projectId, children }: TopBarProps)
               {entries.length === 0 ? (
                 <li className="text-sm text-muted-foreground">No entries</li>
               ) : (
-                entries.map(([key, value]) => (
-                  <li
-                    key={key}
-                    className="flex items-center justify-between gap-2 rounded border border-foreground/10 bg-card px-3 py-2"
-                  >
-                    <div className="min-w-0 flex-1 flex items-center gap-2">
-                      <div className="font-mono text-sm text-foreground">
-                        {key}
-                      </div>
-                      :
-                      <div className="text-muted-foreground text-sm truncate block">
-                        {typeof value === "object" && value !== null
-                          ? JSON.stringify(value)
-                          : String(value)}
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      className="shrink-0 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                      onClick={() => handleRemove(key)}
+                entries.map(([key, value]) => {
+                  const valueStr =
+                    typeof value === "object" && value !== null
+                      ? JSON.stringify(value)
+                      : String(value);
+                  const displayValue = editingValues[key] ?? valueStr;
+                  return (
+                    <li
+                      key={key}
+                      className="flex items-center justify-between gap-2 rounded border border-foreground/10 bg-card px-3 py-2"
                     >
-                      Delete
-                    </button>
-                  </li>
-                ))
+                      <div className="min-w-0 flex-1 flex items-center gap-2">
+                        <div className="font-mono text-sm text-foreground shrink-0">
+                          {key}
+                        </div>
+                        :
+                        <input
+                          className="flex-1 min-w-0 text-muted-foreground text-sm bg-transparent border-b border-transparent hover:border-foreground/20 focus:border-foreground/40 focus:outline-none px-1 py-0.5"
+                          value={displayValue}
+                          onChange={(e) =>
+                            setEditingValues((prev) => ({ ...prev, [key]: e.target.value }))
+                          }
+                          onBlur={() => {
+                            const v = editingValues[key] ?? valueStr;
+                            let parsed: unknown;
+                            try {
+                              parsed = JSON.parse(v);
+                            } catch {
+                              parsed = v;
+                            }
+                            addData(projectId, key, parsed);
+                            setEditingValues((prev) => {
+                              const next = { ...prev };
+                              delete next[key];
+                              return next;
+                            });
+                            setEntries(Object.entries(getAll(projectId)));
+                          }}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className="shrink-0 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                        onClick={() => handleRemove(key)}
+                      >
+                        Delete
+                      </button>
+                    </li>
+                  );
+                })
               )}
             </ul>
             <div className="flex justify-end gap-2 px-4 py-3 border-t border-foreground/10">
