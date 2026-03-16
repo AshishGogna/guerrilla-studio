@@ -218,6 +218,9 @@ function getEffectiveTrim(
 
 /** Get a short display name for a clip from its src (filename or fallback). */
 function getClipDisplayName(clip: EditorClip): string {
+  if (clip.kind === "text" && clip.text) {
+    return clip.text.length > 40 ? clip.text.slice(0, 37) + "…" : clip.text;
+  }
   if (clip.fileName) return clip.fileName;
   try {
     if (clip.src.startsWith("blob:")) return "Uploaded clip";
@@ -246,7 +249,7 @@ function toFinite(value: unknown, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-export type ClipKind = "video" | "audio" | "combined" | "subtitle";
+export type ClipKind = "video" | "audio" | "combined" | "subtitle" | "text";
 
 export interface EditorClip {
   id: string;
@@ -282,6 +285,10 @@ export interface EditorClip {
   text?: string;
   /** Word-level timing for karaoke-style highlight (start/end in timeline seconds). */
   words?: { start: number; end: number; text: string }[];
+  /** Font family for text clips. */
+  fontFamily?: string;
+  /** Font size in px for text clips. */
+  textSize?: number;
 }
 
 /** Remove one clip from an array and clear partner's linkedClipId. Same logic as removeClip but pure. */
@@ -298,6 +305,7 @@ function removeClipFromArray(clips: EditorClip[], idToRemove: string): EditorCli
 }
 
 const WAVEFORM_SAMPLES = 256;
+const DEFAULT_TEXT_CLIP_DURATION_SEC = 5;
 
 /** Decode audio from a media URL and return normalized waveform samples. */
 async function decodeAudioWaveform(src: string): Promise<number[]> {
@@ -413,6 +421,38 @@ function SubtitleBlock({
   return <div style={baseStyle}>{sub.text}</div>;
 }
 
+/** Renders a text clip overlay (centered text, not subtitle). */
+function TextClipOverlay({ clip }: { clip: EditorClip }) {
+  const { width: compW, height: compH } = useVideoConfig();
+  const fontSize = Math.max(12, toFinite(clip.textSize, 24));
+  const fontFamily = clip.fontFamily || "sans-serif";
+  return (
+    <AbsoluteFill
+      style={{
+        alignItems: "center",
+        justifyContent: "center",
+        pointerEvents: "none",
+      }}
+    >
+      <div
+        style={{
+          maxWidth: compW * 0.9,
+          maxHeight: compH * 0.9,
+          fontFamily,
+          fontSize: `${fontSize}px`,
+          color: "#fff",
+          textAlign: "center",
+          textShadow: "0 1px 2px rgba(0,0,0,0.8)",
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+        }}
+      >
+        {clip.text ?? ""}
+      </div>
+    </AbsoluteFill>
+  );
+}
+
 export function EditorCompositionWithProps({
   clips: rawClips = [],
   subtitleStyle,
@@ -425,8 +465,9 @@ export function EditorCompositionWithProps({
   const { fps, width: compW, height: compH } = useVideoConfig();
   const zoom = Number.isFinite(zoomProp) && zoomProp > 0 ? zoomProp : 1;
   const allEnabled = rawClips.filter((c) => !c.disabled);
-  const clips = allEnabled.filter((c) => c.kind !== "subtitle");
+  const clips = allEnabled.filter((c) => c.kind !== "subtitle" && c.kind !== "text");
   const subtitleClips = allEnabled.filter((c) => c.kind === "subtitle");
+  const textClips = allEnabled.filter((c) => c.kind === "text");
 
   if (allEnabled.length === 0) {
     return (
@@ -637,6 +678,7 @@ export function EditorCompositionWithProps({
                   ),
                 ];
               }
+              if (clipKind === "text") return [];
               const trimStart = toFinite(clip.trimStartSec, 0);
               const trimEnd = toFinite(clip.trimEndSec, 10);
               const clipStartSec = toFinite(clip.startTimeSec, 0);
@@ -664,6 +706,29 @@ export function EditorCompositionWithProps({
           </AbsoluteFill>
         );
       })}
+      {textClips.length > 0 && (
+        <AbsoluteFill style={{ pointerEvents: "none", position: "relative", width: compW, height: compH }}>
+          {textClips.map((clip) => {
+            const trimStart = toFinite(clip.trimStartSec, 0);
+            const trimEnd = toFinite(clip.trimEndSec, 5);
+            const durationSec = Math.max(0, trimEnd - trimStart);
+            if (durationSec <= 0) return null;
+            const clipStart = toFinite(clip.startTimeSec, 0);
+            const fromFrame = Math.round(clipStart * safeFps);
+            const durationInFrames = Math.max(1, Math.round(durationSec * safeFps));
+            return (
+              <Sequence
+                key={`text-${clip.id}`}
+                from={fromFrame}
+                durationInFrames={durationInFrames}
+                name={`Text ${clip.id}`}
+              >
+                <TextClipOverlay clip={clip} />
+              </Sequence>
+            );
+          })}
+        </AbsoluteFill>
+      )}
       {subtitleClips.length > 0 && (
         <AbsoluteFill style={{ pointerEvents: "none", position: "relative", width: compW, height: compH }}>
           {subtitleClips.map((sub) => {
@@ -732,6 +797,10 @@ export default function Editor({ projectId }: EditorProps) {
   const [isCuttingSilences, setIsCuttingSilences] = useState(false);
   const [silenceBuffer, setSilenceBuffer] = useState(0.5);
   const [cutSilencesOpen, setCutSilencesOpen] = useState(false);
+  const [textsOpen, setTextsOpen] = useState(false);
+  const [textFontFamily, setTextFontFamily] = useState("sans-serif");
+  const [textSizeInput, setTextSizeInput] = useState("24");
+  const [newTextInput, setNewTextInput] = useState("");
   const [transformOpen, setTransformOpen] = useState(false);
   const [transcribeOpen, setTranscribeOpen] = useState(false);
   const [zoomInput, setZoomInput] = useState("1");
@@ -960,6 +1029,49 @@ export default function Editor({ projectId }: EditorProps) {
       ];
     });
   }, []);
+
+  const addTextClip = useCallback(() => {
+    const text = newTextInput.trim();
+    if (!text) return;
+    const sizeNum = parseFloat(textSizeInput);
+    const textSize = Number.isFinite(sizeNum) && sizeNum > 0 ? sizeNum : 24;
+    setClips((prev) => {
+      const textClipsList = prev.filter((c) => c.kind === "text");
+      const maxTrack = prev.length === 0
+        ? -1
+        : Math.max(...prev.map((c) => toFinite(c.trackIndex, 0)));
+      let trackIndex: number;
+      let startTimeSec: number;
+      if (textClipsList.length > 0) {
+        trackIndex = toFinite(textClipsList[0].trackIndex, 0);
+        const endTimes = textClipsList.map(
+          (c) =>
+            toFinite(c.startTimeSec, 0) +
+            Math.max(0, toFinite(c.trimEndSec, 0) - toFinite(c.trimStartSec, 0))
+        );
+        startTimeSec = Math.max(0, ...endTimes);
+      } else {
+        trackIndex = maxTrack + 1;
+        startTimeSec = 0;
+      }
+      const id = `clip-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      const newClip: EditorClip = {
+        id,
+        src: "",
+        trimStartSec: 0,
+        trimEndSec: DEFAULT_TEXT_CLIP_DURATION_SEC,
+        durationSec: DEFAULT_TEXT_CLIP_DURATION_SEC,
+        startTimeSec,
+        trackIndex,
+        kind: "text",
+        text,
+        fontFamily: textFontFamily,
+        textSize,
+      };
+      return [...prev, newClip];
+    });
+    setNewTextInput("");
+  }, [newTextInput, textSizeInput, textFontFamily]);
 
   const [isRecordingPaused, setIsRecordingPaused] = useState(false);
 
@@ -2270,6 +2382,65 @@ export default function Editor({ projectId }: EditorProps) {
               </div>
             )}
           </div>
+          <div className="border-b border-foreground/10">
+            <button
+              type="button"
+              onClick={() => setTextsOpen((v) => !v)}
+              className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium text-foreground/80 hover:bg-foreground/5"
+            >
+              Texts
+              <span className="text-xs text-foreground/40">{textsOpen ? "▾" : "▸"}</span>
+            </button>
+            {textsOpen && (
+              <div className="flex flex-col gap-3 px-3 pb-3">
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-foreground/50">Font family</span>
+                  <select
+                    value={textFontFamily}
+                    onChange={(e) => setTextFontFamily(e.target.value)}
+                    className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
+                  >
+                    <option value="sans-serif">Sans-serif</option>
+                    <option value="serif">Serif</option>
+                    <option value="monospace">Monospace</option>
+                    <option value="Arial">Arial</option>
+                    <option value="Georgia">Georgia</option>
+                    <option value="Times New Roman">Times New Roman</option>
+                    <option value="Verdana">Verdana</option>
+                    <option value="Helvetica">Helvetica</option>
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-foreground/50">Text size</span>
+                  <input
+                    type="text"
+                    value={textSizeInput}
+                    onChange={(e) => setTextSizeInput(e.target.value)}
+                    placeholder="24"
+                    className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
+                  />
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newTextInput}
+                    onChange={(e) => setNewTextInput(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && addTextClip()}
+                    placeholder="Add text..."
+                    className="flex-1 min-w-0 rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
+                  />
+                  <button
+                    type="button"
+                    onClick={addTextClip}
+                    className="shrink-0 rounded border border-foreground/20 bg-foreground/10 px-3 py-1 text-sm hover:bg-foreground/20"
+                    title="Add text clip"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -2563,6 +2734,41 @@ export default function Editor({ projectId }: EditorProps) {
                                       clip.startTimeSec ?? 0,
                                       toFinite(clip.trackIndex, 0),
                                       e.nativeEvent.clientX,
+                                      () => setSelectedClipId(clip.id)
+                                    );
+                                }}
+                                onContextMenu={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setClipContextMenu({ clipId: clip.id, x: e.clientX, y: e.clientY });
+                                }}
+                              />
+                            </div>
+                          );
+                        }
+                        if (k === "text") {
+                          const textSlotLeft = `${(clip.startTimeSec ?? 0) * timelinePxPerSec}px`;
+                          return (
+                            <div
+                              key={clip.id}
+                              className="absolute top-0 h-full"
+                              style={{ left: textSlotLeft, pointerEvents: "none", opacity: clipOpacity }}
+                            >
+                              <TimelineTextBlock
+                                clip={clip}
+                                pxPerSec={timelinePxPerSec}
+                                isSelected={selectedClipId === clip.id}
+                                isDragged={draggedId === clip.id}
+                                onSelect={() => setSelectedClipId(clip.id)}
+                                onRemove={() => removeClip(clip.id)}
+                                onUpdate={(patch) => updateClip(clip.id, patch)}
+                                onPositionDragStart={(e) => {
+                                  if (e.button === 0)
+                                    handlePositionDragStart(
+                                      clip.id,
+                                      clip.startTimeSec ?? 0,
+                                      toFinite(clip.trackIndex, 0),
+                                      e.clientX,
                                       () => setSelectedClipId(clip.id)
                                     );
                                 }}
@@ -2944,6 +3150,140 @@ function TimelineClipBlock({
           if (d > 0) onMetadataLoaded(d, w, h);
         }}
       />
+    </div>
+  );
+}
+
+function TimelineTextBlock({
+  clip,
+  pxPerSec,
+  isSelected,
+  isDragged,
+  onSelect,
+  onRemove,
+  onUpdate,
+  onPositionDragStart,
+  onContextMenu: onContextMenuProp,
+}: {
+  clip: EditorClip;
+  pxPerSec: number;
+  isSelected: boolean;
+  isDragged: boolean;
+  onSelect: () => void;
+  onRemove: () => void;
+  onUpdate: (patch: Partial<EditorClip>) => void;
+  onPositionDragStart: (e: React.MouseEvent) => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
+}) {
+  const barRef = useRef<HTMLDivElement>(null);
+  const [trimDrag, setTrimDrag] = useState<{
+    side: "left" | "right";
+    startX: number;
+    startValue: number;
+  } | null>(null);
+
+  const minClipWidthPx = Math.max(24, 0.1 * pxPerSec);
+  const trimStart = toFinite(clip.trimStartSec, 0);
+  const trimEnd = toFinite(clip.trimEndSec, DEFAULT_TEXT_CLIP_DURATION_SEC);
+  const durationSec = Math.max(0, trimEnd - trimStart);
+  const fullDuration = Math.max(durationSec, toFinite(clip.durationSec, trimEnd || DEFAULT_TEXT_CLIP_DURATION_SEC));
+  const widthPx = Math.max(
+    minClipWidthPx,
+    Math.min(fullDuration * pxPerSec, durationSec * pxPerSec)
+  );
+  const safeWidth = toFinite(widthPx, minClipWidthPx);
+  const wrapperWidthPx = Math.max(safeWidth, toFinite(fullDuration * pxPerSec, safeWidth));
+  const clipLeftPx =
+    fullDuration > 0 ? (trimStart / fullDuration) * wrapperWidthPx : 0;
+
+  useEffect(() => {
+    if (!trimDrag || !barRef.current) return;
+    const bar = barRef.current;
+    const fullDur = Math.max(fullDuration, 0.1);
+
+    const onMouseMove = (e: MouseEvent) => {
+      const rect = bar.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width;
+      const sec = Math.max(0, Math.min(1, x)) * fullDur;
+
+      if (trimDrag.side === "left") {
+        const newStart = Math.max(
+          0,
+          Math.min(sec, trimEnd - MIN_TRIM_DURATION_SEC)
+        );
+        const delta = newStart - trimStart;
+        const newStartTimeSec = toFinite(clip.startTimeSec, 0) + delta;
+        onUpdate({ trimStartSec: newStart, startTimeSec: newStartTimeSec });
+      } else {
+        const newEnd = Math.max(
+          trimStart + MIN_TRIM_DURATION_SEC,
+          Math.min(fullDur, sec)
+        );
+        onUpdate({ trimEndSec: newEnd });
+      }
+    };
+    const onMouseUp = () => setTrimDrag(null);
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, [trimDrag, fullDuration, trimStart, trimEnd, onUpdate]);
+
+  return (
+    <div
+      ref={barRef}
+      className="relative h-12 shrink-0"
+      style={{ width: `${Math.max(1, wrapperWidthPx)}px`, pointerEvents: "none" }}
+    >
+      <div
+        role="button"
+        tabIndex={0}
+        onMouseDown={(e) => {
+          if (e.button === 0) onPositionDragStart(e);
+        }}
+        onClick={(e) => e.stopPropagation()}
+        onContextMenu={onContextMenuProp}
+        className={`absolute top-0 bottom-0 flex items-center overflow-hidden rounded border-2 cursor-grab active:cursor-grabbing transition ${
+          isSelected
+            ? "border-accent"
+            : "border-foreground/20 hover:border-foreground/30"
+        } ${isDragged ? "opacity-50" : ""}`}
+        style={{
+          left: `${clipLeftPx}px`,
+          width: `${Math.max(1, safeWidth)}px`,
+          pointerEvents: "auto",
+        }}
+      >
+        <div className="absolute inset-0 bg-foreground/15" />
+        <span
+          className="absolute left-1 right-1 truncate text-[10px] font-medium text-foreground/90"
+          title={getClipDisplayName(clip)}
+        >
+          {getClipDisplayName(clip)}
+        </span>
+        <div
+          role="slider"
+          aria-label="Trim start"
+          className="absolute left-0 inset-y-0 z-10 w-2 cursor-ew-resize border-r border-foreground/30 hover:bg-foreground/20"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setTrimDrag({ side: "left", startX: e.clientX, startValue: trimStart });
+          }}
+        />
+        <div
+          role="slider"
+          aria-label="Trim end"
+          className="absolute right-0 inset-y-0 z-10 w-2 cursor-ew-resize border-l border-foreground/30 hover:bg-foreground/20"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setTrimDrag({ side: "right", startX: e.clientX, startValue: trimEnd });
+          }}
+        />
+      </div>
     </div>
   );
 }
