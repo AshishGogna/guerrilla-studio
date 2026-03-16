@@ -432,14 +432,14 @@ function SubtitleBlock({
 /** Renders a text clip overlay (centered text, not subtitle). */
 function TextClipOverlay({ clip }: { clip: EditorClip }) {
   const { width: compW, height: compH } = useVideoConfig();
-  const fontSize = Math.max(12, toFinite(clip.textSize, 24));
+  const fontSize = Math.max(12, toFinite(clip.textSize, 60));
   const fontFamily = clip.fontFamily || "sans-serif";
-  const textColor = clip.textColor ?? "#ffffff";
+  const textColor = clip.textColor ?? "#000000";
   const bgColor = clip.textBgColor === TRANSPARENT_VALUE || clip.textBgColor == null
     ? "transparent"
     : clip.textBgColor;
   const posX = toFinite(clip.textPositionX, compW / 2);
-  const posY = toFinite(clip.textPositionY, compH / 2);
+  const posY = toFinite(clip.textPositionY, Math.round(compH * 0.3));
   return (
     <AbsoluteFill
       style={{
@@ -820,10 +820,10 @@ export default function Editor({ projectId }: EditorProps) {
   const [cutSilencesOpen, setCutSilencesOpen] = useState(false);
   const [textsOpen, setTextsOpen] = useState(false);
   const [textFontFamily, setTextFontFamily] = useState("sans-serif");
-  const [textSizeInput, setTextSizeInput] = useState("24");
+  const [textSizeInput, setTextSizeInput] = useState("60");
   const [newTextInput, setNewTextInput] = useState("");
-  const [textColor, setTextColor] = useState("#ffffff");
-  const [textBgColor, setTextBgColor] = useState("#000000");
+  const [textColor, setTextColor] = useState("#000000");
+  const [textBgColor, setTextBgColor] = useState("#ffffff");
   const [textPositionX, setTextPositionX] = useState("");
   const [textPositionY, setTextPositionY] = useState("");
   const [textPanelColorPickerOpen, setTextPanelColorPickerOpen] = useState<"textColor" | "textBg" | null>(null);
@@ -1062,7 +1062,7 @@ export default function Editor({ projectId }: EditorProps) {
     const text = newTextInput.trim();
     if (!text) return;
     const sizeNum = parseFloat(textSizeInput);
-    const textSize = Number.isFinite(sizeNum) && sizeNum > 0 ? sizeNum : 24;
+    const textSize = Number.isFinite(sizeNum) && sizeNum > 0 ? sizeNum : 60;
     const posX = textPositionX === "" ? undefined : parseFloat(textPositionX);
     const posY = textPositionY === "" ? undefined : parseFloat(textPositionY);
     setClips((prev) => {
@@ -2458,7 +2458,7 @@ export default function Editor({ projectId }: EditorProps) {
                     onChange={(e) => setTextSizeInput(e.target.value)}
                     onBlur={() => {
                       const num = parseFloat(textSizeInput);
-                      const size = Number.isFinite(num) && num > 0 ? num : 24;
+                      const size = Number.isFinite(num) && num > 0 ? num : 60;
                       setClips((prev) =>
                         prev.map((c) => (c.kind === "text" ? { ...c, textSize: size } : c))
                       );
