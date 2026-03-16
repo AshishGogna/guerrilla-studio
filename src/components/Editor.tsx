@@ -2546,20 +2546,30 @@ export default function Editor({ projectId }: EditorProps) {
                 <div className="flex gap-2">
                   <input
                     type="text"
-                    value={newTextInput}
-                    onChange={(e) => setNewTextInput(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && addTextClip()}
+                    value={selectedClip?.kind === "text" ? (selectedClip.text ?? "") : newTextInput}
+                    onChange={(e) => {
+                      if (selectedClip?.kind === "text" && selectedClipId) {
+                        updateClip(selectedClipId, { text: e.target.value });
+                      } else {
+                        setNewTextInput(e.target.value);
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && selectedClip?.kind !== "text") addTextClip();
+                    }}
                     placeholder="Add text..."
                     className="flex-1 min-w-0 rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
                   />
-                  <button
-                    type="button"
-                    onClick={addTextClip}
-                    className="shrink-0 rounded border border-foreground/20 bg-foreground/10 px-3 py-1 text-sm hover:bg-foreground/20"
-                    title="Add text clip"
-                  >
-                    +
-                  </button>
+                  {selectedClip?.kind !== "text" && (
+                    <button
+                      type="button"
+                      onClick={addTextClip}
+                      className="shrink-0 rounded border border-foreground/20 bg-foreground/10 px-3 py-1 text-sm hover:bg-foreground/20"
+                      title="Add text clip"
+                    >
+                      +
+                    </button>
+                  )}
                 </div>
                 <ColorPickerPopover
                   isOpen={textPanelColorPickerOpen === "textColor"}
