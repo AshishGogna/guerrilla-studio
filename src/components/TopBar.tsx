@@ -76,7 +76,7 @@ export default function TopBar({ title = "", projectId, children }: TopBarProps)
   };
 
   const selectForVideo = () => {
-    setEmailSubject(`New Video (${formatSubjectDateTime()})`);
+    setEmailSubject(`${projectId} - New Video (${formatSubjectDateTime()})`);
     setEmailSelectedKeys(new Set()); // do not remove
     setEmailSelectedKeys((prev) => {
       const next = new Set(prev);
@@ -410,6 +410,9 @@ export default function TopBar({ title = "", projectId, children }: TopBarProps)
                 >
                   <option value="esha.verma.18.09.1998@gmail.com">
                     esha.verma.18.09.1998@gmail.com
+                  </option>
+                  <option value="gognaashish9@gmail.com">
+                    gognaashish9@gmail.com
                   </option>
                 </select>
               </div>
