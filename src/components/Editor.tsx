@@ -3369,50 +3369,40 @@ function TimelineTextBlock({
   onContextMenu?: (e: React.MouseEvent) => void;
 }) {
   const barRef = useRef<HTMLDivElement>(null);
+  /** Delta-based trim: text has no fixed “source length”, so extend/trim by pointer delta (no max). */
   const [trimDrag, setTrimDrag] = useState<{
     side: "left" | "right";
-    startX: number;
-    startValue: number;
+    startClientX: number;
+    trimStartAtDrag: number;
+    trimEndAtDrag: number;
+    startTimeSecAtDrag: number;
   } | null>(null);
 
   const minClipWidthPx = Math.max(24, 0.1 * pxPerSec);
   const trimStart = toFinite(clip.trimStartSec, 0);
   const trimEnd = toFinite(clip.trimEndSec, DEFAULT_TEXT_CLIP_DURATION_SEC);
-  const durationSec = Math.max(0, trimEnd - trimStart);
-  const fullDuration = Math.max(durationSec, toFinite(clip.durationSec, trimEnd || DEFAULT_TEXT_CLIP_DURATION_SEC));
-  const widthPx = Math.max(
-    minClipWidthPx,
-    Math.min(fullDuration * pxPerSec, durationSec * pxPerSec)
-  );
-  const safeWidth = toFinite(widthPx, minClipWidthPx);
-  const wrapperWidthPx = Math.max(safeWidth, toFinite(fullDuration * pxPerSec, safeWidth));
-  const clipLeftPx =
-    fullDuration > 0 ? (trimStart / fullDuration) * wrapperWidthPx : 0;
+  const durationSec = Math.max(MIN_TRIM_DURATION_SEC, trimEnd - trimStart);
+  const wrapperWidthPx = Math.max(minClipWidthPx, durationSec * pxPerSec);
 
   useEffect(() => {
-    if (!trimDrag || !barRef.current) return;
-    const bar = barRef.current;
-    const fullDur = Math.max(fullDuration, 0.1);
+    if (!trimDrag) return;
+    const startX = trimDrag.startClientX;
+    const t0 = trimDrag.trimStartAtDrag;
+    const t1 = trimDrag.trimEndAtDrag;
+    const st0 = trimDrag.startTimeSecAtDrag;
 
     const onMouseMove = (e: MouseEvent) => {
-      const rect = bar.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / rect.width;
-      const sec = Math.max(0, Math.min(1, x)) * fullDur;
-
+      const dxSec = (e.clientX - startX) / Math.max(0.01, pxPerSec);
       if (trimDrag.side === "left") {
         const newStart = Math.max(
           0,
-          Math.min(sec, trimEnd - MIN_TRIM_DURATION_SEC)
+          Math.min(t1 - MIN_TRIM_DURATION_SEC, t0 + dxSec)
         );
-        const delta = newStart - trimStart;
-        const newStartTimeSec = toFinite(clip.startTimeSec, 0) + delta;
-        onUpdate({ trimStartSec: newStart, startTimeSec: newStartTimeSec });
+        const delta = newStart - t0;
+        onUpdate({ trimStartSec: newStart, startTimeSec: st0 + delta });
       } else {
-        const newEnd = Math.max(
-          trimStart + MIN_TRIM_DURATION_SEC,
-          Math.min(fullDur, sec)
-        );
-        onUpdate({ trimEndSec: newEnd });
+        const newEnd = Math.max(t0 + MIN_TRIM_DURATION_SEC, t1 + dxSec);
+        onUpdate({ trimEndSec: newEnd, durationSec: newEnd });
       }
     };
     const onMouseUp = () => setTrimDrag(null);
@@ -3422,7 +3412,7 @@ function TimelineTextBlock({
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
     };
-  }, [trimDrag, fullDuration, trimStart, trimEnd, onUpdate]);
+  }, [trimDrag, pxPerSec, onUpdate]);
 
   return (
     <div
@@ -3438,14 +3428,12 @@ function TimelineTextBlock({
         }}
         onClick={(e) => e.stopPropagation()}
         onContextMenu={onContextMenuProp}
-        className={`absolute top-0 bottom-0 flex items-center overflow-hidden rounded border-2 cursor-grab active:cursor-grabbing transition ${
+        className={`absolute inset-0 flex items-center overflow-hidden rounded border-2 cursor-grab active:cursor-grabbing transition ${
           isSelected
             ? "border-accent"
             : "border-foreground/20 hover:border-foreground/30"
         } ${isDragged ? "opacity-50" : ""}`}
         style={{
-          left: `${clipLeftPx}px`,
-          width: `${Math.max(1, safeWidth)}px`,
           pointerEvents: "auto",
         }}
       >
@@ -3463,7 +3451,13 @@ function TimelineTextBlock({
           onMouseDown={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            setTrimDrag({ side: "left", startX: e.clientX, startValue: trimStart });
+            setTrimDrag({
+              side: "left",
+              startClientX: e.clientX,
+              trimStartAtDrag: trimStart,
+              trimEndAtDrag: trimEnd,
+              startTimeSecAtDrag: toFinite(clip.startTimeSec, 0),
+            });
           }}
         />
         <div
@@ -3473,7 +3467,13 @@ function TimelineTextBlock({
           onMouseDown={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            setTrimDrag({ side: "right", startX: e.clientX, startValue: trimEnd });
+            setTrimDrag({
+              side: "right",
+              startClientX: e.clientX,
+              trimStartAtDrag: trimStart,
+              trimEndAtDrag: trimEnd,
+              startTimeSecAtDrag: toFinite(clip.startTimeSec, 0),
+            });
           }}
         />
       </div>
