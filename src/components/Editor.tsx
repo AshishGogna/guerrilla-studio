@@ -297,6 +297,8 @@ export interface EditorClip {
   textPositionX?: number;
   /** Vertical position in px for text clips. */
   textPositionY?: number;
+  /** Max width in px for text clips. */
+  textWidth?: number;
 }
 
 /** Remove one clip from an array and clear partner's linkedClipId. Same logic as removeClip but pure. */
@@ -440,6 +442,10 @@ function TextClipOverlay({ clip }: { clip: EditorClip }) {
     : clip.textBgColor;
   const posX = toFinite(clip.textPositionX, compW / 2);
   const posY = toFinite(clip.textPositionY, Math.round(compH * 0.3));
+  const maxW =
+    clip.textWidth != null && Number.isFinite(clip.textWidth) && clip.textWidth > 0
+      ? Math.min(clip.textWidth, compW * 0.98)
+      : compW * 0.9;
   return (
     <AbsoluteFill
       style={{
@@ -454,7 +460,8 @@ function TextClipOverlay({ clip }: { clip: EditorClip }) {
           left: posX,
           top: posY,
           transform: "translate(-50%, -50%)",
-          maxWidth: compW * 0.9,
+          maxWidth: maxW,
+          width: clip.textWidth != null && Number.isFinite(clip.textWidth) && clip.textWidth > 0 ? maxW : undefined,
           maxHeight: compH * 0.9,
           fontFamily,
           fontSize: `${fontSize}px`,
@@ -826,6 +833,7 @@ export default function Editor({ projectId }: EditorProps) {
   const [textBgColor, setTextBgColor] = useState("#ffffff");
   const [textPositionX, setTextPositionX] = useState("");
   const [textPositionY, setTextPositionY] = useState("");
+  const [textWidthInput, setTextWidthInput] = useState("");
   const [textPanelColorPickerOpen, setTextPanelColorPickerOpen] = useState<"textColor" | "textBg" | null>(null);
   const panelTextColorAnchorRef = useRef<HTMLButtonElement>(null);
   const panelTextBgColorAnchorRef = useRef<HTMLButtonElement>(null);
@@ -1065,6 +1073,8 @@ export default function Editor({ projectId }: EditorProps) {
     const textSize = Number.isFinite(sizeNum) && sizeNum > 0 ? sizeNum : 60;
     const posX = textPositionX === "" ? undefined : parseFloat(textPositionX);
     const posY = textPositionY === "" ? undefined : parseFloat(textPositionY);
+    const widthNum = parseFloat(textWidthInput);
+    const textWidth = Number.isFinite(widthNum) && widthNum > 0 ? widthNum : undefined;
     setClips((prev) => {
       const textClipsList = prev.filter((c) => c.kind === "text");
       const maxTrack = prev.length === 0
@@ -1101,11 +1111,12 @@ export default function Editor({ projectId }: EditorProps) {
         textBgColor,
         ...(Number.isFinite(posX) ? { textPositionX: posX } : {}),
         ...(Number.isFinite(posY) ? { textPositionY: posY } : {}),
+        ...(textWidth != null ? { textWidth } : {}),
       };
       return [...prev, newClip];
     });
     setNewTextInput("");
-  }, [newTextInput, textSizeInput, textFontFamily, textColor, textBgColor, textPositionX, textPositionY]);
+  }, [newTextInput, textSizeInput, textFontFamily, textColor, textBgColor, textPositionX, textPositionY, textWidthInput]);
 
   const [isRecordingPaused, setIsRecordingPaused] = useState(false);
 
@@ -2463,7 +2474,31 @@ export default function Editor({ projectId }: EditorProps) {
                         prev.map((c) => (c.kind === "text" ? { ...c, textSize: size } : c))
                       );
                     }}
-                    placeholder="24"
+                    placeholder="60"
+                    className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-foreground/50">Width (px)</span>
+                  <input
+                    type="text"
+                    value={textWidthInput}
+                    onChange={(e) => setTextWidthInput(e.target.value)}
+                    onBlur={() => {
+                      const num = parseFloat(textWidthInput);
+                      if (Number.isFinite(num) && num > 0) {
+                        setClips((prev) =>
+                          prev.map((c) => (c.kind === "text" ? { ...c, textWidth: num } : c))
+                        );
+                      } else {
+                        setClips((prev) =>
+                          prev.map((c) =>
+                            c.kind === "text" ? { ...c, textWidth: undefined } : c
+                          )
+                        );
+                      }
+                    }}
+                    placeholder="e.g. 800 (empty = 90% of comp)"
                     className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
                   />
                 </label>
