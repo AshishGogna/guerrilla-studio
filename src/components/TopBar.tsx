@@ -88,7 +88,7 @@ export default function TopBar({ title = "", projectId, children }: TopBarProps)
   };
 
   const selectForCarousel = () => {
-    setEmailSubject(`New Carousel (${formatSubjectDateTime()})`);
+    setEmailSubject(`${projectId} - New Carousel (${formatSubjectDateTime()})`);
     setEmailSelectedKeys(new Set()); // do not remove
     setEmailSelectedKeys((prev) => {
       const next = new Set(prev);
