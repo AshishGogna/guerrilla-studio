@@ -715,12 +715,14 @@ export function EditorCompositionWithProps({
               const volume =
                 clipKind === "video"
                   ? 0
-                  : overlapSeconds.length > 0
-                    ? (frame: number) => {
-                        const t = frame / safeFps;
-                        return overlapSeconds.some(([s, e]) => t >= s && t < e) ? 0 : 1;
-                      }
-                    : 1;
+                  : clipKind === "audio"
+                    ? 1
+                    : overlapSeconds.length > 0
+                      ? (frame: number) => {
+                          const t = frame / safeFps;
+                          return overlapSeconds.some(([s, e]) => t >= s && t < e) ? 0 : 1;
+                        }
+                      : 1;
               return [
                 renderClipSequence(
                   trimStart,
