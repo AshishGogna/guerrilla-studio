@@ -299,6 +299,8 @@ export interface EditorClip {
   textPositionY?: number;
   /** Max width in px for text clips. */
   textWidth?: number;
+  /** Volume 0–1 for audio/combined clips. */
+  volume?: number;
 }
 
 /** Remove one clip from an array and clear partner's linkedClipId. Same logic as removeClip but pure. */
@@ -600,6 +602,7 @@ export function EditorCompositionWithProps({
               const isAudioSrc = /\.(mp3|wav|ogg|aac|flac|webm|m4a)(\?|$)/i.test(clip.src) ||
                 clip.src.startsWith("blob:");
 
+              const clipVolume = Math.max(0, Math.min(1, toFinite(clip.volume, 1)));
               const renderClipSequence = (
                 trimStart: number,
                 trimEnd: number,
@@ -618,17 +621,16 @@ export function EditorCompositionWithProps({
                 const clipStartSec = toFinite(clip.startTimeSec, 0);
                 const clipEndSec = clipStartSec + durationSec;
                 const overlapSeconds = overlapSecondsForClip(clipStartSec, clipEndSec);
-                const vol =
-                  typeof volume === "number"
-                    ? volume
-                    : overlapSeconds.length > 0
-                      ? (frame: number) => {
-                          const t = frame / safeFps;
-                          return overlapSeconds.some(([s, e]) => t >= s && t < e)
-                            ? 0
-                            : volume(frame);
-                        }
-                      : volume;
+                const vol = typeof volume === "number"
+                  ? volume * clipVolume
+                  : overlapSeconds.length > 0
+                    ? (frame: number) => {
+                        const t = frame / safeFps;
+                        return overlapSeconds.some(([s, e]) => t >= s && t < e)
+                          ? 0
+                          : volume(frame) * clipVolume;
+                      }
+                    : (frame: number) => volume(frame) * clipVolume;
 
                 const useAudioElement = isAudioOnly && (clip.kind === "audio");
 
@@ -828,6 +830,8 @@ export default function Editor({ projectId }: EditorProps) {
   const [silenceBuffer, setSilenceBuffer] = useState(0.5);
   const [cutSilencesOpen, setCutSilencesOpen] = useState(false);
   const [textsOpen, setTextsOpen] = useState(false);
+  const [audioOpen, setAudioOpen] = useState(false);
+  const [volumeInputValue, setVolumeInputValue] = useState("");
   const [textFontFamily, setTextFontFamily] = useState("sans-serif");
   const [textSizeInput, setTextSizeInput] = useState("60");
   const [newTextInput, setNewTextInput] = useState("");
@@ -2008,6 +2012,14 @@ export default function Editor({ projectId }: EditorProps) {
   }, [clips]);
 
   const selectedClip = clips.find((c) => c.id === selectedClipId);
+  const isAudioClipSelected = selectedClip?.kind === "audio" || selectedClip?.kind === "combined";
+  useEffect(() => {
+    if (isAudioClipSelected && selectedClip) {
+      setVolumeInputValue(String(selectedClip.volume ?? 1));
+    } else {
+      setVolumeInputValue("");
+    }
+  }, [selectedClipId, isAudioClipSelected, selectedClip?.volume]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -2633,6 +2645,39 @@ export default function Editor({ projectId }: EditorProps) {
                   anchorRef={panelTextBgColorAnchorRef}
                   allowTransparent
                 />
+              </div>
+            )}
+          </div>
+          <div className="border-b border-foreground/10">
+            <button
+              type="button"
+              onClick={() => setAudioOpen((v) => !v)}
+              className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium text-foreground/80 hover:bg-foreground/5"
+            >
+              Audio
+              <span className="text-xs text-foreground/40">{audioOpen ? "▾" : "▸"}</span>
+            </button>
+            {audioOpen && (
+              <div className="flex flex-col gap-3 px-3 pb-3">
+                {isAudioClipSelected && selectedClipId && selectedClip && (
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs text-foreground/50">Volume (0–1)</span>
+                    <input
+                      type="text"
+                      value={volumeInputValue}
+                      onChange={(e) => setVolumeInputValue(e.target.value)}
+                      onBlur={() => {
+                        const raw = volumeInputValue.trim();
+                        const n = raw === "" ? 1 : parseFloat(raw);
+                        const v = Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : toFinite(selectedClip.volume, 1);
+                        updateClip(selectedClipId, { volume: v });
+                        setVolumeInputValue(String(v));
+                      }}
+                      placeholder="1"
+                      className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
+                    />
+                  </label>
+                )}
               </div>
             )}
           </div>
