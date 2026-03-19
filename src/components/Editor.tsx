@@ -3658,14 +3658,16 @@ function TimelineAudioBlock({
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const centerY = ch / 2;
+    const maxBarH = centerY - 2;
+    const vol = Math.max(0, Math.min(1, clip.volume ?? 1));
     const barWidth = Math.max(0.5, cw / waveform.length);
     ctx.fillStyle = "rgba(59, 130, 246, 0.7)";
     waveform.forEach((norm, i) => {
-      const barH = Math.max(1, norm * (centerY - 2));
+      const barH = norm * maxBarH * vol;
       const x = (i / waveform.length) * cw;
       ctx.fillRect(x, centerY - barH, barWidth, barH * 2);
     });
-  }, [waveform, wrapperWidthPx]);
+  }, [waveform, wrapperWidthPx, clip.volume]);
 
   return (
     <div
