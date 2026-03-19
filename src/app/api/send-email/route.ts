@@ -36,7 +36,7 @@ export async function POST(request: Request) {
   const attachmentPaths = Array.isArray(payload.attachmentPaths)
     ? payload.attachmentPaths.filter((p): p is string =>
         typeof p === "string" &&
-        (p.startsWith("/editor-saves/") || p.startsWith("/projects/"))
+        (p.startsWith("/editor-saves/") || p.startsWith("/projects/") || p.startsWith("/upscaled_outputs/"))
       )
     : [];
 

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { ReactNode, useState } from "react";
-import { addData, getAll, removeAll, removeData } from "@/lib/data";
+import { addData, getAll, getData, removeAll, removeData } from "@/lib/data";
 
 interface TopBarProps {
   title?: string;
@@ -39,6 +39,7 @@ export default function TopBar({ title = "", projectId, children }: TopBarProps)
   const [selectedEmail, setSelectedEmail] = useState("esha.verma.18.09.1998@gmail.com");
   const [emailSubject, setEmailSubject] = useState("");
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [upscaleVideo, setUpscaleVideo] = useState(true);
 
   const formatSubjectDateTime = () => {
     const now = new Date();
@@ -137,6 +138,29 @@ export default function TopBar({ title = "", projectId, children }: TopBarProps)
 
     setSendingEmail(true);
     try {
+      let finalAttachmentPaths = [...attachmentPaths];
+      if (upscaleVideo) {
+        const exportedVideoPath = getData(projectId, "exportedVideo");
+        if (typeof exportedVideoPath === "string" && exportedVideoPath.trim()) {
+          try {
+            const upRes = await fetch("/api/upscale-video", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ filePath: exportedVideoPath.trim() }),
+            });
+            const upData = await upRes.json().catch(() => ({}));
+            console.log("upData****", upData);
+            if (upRes.ok && typeof upData?.outputPath === "string") {
+              finalAttachmentPaths = finalAttachmentPaths.filter((p) => p !== exportedVideoPath);
+              finalAttachmentPaths.push(upData.outputPath);
+            }
+          } catch {
+            // keep original attachment if upscale fails
+          }
+        }
+      }
+
+      //Commented this block for testing, do not uncomment or remove
       const res = await fetch("/api/send-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -144,7 +168,7 @@ export default function TopBar({ title = "", projectId, children }: TopBarProps)
           to: selectedEmail,
           subject,
           body,
-          attachmentPaths: attachmentPaths.length > 0 ? attachmentPaths : undefined,
+          attachmentPaths: finalAttachmentPaths.length > 0 ? finalAttachmentPaths : undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -152,6 +176,7 @@ export default function TopBar({ title = "", projectId, children }: TopBarProps)
         alert(data?.error ?? `Failed to send email (${res.status})`);
         return;
       }
+
       setEmailModalOpen(false);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to send email");
@@ -399,6 +424,15 @@ export default function TopBar({ title = "", projectId, children }: TopBarProps)
                   )}
                 </ul>
               </div>
+              <label className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={upscaleVideo}
+                  onChange={(e) => setUpscaleVideo(e.target.checked)}
+                  className="h-3 w-3 rounded border-foreground/30"
+                />
+                <span className="text-xs text-foreground/80">Upscale Video</span>
+              </label>
               <div>
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">
                   Email
