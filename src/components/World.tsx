@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { addData, getAll, removeData } from "@/lib/data";
+import { generateImage } from "@/lib/ai";
+import { addData, getAll, getData, removeData } from "@/lib/data";
 
 export type WorldProps = { projectId: string };
 
@@ -13,6 +14,7 @@ function valueToString(v: unknown): string {
 
 export default function World({ projectId }: WorldProps) {
   const [items, setItems] = useState<{ key: string; value: string }[]>([]);
+  const [generatingObjectRefs, setGeneratingObjectRefs] = useState(false);
 
   useEffect(() => {
     const all = getAll(projectId);
@@ -55,8 +57,73 @@ export default function World({ projectId }: WorldProps) {
     if (key) addData(projectId, key, newValue);
   };
 
+  const refreshItems = () => {
+    const all = getAll(projectId);
+    setItems(
+      Object.entries(all).map(([key, value]) => ({
+        key,
+        value: valueToString(value),
+      }))
+    );
+  };
+
+  const handleGenerateObjectReferences = async () => {
+    const raw = getData(projectId, "objectReferences");
+    if (!Array.isArray(raw)) {
+      alert('No object references found. Save a list under data.objectReferences first.');
+      return;
+    }
+    const refs = raw as unknown[];
+    const parsed = refs
+      .map((r) => (r && typeof r === "object" ? (r as Record<string, unknown>) : null))
+      .filter(Boolean)
+      .map((r) => ({
+        id: typeof r!.id === "string" ? r!.id : "",
+        imageGenerationPrompt:
+          typeof r!.imageGenerationPrompt === "string" ? r!.imageGenerationPrompt : "",
+      }))
+      .filter((r) => r.id.trim() && r.imageGenerationPrompt.trim());
+
+    if (parsed.length === 0) {
+      alert('objectReferences is empty or invalid. Expected items like { id, imageGenerationPrompt }.');
+      return;
+    }
+
+    setGeneratingObjectRefs(true);
+    try {
+      for (const obj of parsed) {
+        const fileName = `object-${obj.id}`;
+        const imagePath = await generateImage(
+          obj.imageGenerationPrompt,
+          projectId,
+          fileName,
+          "1:1",
+          undefined,
+          "gemini-3-pro-image-preview"
+        );
+        addData(projectId, obj.id, imagePath);
+      }
+      refreshItems();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to generate object references");
+    } finally {
+      setGeneratingObjectRefs(false);
+    }
+  };
+
   return (
-    <div className="flex-1 bg-background text-foreground p-6 overflow-auto">
+    <div className="flex flex-1 flex-col overflow-hidden bg-background text-foreground">
+      <div className="flex items-center gap-2 border-b border-foreground/10 bg-foreground/5 px-6 py-3">
+        <button
+          type="button"
+          onClick={handleGenerateObjectReferences}
+          disabled={generatingObjectRefs}
+          className="rounded border border-foreground/20 bg-foreground/10 px-3 py-1.5 text-sm hover:bg-foreground/20 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {generatingObjectRefs ? "Generating…" : "Generate Object References"}
+        </button>
+      </div>
+      <div className="flex-1 overflow-auto p-6">
       <ul className="list-none p-0 m-0 flex flex-col gap-2">
         {items.map((item, index) => (
           <li
@@ -96,6 +163,7 @@ export default function World({ projectId }: WorldProps) {
         >
           +
         </button>
+      </div>
       </div>
     </div>
   );
