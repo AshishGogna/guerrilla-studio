@@ -2074,6 +2074,7 @@ export default function Editor({ projectId }: EditorProps) {
       const sec = Math.max(0, Math.min(totalDurationSec, x / timelinePxPerSec));
       setPlayheadTimeSec(sec);
       playerRef.current?.seekTo(Math.round(sec * FPS));
+      setSelectedClipId(null);
     },
     [getTimelineX, totalDurationSec, timelinePxPerSec]
   );
@@ -2895,6 +2896,8 @@ export default function Editor({ projectId }: EditorProps) {
                   return (
                     <div
                       key={`track-${trackIdx}`}
+                      role="presentation"
+                      onClick={() => setSelectedClipId(null)}
                       className="relative shrink-0 border-b border-foreground/10 bg-foreground/[0.02]"
                       style={{ height: TRACK_HEIGHT_PX, minHeight: TRACK_HEIGHT_PX }}
                     >
