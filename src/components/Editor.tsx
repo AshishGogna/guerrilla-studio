@@ -824,6 +824,9 @@ export default function Editor({ projectId }: EditorProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioFileInputRef = useRef<HTMLInputElement>(null);
   const playerRef = useRef<PlayerRefType | null>(null);
+  const [breakToolEnabled, setBreakToolEnabled] = useState(false);
+  const [breakToolHoverClipId, setBreakToolHoverClipId] = useState<string | null>(null);
+  const [breakToolHoverTimelineSec, setBreakToolHoverTimelineSec] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribingAll, setIsTranscribingAll] = useState(false);
   const [isCuttingSilences, setIsCuttingSilences] = useState(false);
@@ -1580,6 +1583,80 @@ export default function Editor({ projectId }: EditorProps) {
     setClipContextMenu(null);
   }, []);
 
+  /** Split a clip at timeline time T. For combined clips, splits both video and audio at the same T. */
+  const splitClipAt = useCallback((clipId: string, timelineSec: number) => {
+    setClips((prev) => {
+      const clip = prev.find((c) => c.id === clipId);
+      if (!clip) return prev;
+      const startSec = toFinite(clip.startTimeSec, 0);
+      const k = clip.kind ?? "combined";
+      const partnerId = clip.linkedClipId;
+      const partner = partnerId ? prev.find((c) => c.id === partnerId) : null;
+
+      const doSplit = (c: EditorClip, trackType: "video" | "audio") => {
+        const trim = getEffectiveTrim(c, trackType);
+        const trimStart = trim.trimStartSec;
+        const trimEnd = trim.trimEndSec;
+        const endSec = startSec + (trimEnd - trimStart);
+        if (timelineSec <= startSec + MIN_TRIM_DURATION_SEC || timelineSec >= endSec - MIN_TRIM_DURATION_SEC) return null;
+        const leftTrimEnd = trimStart + (timelineSec - startSec);
+        const left: EditorClip = { ...c, trimEndSec: leftTrimEnd };
+        if (k === "combined" && trackType === "video") {
+          (left as EditorClip).trimEndSecVideo = leftTrimEnd;
+        }
+        if (k === "combined" && trackType === "audio") {
+          (left as EditorClip).trimEndSecAudio = leftTrimEnd;
+        }
+        const rightId = `clip-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        const right: EditorClip = {
+          ...c,
+          id: rightId,
+          startTimeSec: timelineSec,
+          trimStartSec: leftTrimEnd,
+          trimEndSec: trimEnd,
+        };
+        if (k === "combined" && trackType === "video") {
+          (right as EditorClip).trimStartSecVideo = leftTrimEnd;
+          (right as EditorClip).trimEndSecVideo = trimEnd;
+        }
+        if (k === "combined" && trackType === "audio") {
+          (right as EditorClip).trimStartSecAudio = leftTrimEnd;
+          (right as EditorClip).trimEndSecAudio = trimEnd;
+        }
+        return { left, rightId, right };
+      };
+
+      if (k === "combined" && partner) {
+        const videoSplit = doSplit(clip, "video");
+        const audioSplit = doSplit(partner, "audio");
+        if (!videoSplit || !audioSplit) return prev;
+        const { left: leftV, rightId: rightVId, right: rightV } = videoSplit;
+        const { left: leftA, rightId: rightAId, right: rightA } = audioSplit;
+        (rightV as EditorClip).linkedClipId = rightAId;
+        (rightA as EditorClip).linkedClipId = rightVId;
+        return prev.flatMap((c) => {
+          if (c.id === clipId) return [leftV, rightV];
+          if (c.id === partnerId) return [leftA, rightA];
+          return [c];
+        });
+      }
+
+      const trackType = k === "audio" ? "audio" : "video";
+      const split = doSplit(clip, trackType);
+      if (!split) return prev;
+      const { left, right } = split;
+      // Splitting a single clip: both halves are independent. If this clip was linked (e.g. audio linked to video), unlink both halves and clear the partner's link.
+      (left as EditorClip).linkedClipId = undefined;
+      (right as EditorClip).linkedClipId = undefined;
+      return prev.flatMap((c) => {
+        if (c.id === clipId) return [left, right];
+        if (partnerId && c.id === partnerId) return [{ ...c, linkedClipId: undefined }];
+        return [c];
+      });
+    });
+    setBreakToolHoverClipId(null);
+  }, []);
+
   useEffect(() => {
     if (!clipContextMenu) return;
     const close = () => setClipContextMenu(null);
@@ -1590,6 +1667,18 @@ export default function Editor({ projectId }: EditorProps) {
       window.removeEventListener("contextmenu", close);
     };
   }, [clipContextMenu]);
+
+  const handleBreakToolMouseMove = useCallback((clipId: string | null, timelineSec: number) => {
+    setBreakToolHoverClipId(clipId);
+    setBreakToolHoverTimelineSec(timelineSec);
+  }, []);
+
+  const handleBreakToolClick = useCallback(
+    (clipId: string, timelineSec: number) => {
+      splitClipAt(clipId, timelineSec);
+    },
+    [splitClipAt]
+  );
 
   const handleUploadClips = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2711,6 +2800,13 @@ export default function Editor({ projectId }: EditorProps) {
               className="hidden"
               onChange={handleUploadClips}
             />
+            <button
+              type="button"
+              onClick={() => setBreakToolEnabled((v) => !v)}
+              className={`rounded border px-3 py-1.5 text-sm ${breakToolEnabled ? "border-accent bg-accent/20 text-accent" : "border-foreground/20 bg-foreground/10 hover:bg-foreground/20"}`}
+            >
+              Break
+            </button>
             {isRecording ? (
               <>
                 <button
@@ -2889,6 +2985,13 @@ export default function Editor({ projectId }: EditorProps) {
                     setClipContextMenu({ clipId: clip.id, x: e.clientX, y: e.clientY });
                   },
                 });
+                const breakToolProps = {
+                  breakToolEnabled,
+                  breakToolHoverClipId,
+                  breakToolHoverTimelineSec,
+                  onBreakToolMouseMove: handleBreakToolMouseMove,
+                  onBreakToolClick: handleBreakToolClick,
+                };
                 return rows.map((trackIdx) => {
                   const trackClips = clips.filter(
                     (c) => toFinite(c.trackIndex, 0) === trackIdx
@@ -2937,6 +3040,7 @@ export default function Editor({ projectId }: EditorProps) {
                                     handleClipMetadataLoaded(clip.id, durationSec, w, h)
                                   }
                                   {...blockHandlers(clip, "video")}
+                                  {...breakToolProps}
                                 />
                               </div>
                               <div className="h-1/2 min-h-0 overflow-hidden">
@@ -2950,6 +3054,7 @@ export default function Editor({ projectId }: EditorProps) {
                                     updateClip(clip.id, { waveformData: data })
                                   }
                                   {...blockHandlers(clip, "audio")}
+                                  {...breakToolProps}
                                 />
                               </div>
                             </div>
@@ -2985,6 +3090,7 @@ export default function Editor({ projectId }: EditorProps) {
                                   e.stopPropagation();
                                   setClipContextMenu({ clipId: clip.id, x: e.clientX, y: e.clientY });
                                 }}
+                                {...breakToolProps}
                               />
                             </div>
                           );
@@ -3020,6 +3126,7 @@ export default function Editor({ projectId }: EditorProps) {
                                   e.stopPropagation();
                                   setClipContextMenu({ clipId: clip.id, x: e.clientX, y: e.clientY });
                                 }}
+                                {...breakToolProps}
                               />
                             </div>
                           );
@@ -3040,6 +3147,7 @@ export default function Editor({ projectId }: EditorProps) {
                                   handleClipMetadataLoaded(clip.id, durationSec)
                                 : undefined}
                                 {...blockHandlers(clip, "audio")}
+                                {...breakToolProps}
                               />
                             </div>
                           );
@@ -3057,6 +3165,7 @@ export default function Editor({ projectId }: EditorProps) {
                                 handleClipMetadataLoaded(clip.id, durationSec, w, h)
                               }
                               {...blockHandlers(clip, "video")}
+                              {...breakToolProps}
                             />
                           </div>
                         );
@@ -3258,6 +3367,11 @@ function TimelineClipBlock({
   onMetadataLoaded,
   onPositionDragStart,
   onContextMenu: onContextMenuProp,
+  breakToolEnabled,
+  breakToolHoverClipId,
+  breakToolHoverTimelineSec,
+  onBreakToolMouseMove,
+  onBreakToolClick,
 }: {
   clip: EditorClip;
   pxPerSec: number;
@@ -3269,6 +3383,11 @@ function TimelineClipBlock({
   onMetadataLoaded: (durationSec: number, width?: number, height?: number) => void;
   onPositionDragStart: (e: React.MouseEvent) => void;
   onContextMenu?: (e: React.MouseEvent) => void;
+  breakToolEnabled?: boolean;
+  breakToolHoverClipId?: string | null;
+  breakToolHoverTimelineSec?: number;
+  onBreakToolMouseMove?: (clipId: string | null, timelineSec: number) => void;
+  onBreakToolClick?: (clipId: string, timelineSec: number) => void;
 }) {
   const barRef = useRef<HTMLDivElement>(null);
   const [trimDrag, setTrimDrag] = useState<{
@@ -3292,6 +3411,22 @@ function TimelineClipBlock({
     fullDuration > 0
       ? (trimStart / fullDuration) * wrapperWidthPx
       : 0;
+
+  const startTimeSec = toFinite(clip.startTimeSec, 0);
+  const isHoveredForBreak = breakToolEnabled && breakToolHoverClipId === clip.id;
+  const breakLinePx =
+    isHoveredForBreak && breakToolHoverTimelineSec != null && durationSec > 0
+      ? Math.max(0, Math.min(safeWidth, ((breakToolHoverTimelineSec - startTimeSec) / durationSec) * safeWidth))
+      : null;
+
+  const getTimelineSecFromEvent = (e: React.MouseEvent | MouseEvent) => {
+    const bar = barRef.current;
+    if (!bar || !onBreakToolMouseMove) return 0;
+    const rect = bar.getBoundingClientRect();
+    const localX = e.clientX - rect.left;
+    const frac = Math.max(0, Math.min(1, localX / safeWidth));
+    return startTimeSec + frac * durationSec;
+  };
 
   useEffect(() => {
     if (!trimDrag || !barRef.current) return;
@@ -3340,19 +3475,41 @@ function TimelineClipBlock({
         onMouseDown={(e) => {
           if (e.button === 0) onPositionDragStart(e);
         }}
-        onClick={(e) => e.stopPropagation()}
+        onMouseMove={
+          breakToolEnabled && onBreakToolMouseMove
+            ? (e) => onBreakToolMouseMove(clip.id, getTimelineSecFromEvent(e))
+            : undefined
+        }
+        onMouseLeave={
+          breakToolEnabled && onBreakToolMouseMove ? () => onBreakToolMouseMove(null, 0) : undefined
+        }
+        onClick={(e) => {
+          e.stopPropagation();
+          if (breakToolEnabled && onBreakToolClick) {
+            const sec = getTimelineSecFromEvent(e);
+            onBreakToolClick(clip.id, sec);
+          } else {
+            onSelect();
+          }
+        }}
         onContextMenu={onContextMenuProp}
         className={`absolute top-0 bottom-0 flex items-center overflow-hidden rounded border-2 cursor-grab active:cursor-grabbing transition ${
           isSelected
             ? "border-accent"
             : "border-foreground/20 hover:border-foreground/30"
-        } ${isDragged ? "opacity-50" : ""}`}
+        } ${isDragged ? "opacity-50" : ""} ${breakToolEnabled ? "cursor-crosshair" : ""}`}
         style={{
           left: `${clipLeftPx}px`,
           width: `${Math.max(1, safeWidth)}px`,
           pointerEvents: "auto",
         }}
       >
+        {breakLinePx != null && (
+          <div
+            className="absolute top-0 bottom-0 w-0.5 bg-accent pointer-events-none z-10"
+            style={{ left: `${breakLinePx}px` }}
+          />
+        )}
         <div className="absolute inset-0 bg-foreground/15" />
         <span
           className="absolute left-1 right-1 truncate text-[10px] font-medium text-foreground/90"
@@ -3407,6 +3564,11 @@ function TimelineTextBlock({
   onUpdate,
   onPositionDragStart,
   onContextMenu: onContextMenuProp,
+  breakToolEnabled,
+  breakToolHoverClipId,
+  breakToolHoverTimelineSec,
+  onBreakToolMouseMove,
+  onBreakToolClick,
 }: {
   clip: EditorClip;
   pxPerSec: number;
@@ -3417,6 +3579,11 @@ function TimelineTextBlock({
   onUpdate: (patch: Partial<EditorClip>) => void;
   onPositionDragStart: (e: React.MouseEvent) => void;
   onContextMenu?: (e: React.MouseEvent) => void;
+  breakToolEnabled?: boolean;
+  breakToolHoverClipId?: string | null;
+  breakToolHoverTimelineSec?: number;
+  onBreakToolMouseMove?: (clipId: string | null, timelineSec: number) => void;
+  onBreakToolClick?: (clipId: string, timelineSec: number) => void;
 }) {
   const barRef = useRef<HTMLDivElement>(null);
   /** Delta-based trim: text has no fixed “source length”, so extend/trim by pointer delta (no max). */
@@ -3433,6 +3600,22 @@ function TimelineTextBlock({
   const trimEnd = toFinite(clip.trimEndSec, DEFAULT_TEXT_CLIP_DURATION_SEC);
   const durationSec = Math.max(MIN_TRIM_DURATION_SEC, trimEnd - trimStart);
   const wrapperWidthPx = Math.max(minClipWidthPx, durationSec * pxPerSec);
+
+  const startTimeSec = toFinite(clip.startTimeSec, 0);
+  const isHoveredForBreak = breakToolEnabled && breakToolHoverClipId === clip.id;
+  const breakLinePx =
+    isHoveredForBreak && breakToolHoverTimelineSec != null && durationSec > 0
+      ? Math.max(0, Math.min(wrapperWidthPx, ((breakToolHoverTimelineSec - startTimeSec) / durationSec) * wrapperWidthPx))
+      : null;
+
+  const getTimelineSecFromEvent = (e: React.MouseEvent | MouseEvent) => {
+    const bar = barRef.current;
+    if (!bar || !onBreakToolMouseMove) return 0;
+    const rect = bar.getBoundingClientRect();
+    const localX = e.clientX - rect.left;
+    const frac = Math.max(0, Math.min(1, localX / wrapperWidthPx));
+    return startTimeSec + frac * durationSec;
+  };
 
   useEffect(() => {
     if (!trimDrag) return;
@@ -3476,17 +3659,38 @@ function TimelineTextBlock({
         onMouseDown={(e) => {
           if (e.button === 0) onPositionDragStart(e);
         }}
-        onClick={(e) => e.stopPropagation()}
+        onMouseMove={
+          breakToolEnabled && onBreakToolMouseMove
+            ? (e) => onBreakToolMouseMove(clip.id, getTimelineSecFromEvent(e))
+            : undefined
+        }
+        onMouseLeave={
+          breakToolEnabled && onBreakToolMouseMove ? () => onBreakToolMouseMove(null, 0) : undefined
+        }
+        onClick={(e) => {
+          e.stopPropagation();
+          if (breakToolEnabled && onBreakToolClick) {
+            onBreakToolClick(clip.id, getTimelineSecFromEvent(e));
+          } else {
+            onSelect();
+          }
+        }}
         onContextMenu={onContextMenuProp}
         className={`absolute inset-0 flex items-center overflow-hidden rounded border-2 cursor-grab active:cursor-grabbing transition ${
           isSelected
             ? "border-accent"
             : "border-foreground/20 hover:border-foreground/30"
-        } ${isDragged ? "opacity-50" : ""}`}
+        } ${isDragged ? "opacity-50" : ""} ${breakToolEnabled ? "cursor-crosshair" : ""}`}
         style={{
           pointerEvents: "auto",
         }}
       >
+        {breakLinePx != null && (
+          <div
+            className="absolute top-0 bottom-0 w-0.5 bg-accent pointer-events-none z-10"
+            style={{ left: `${breakLinePx}px` }}
+          />
+        )}
         <div className="absolute inset-0 bg-foreground/15" />
         <span
           className="absolute left-1 right-1 truncate text-[10px] font-medium text-foreground/90"
@@ -3542,6 +3746,11 @@ function TimelineAudioBlock({
   onMetadataLoaded,
   onPositionDragStart,
   onContextMenu: onContextMenuProp,
+  breakToolEnabled,
+  breakToolHoverClipId,
+  breakToolHoverTimelineSec,
+  onBreakToolMouseMove,
+  onBreakToolClick,
 }: {
   clip: EditorClip;
   pxPerSec: number;
@@ -3553,6 +3762,11 @@ function TimelineAudioBlock({
   onMetadataLoaded?: (durationSec: number) => void;
   onPositionDragStart: (e: React.MouseEvent) => void;
   onContextMenu?: (e: React.MouseEvent) => void;
+  breakToolEnabled?: boolean;
+  breakToolHoverClipId?: string | null;
+  breakToolHoverTimelineSec?: number;
+  onBreakToolMouseMove?: (clipId: string | null, timelineSec: number) => void;
+  onBreakToolClick?: (clipId: string, timelineSec: number) => void;
 }) {
   const barRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -3576,6 +3790,22 @@ function TimelineAudioBlock({
   const wrapperWidthPx = Math.max(safeWidth, toFinite(fullDuration * pxPerSec, safeWidth));
   const clipLeftPx =
     fullDuration > 0 ? (trimStart / fullDuration) * wrapperWidthPx : 0;
+
+  const startTimeSec = toFinite(clip.startTimeSec, 0);
+  const isHoveredForBreak = breakToolEnabled && breakToolHoverClipId === clip.id;
+  const breakLinePx =
+    isHoveredForBreak && breakToolHoverTimelineSec != null && durationSec > 0
+      ? Math.max(0, Math.min(safeWidth, ((breakToolHoverTimelineSec - startTimeSec) / durationSec) * safeWidth))
+      : null;
+
+  const getTimelineSecFromEvent = (e: React.MouseEvent | MouseEvent) => {
+    const bar = barRef.current;
+    if (!bar || !onBreakToolMouseMove) return 0;
+    const rect = bar.getBoundingClientRect();
+    const localX = e.clientX - rect.left - clipLeftPx;
+    const frac = Math.max(0, Math.min(1, localX / safeWidth));
+    return startTimeSec + frac * durationSec;
+  };
 
   const onWaveformLoadedRef = useRef(onWaveformLoaded);
   onWaveformLoadedRef.current = onWaveformLoaded;
@@ -3684,22 +3914,40 @@ function TimelineAudioBlock({
         onMouseDown={(e) => {
           if (e.button === 0) onPositionDragStart(e);
         }}
+        onMouseMove={
+          breakToolEnabled && onBreakToolMouseMove
+            ? (e) => onBreakToolMouseMove(clip.id, getTimelineSecFromEvent(e))
+            : undefined
+        }
+        onMouseLeave={
+          breakToolEnabled && onBreakToolMouseMove ? () => onBreakToolMouseMove(null, 0) : undefined
+        }
         onClick={(e) => {
           e.stopPropagation();
-          onSelect();
+          if (breakToolEnabled && onBreakToolClick) {
+            onBreakToolClick(clip.id, getTimelineSecFromEvent(e));
+          } else {
+            onSelect();
+          }
         }}
         onContextMenu={onContextMenuProp}
         className={`absolute top-0 bottom-0 flex items-center overflow-hidden rounded border-2 cursor-grab active:cursor-grabbing transition ${
           isSelected
             ? "border-accent"
             : "border-foreground/20 hover:border-foreground/30"
-        } ${isDragged ? "opacity-50" : ""}`}
+        } ${isDragged ? "opacity-50" : ""} ${breakToolEnabled ? "cursor-crosshair" : ""}`}
         style={{
           left: `${clipLeftPx}px`,
           width: `${Math.max(1, safeWidth)}px`,
           pointerEvents: "auto",
         }}
       >
+        {breakLinePx != null && (
+          <div
+            className="absolute top-0 bottom-0 w-0.5 bg-accent pointer-events-none z-10"
+            style={{ left: `${breakLinePx}px` }}
+          />
+        )}
         <div className="absolute inset-0 bg-foreground/10" />
         {waveform.length === 0 ? (
           <span className="absolute inset-0 flex items-center justify-center text-[10px] text-foreground/50">
@@ -3767,6 +4015,11 @@ function TimelineSubtitleBlock({
   onUpdate,
   onPositionDragStart,
   onContextMenu: onContextMenuProp,
+  breakToolEnabled,
+  breakToolHoverClipId,
+  breakToolHoverTimelineSec,
+  onBreakToolMouseMove,
+  onBreakToolClick,
 }: {
   clip: EditorClip;
   pxPerSec: number;
@@ -3776,6 +4029,11 @@ function TimelineSubtitleBlock({
   onUpdate: (patch: Partial<EditorClip>) => void;
   onPositionDragStart: (e: React.MouseEvent) => void;
   onContextMenu?: (e: React.MouseEvent) => void;
+  breakToolEnabled?: boolean;
+  breakToolHoverClipId?: string | null;
+  breakToolHoverTimelineSec?: number;
+  onBreakToolMouseMove?: (clipId: string | null, timelineSec: number) => void;
+  onBreakToolClick?: (clipId: string, timelineSec: number) => void;
 }) {
   const barRef = useRef<HTMLDivElement>(null);
   const [trimDrag, setTrimDrag] = useState<{
@@ -3792,6 +4050,22 @@ function TimelineSubtitleBlock({
   const widthPx = Math.max(minClipWidthPx, durationSec * pxPerSec);
   const safeWidth = toFinite(widthPx, minClipWidthPx);
   const wrapperWidthPx = Math.max(safeWidth, safeWidth);
+
+  const startTimeSec = toFinite(clip.startTimeSec, 0);
+  const isHoveredForBreak = breakToolEnabled && breakToolHoverClipId === clip.id;
+  const breakLinePx =
+    isHoveredForBreak && breakToolHoverTimelineSec != null && durationSec > 0
+      ? Math.max(0, Math.min(safeWidth, ((breakToolHoverTimelineSec - startTimeSec) / durationSec) * safeWidth))
+      : null;
+
+  const getTimelineSecFromEvent = (e: React.MouseEvent | MouseEvent) => {
+    const bar = barRef.current;
+    if (!bar || !onBreakToolMouseMove) return 0;
+    const rect = bar.getBoundingClientRect();
+    const localX = e.clientX - rect.left;
+    const frac = Math.max(0, Math.min(1, localX / safeWidth));
+    return startTimeSec + frac * durationSec;
+  };
 
   useEffect(() => {
     if (!trimDrag || !barRef.current) return;
@@ -3838,22 +4112,40 @@ function TimelineSubtitleBlock({
         onMouseDown={(e) => {
           if (e.button === 0) onPositionDragStart(e);
         }}
+        onMouseMove={
+          breakToolEnabled && onBreakToolMouseMove
+            ? (e) => onBreakToolMouseMove(clip.id, getTimelineSecFromEvent(e))
+            : undefined
+        }
+        onMouseLeave={
+          breakToolEnabled && onBreakToolMouseMove ? () => onBreakToolMouseMove(null, 0) : undefined
+        }
         onClick={(e) => {
           e.stopPropagation();
-          onSelect();
+          if (breakToolEnabled && onBreakToolClick) {
+            onBreakToolClick(clip.id, getTimelineSecFromEvent(e));
+          } else {
+            onSelect();
+          }
         }}
         onContextMenu={onContextMenuProp}
         className={`absolute top-0 bottom-0 flex items-center overflow-hidden rounded border-2 cursor-grab active:cursor-grabbing transition ${
           isSelected
             ? "border-accent"
             : "border-green-500/40 hover:border-green-500/60"
-        } ${isDragged ? "opacity-50" : ""}`}
+        } ${isDragged ? "opacity-50" : ""} ${breakToolEnabled ? "cursor-crosshair" : ""}`}
         style={{
           left: 0,
           width: `${Math.max(1, safeWidth)}px`,
           pointerEvents: "auto",
         }}
       >
+        {breakLinePx != null && (
+          <div
+            className="absolute top-0 bottom-0 w-0.5 bg-accent pointer-events-none z-10"
+            style={{ left: `${breakLinePx}px` }}
+          />
+        )}
         <div className="absolute inset-0 bg-green-500/15" />
         <span className="absolute left-1 right-1 top-1/2 -translate-y-1/2 truncate text-[10px] font-medium text-green-300">
           {clip.text}
