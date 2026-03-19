@@ -43,6 +43,7 @@ next-env.d.ts
 #projects
 /public/projects
 /public/editor-saves
+/public/upscaled_outputs
 
 #tmp
 /tmp
