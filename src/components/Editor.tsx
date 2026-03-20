@@ -399,6 +399,10 @@ export interface EditorClip {
   volume?: number;
   /** Preview scale for video / combined clips (falls back to global Transform zoom when unset). */
   videoZoom?: number;
+  /** Horizontal offset in composition px (video / combined preview). */
+  videoPositionX?: number;
+  /** Vertical offset in composition px (video / combined preview). */
+  videoPositionY?: number;
   /** Playback speed for video / audio / combined (1 = normal). Timeline duration = source trim length / speed. */
   playbackSpeed?: number;
 }
@@ -772,7 +776,7 @@ export function EditorCompositionWithProps({
                           style={{
                             width: "100%",
                             height: "100%",
-                            transform: `scale(${clipVideoZoom(clip)})`,
+                            transform: `translate(${toFinite(clip.videoPositionX, 0)}px, ${toFinite(clip.videoPositionY, 0)}px) scale(${clipVideoZoom(clip)})`,
                             transformOrigin: "center center",
                             display: "flex",
                             alignItems: "center",
@@ -959,6 +963,9 @@ export default function Editor({ projectId }: EditorProps) {
   const [transformOpen, setTransformOpen] = useState(false);
   const [transcribeOpen, setTranscribeOpen] = useState(false);
   const [zoomInput, setZoomInput] = useState("1");
+  /** Per-clip video frame position (Transform panel when a video/combined clip is selected). */
+  const [videoPositionXInput, setVideoPositionXInput] = useState("0");
+  const [videoPositionYInput, setVideoPositionYInput] = useState("0");
   /** Persisted global Transform zoom (applied to all video clips when they have no per-clip videoZoom). */
   const [globalZoomInput, setGlobalZoomInput] = useState("1");
   /** Persisted global playback speed (applied when clips have no per-clip playbackSpeed). */
@@ -1856,6 +1863,34 @@ export default function Editor({ projectId }: EditorProps) {
     [clips, selectedClipId, updateClip]
   );
 
+  const onVideoPositionXChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const v = e.target.value;
+      setVideoPositionXInput(v);
+      if (!selectedClipId) return;
+      const sel = clips.find((c) => c.id === selectedClipId);
+      if (!sel || (sel.kind !== "video" && sel.kind !== "combined")) return;
+      const p = parseFloat(v);
+      if (!Number.isFinite(p)) return;
+      updateClip(selectedClipId, { videoPositionX: p });
+    },
+    [clips, selectedClipId, updateClip]
+  );
+
+  const onVideoPositionYChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const v = e.target.value;
+      setVideoPositionYInput(v);
+      if (!selectedClipId) return;
+      const sel = clips.find((c) => c.id === selectedClipId);
+      if (!sel || (sel.kind !== "video" && sel.kind !== "combined")) return;
+      const p = parseFloat(v);
+      if (!Number.isFinite(p)) return;
+      updateClip(selectedClipId, { videoPositionY: p });
+    },
+    [clips, selectedClipId, updateClip]
+  );
+
   const onTransformSpeedChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const v = e.target.value;
@@ -2294,6 +2329,29 @@ export default function Editor({ projectId }: EditorProps) {
   }, [selectedClipId, selectedIsVideoForZoom, selectedClip?.videoZoom, globalZoomInput]);
 
   useEffect(() => {
+    if (selectedIsVideoForZoom && selectedClip) {
+      setVideoPositionXInput(
+        selectedClip.videoPositionX != null && Number.isFinite(selectedClip.videoPositionX)
+          ? String(selectedClip.videoPositionX)
+          : "0"
+      );
+      setVideoPositionYInput(
+        selectedClip.videoPositionY != null && Number.isFinite(selectedClip.videoPositionY)
+          ? String(selectedClip.videoPositionY)
+          : "0"
+      );
+    } else {
+      setVideoPositionXInput("");
+      setVideoPositionYInput("");
+    }
+  }, [
+    selectedClipId,
+    selectedIsVideoForZoom,
+    selectedClip?.videoPositionX,
+    selectedClip?.videoPositionY,
+  ]);
+
+  useEffect(() => {
     const g = parseFloat(globalSpeedInput);
     const fallback = Number.isFinite(g) && g > 0.01 ? Math.min(g, 100) : 1;
     if (
@@ -2447,6 +2505,30 @@ export default function Editor({ projectId }: EditorProps) {
                     placeholder="e.g. 1 or 1.5"
                   />
                 </label>
+                {selectedIsVideoForZoom && selectedClipId && (
+                  <>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs text-foreground/50">Position X (px)</span>
+                      <input
+                        type="text"
+                        value={videoPositionXInput}
+                        onChange={onVideoPositionXChange}
+                        className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
+                        placeholder="0"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs text-foreground/50">Position Y (px)</span>
+                      <input
+                        type="text"
+                        value={videoPositionYInput}
+                        onChange={onVideoPositionYChange}
+                        className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
+                        placeholder="0"
+                      />
+                    </label>
+                  </>
+                )}
                 <label className="flex flex-col gap-1">
                   <span className="text-xs text-foreground/50">Resolution X</span>
                   <input
