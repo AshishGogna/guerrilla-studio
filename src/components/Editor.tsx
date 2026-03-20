@@ -2,7 +2,7 @@
 
 import { renderMediaOnWeb } from "@remotion/web-renderer";
 import dynamic from "next/dynamic";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Audio, Video } from "@remotion/media";
 import { AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig } from "remotion";
@@ -216,6 +216,102 @@ function getEffectiveTrim(
   };
 }
 
+/** Playback speed (1 = normal). Affects timeline duration as sourceDuration / speed. */
+export function clipPlaybackSpeed(clip: EditorClip, globalFallback?: number): number {
+  const s = clip.playbackSpeed;
+  if (s != null && Number.isFinite(s) && s > 0.01) return Math.min(s, 100);
+  const g = globalFallback;
+  if (g != null && Number.isFinite(g) && g > 0.01) return Math.min(g, 100);
+  return 1;
+}
+
+/** Timeline duration (seconds) for a media clip’s current trim; subtitles/text ignore speed. */
+export function clipTimelineDurationForTotal(clip: EditorClip, globalFallback?: number): number {
+  const k = clip.kind ?? "combined";
+  if (k === "subtitle" || k === "text") {
+    return Math.max(0, toFinite(clip.trimEndSec, 0) - toFinite(clip.trimStartSec, 0));
+  }
+  if (k === "combined") {
+    const v = getEffectiveTrim(clip, "video");
+    const src = Math.max(0, v.trimEndSec - v.trimStartSec);
+    return src / clipPlaybackSpeed(clip, globalFallback);
+  }
+  const src = Math.max(0, toFinite(clip.trimEndSec, 0) - toFinite(clip.trimStartSec, 0));
+  return src / clipPlaybackSpeed(clip, globalFallback);
+}
+
+const MIN_TRIM_DURATION_SEC = 0.1;
+
+/** Timeline Δt → source trim Δ for overlap / split math. */
+function timelineDeltaToSource(clip: EditorClip, dtTimeline: number, globalFallback?: number): number {
+  return dtTimeline * clipPlaybackSpeed(clip, globalFallback);
+}
+
+/** Increase trim start(s) by ds seconds of source media (combined: video + audio). */
+function patchTrimStartBySourceDelta(b: EditorClip, ds: number): EditorClip {
+  const minGap = MIN_TRIM_DURATION_SEC;
+  const k = b.kind ?? "combined";
+  if (k === "combined") {
+    const v = getEffectiveTrim(b, "video");
+    const au = getEffectiveTrim(b, "audio");
+    const nv = Math.min(v.trimEndSec - minGap, v.trimStartSec + ds);
+    const na = Math.min(au.trimEndSec - minGap, au.trimStartSec + ds);
+    const baseT0 = toFinite(b.trimStartSec, 0);
+    const baseT1 = toFinite(b.trimEndSec, 0);
+    return {
+      ...b,
+      trimStartSecVideo: nv,
+      trimStartSecAudio: na,
+      trimStartSec: Math.min(baseT1 - minGap, baseT0 + ds),
+    };
+  }
+  const t0 = toFinite(b.trimStartSec, 0);
+  const t1 = toFinite(b.trimEndSec, 0);
+  return { ...b, trimStartSec: Math.min(t1 - minGap, t0 + ds) };
+}
+
+/** Set trim end so timeline span from clip start equals newDurTimeline (combined: both tracks). */
+function patchTrimEndFromTimelineSpan(
+  b: EditorClip,
+  bStart: number,
+  anchorStart: number,
+  globalFallback?: number
+): EditorClip {
+  const newDurT = anchorStart - bStart;
+  const ds = timelineDeltaToSource(b, newDurT, globalFallback);
+  const minGap = MIN_TRIM_DURATION_SEC;
+  const k = b.kind ?? "combined";
+  if (k === "combined") {
+    const v = getEffectiveTrim(b, "video");
+    const au = getEffectiveTrim(b, "audio");
+    return {
+      ...b,
+      trimEndSecVideo: Math.max(v.trimStartSec + minGap, v.trimStartSec + ds),
+      trimEndSecAudio: Math.max(au.trimStartSec + minGap, au.trimStartSec + ds),
+      trimEndSec: Math.max(
+        toFinite(b.trimStartSec, 0) + minGap,
+        toFinite(b.trimStartSec, 0) + ds
+      ),
+    };
+  }
+  const t0 = toFinite(b.trimStartSec, 0);
+  return { ...b, trimEndSec: Math.max(t0 + minGap, t0 + ds) };
+}
+
+function patchTrimZeroLength(b: EditorClip): EditorClip {
+  if ((b.kind ?? "combined") === "combined") {
+    const v = getEffectiveTrim(b, "video");
+    const au = getEffectiveTrim(b, "audio");
+    return {
+      ...b,
+      trimEndSecVideo: v.trimStartSec,
+      trimEndSecAudio: au.trimStartSec,
+      trimEndSec: toFinite(b.trimStartSec, 0),
+    };
+  }
+  return { ...b, trimEndSec: toFinite(b.trimStartSec, 0) };
+}
+
 /** Get a short display name for a clip from its src (filename or fallback). */
 function getClipDisplayName(clip: EditorClip): string {
   if (clip.kind === "text" && clip.text) {
@@ -303,6 +399,8 @@ export interface EditorClip {
   volume?: number;
   /** Preview scale for video / combined clips (falls back to global Transform zoom when unset). */
   videoZoom?: number;
+  /** Playback speed for video / audio / combined (1 = normal). Timeline duration = source trim length / speed. */
+  playbackSpeed?: number;
 }
 
 /** Remove one clip from an array and clear partner's linkedClipId. Same logic as removeClip but pure. */
@@ -489,13 +587,18 @@ export function EditorCompositionWithProps({
   clips: rawClips = [],
   subtitleStyle,
   zoom: zoomProp = 1,
+  speed: speedProp = 1,
 }: {
   clips?: EditorClip[];
   subtitleStyle?: SubtitleStyle;
   zoom?: number;
+  /** Fallback playback speed when clips have no per-clip playbackSpeed */
+  speed?: number;
 }) {
   const { fps, width: compW, height: compH } = useVideoConfig();
   const globalZoom = Number.isFinite(zoomProp) && zoomProp > 0 ? zoomProp : 1;
+  const globalSpeed =
+    Number.isFinite(speedProp) && speedProp > 0.01 ? Math.min(speedProp, 100) : 1;
   const clipVideoZoom = (clip: EditorClip) => {
     const z = clip.videoZoom;
     return z != null && Number.isFinite(z) && z > 0 ? z : globalZoom;
@@ -531,8 +634,7 @@ export function EditorCompositionWithProps({
     0.1,
     ...allEnabled.map((c) => {
       const start = toFinite(c.startTimeSec, 0);
-      const dur = Math.max(0, toFinite(c.trimEndSec, 0) - toFinite(c.trimStartSec, 0));
-      return start + dur;
+      return start + clipTimelineDurationForTotal(c, globalSpeed);
     })
   );
 
@@ -544,7 +646,7 @@ export function EditorCompositionWithProps({
         if (trackClips.length === 0) return null;
         const segments: Segment[] = trackClips.map((c) => {
           const start = toFinite(c.startTimeSec, 0);
-          const dur = Math.max(0, toFinite(c.trimEndSec, 0) - toFinite(c.trimStartSec, 0));
+          const dur = clipTimelineDurationForTotal(c, globalSpeed);
           return { start, end: start + dur };
         });
         const sortedSeg = [...segments].sort((a, b) => a.start - b.start);
@@ -594,10 +696,7 @@ export function EditorCompositionWithProps({
                   )
                   .map((c) => {
                     const cStart = toFinite(c.startTimeSec, 0);
-                    const cDur = Math.max(
-                      0,
-                      toFinite(c.trimEndSec, 0) - toFinite(c.trimStartSec, 0)
-                    );
+                    const cDur = clipTimelineDurationForTotal(c, globalSpeed);
                     const cEnd = cStart + cDur;
                     const start = Math.max(clipStartSec, cStart);
                     const end = Math.min(clipEndSec, cEnd);
@@ -616,7 +715,9 @@ export function EditorCompositionWithProps({
                 isAudioOnly: boolean,
                 keySuffix: string
               ) => {
-                const durationSec = Math.max(0, trimEnd - trimStart);
+                const speed = clipPlaybackSpeed(clip, globalSpeed);
+                const srcSpan = Math.max(0, trimEnd - trimStart);
+                const durationSec = srcSpan / speed;
                 if (durationSec <= 0) return null;
                 const clipStart = toFinite(clip.startTimeSec, 0);
                 const fromFrame = Math.round(clipStart * safeFps);
@@ -664,6 +765,7 @@ export function EditorCompositionWithProps({
                           src={clip.src}
                           trimBefore={trimBefore}
                           volume={vol}
+                          playbackRate={speed}
                         />
                       ) : (
                         <div
@@ -681,6 +783,7 @@ export function EditorCompositionWithProps({
                             src={clip.src}
                             trimBefore={trimBefore}
                             volume={vol}
+                            playbackRate={speed}
                             style={{
                               width: "100%",
                               height: "100%",
@@ -718,7 +821,7 @@ export function EditorCompositionWithProps({
               const trimStart = toFinite(clip.trimStartSec, 0);
               const trimEnd = toFinite(clip.trimEndSec, 10);
               const clipStartSec = toFinite(clip.startTimeSec, 0);
-              const clipEndSec = clipStartSec + Math.max(0, trimEnd - trimStart);
+              const clipEndSec = clipStartSec + clipTimelineDurationForTotal(clip, globalSpeed);
               const overlapSeconds = overlapSecondsForClip(clipStartSec, clipEndSec);
               const volume =
                 clipKind === "video"
@@ -840,6 +943,7 @@ export default function Editor({ projectId }: EditorProps) {
   const [cutSilencesOpen, setCutSilencesOpen] = useState(false);
   const [textsOpen, setTextsOpen] = useState(false);
   const [audioOpen, setAudioOpen] = useState(false);
+  const [videoOpen, setVideoOpen] = useState(false);
   const [volumeInputValue, setVolumeInputValue] = useState("");
   const [textFontFamily, setTextFontFamily] = useState("sans-serif");
   const [textSizeInput, setTextSizeInput] = useState("60");
@@ -857,6 +961,9 @@ export default function Editor({ projectId }: EditorProps) {
   const [zoomInput, setZoomInput] = useState("1");
   /** Persisted global Transform zoom (applied to all video clips when they have no per-clip videoZoom). */
   const [globalZoomInput, setGlobalZoomInput] = useState("1");
+  /** Persisted global playback speed (applied when clips have no per-clip playbackSpeed). */
+  const [globalSpeedInput, setGlobalSpeedInput] = useState("1");
+  const [speedInput, setSpeedInput] = useState("1");
   const [compWidthInput, setCompWidthInput] = useState("1920");
   const [compHeightInput, setCompHeightInput] = useState("1080");
   const transformSettingsLoadedRef = useRef(false);
@@ -902,6 +1009,8 @@ export default function Editor({ projectId }: EditorProps) {
     const t = loadEditorTransformSettings(projectId);
     setGlobalZoomInput(t.zoom);
     setZoomInput(t.zoom);
+    setGlobalSpeedInput(t.speed ?? "1");
+    setSpeedInput(t.speed ?? "1");
     setCompWidthInput(t.compWidth);
     setCompHeightInput(t.compHeight);
     queueMicrotask(() => {
@@ -938,10 +1047,11 @@ export default function Editor({ projectId }: EditorProps) {
     if (typeof window === "undefined" || !transformSettingsLoadedRef.current) return;
     saveEditorTransformSettings(projectId, {
       zoom: globalZoomInput,
+      speed: globalSpeedInput,
       compWidth: compWidthInput,
       compHeight: compHeightInput,
     });
-  }, [globalZoomInput, compWidthInput, compHeightInput, projectId]);
+  }, [globalZoomInput, globalSpeedInput, compWidthInput, compHeightInput, projectId]);
 
   useEffect(() => {
     if (typeof window === "undefined" || hasHydratedRef.current) return;
@@ -1014,12 +1124,16 @@ export default function Editor({ projectId }: EditorProps) {
     }
   }, [clips]);
 
+  const globalSpeedNum = useMemo(() => {
+    const g = parseFloat(globalSpeedInput);
+    return Number.isFinite(g) && g > 0.01 ? Math.min(g, 100) : 1;
+  }, [globalSpeedInput]);
+
   const totalDurationSec = Math.max(
     0.1,
     ...clips.map((c) => {
       const start = toFinite(c.startTimeSec, 0);
-      const dur = Math.max(0, toFinite(c.trimEndSec, 0) - toFinite(c.trimStartSec, 0));
-      return start + dur;
+      return start + clipTimelineDurationForTotal(c, globalSpeedNum);
     }),
     0
   );
@@ -1037,8 +1151,7 @@ export default function Editor({ projectId }: EditorProps) {
           : Math.max(
               ...prev.map(
                 (c) =>
-                  toFinite(c.startTimeSec, 0) +
-                  Math.max(0, toFinite(c.trimEndSec, 0) - toFinite(c.trimStartSec, 0))
+                  toFinite(c.startTimeSec, 0) + clipTimelineDurationForTotal(c, globalSpeedNum)
               )
             );
       const videoTrack = 0;
@@ -1059,7 +1172,7 @@ export default function Editor({ projectId }: EditorProps) {
       ];
     });
     setAddUrl("");
-  }, []);
+  }, [globalSpeedNum]);
 
   const addAudioClip = useCallback((src: string, fileName?: string) => {
     setClips((prev) => {
@@ -1606,9 +1719,11 @@ export default function Editor({ projectId }: EditorProps) {
         const trim = getEffectiveTrim(c, trackType);
         const trimStart = trim.trimStartSec;
         const trimEnd = trim.trimEndSec;
-        const endSec = startSec + (trimEnd - trimStart);
+        const speed = clipPlaybackSpeed(c, globalSpeedNum);
+        const timelineDur = Math.max(0, trimEnd - trimStart) / speed;
+        const endSec = startSec + timelineDur;
         if (timelineSec <= startSec + MIN_TRIM_DURATION_SEC || timelineSec >= endSec - MIN_TRIM_DURATION_SEC) return null;
-        const leftTrimEnd = trimStart + (timelineSec - startSec);
+        const leftTrimEnd = trimStart + (timelineSec - startSec) * speed;
         const left: EditorClip = { ...c, trimEndSec: leftTrimEnd };
         if (k === "combined" && trackType === "video") {
           (left as EditorClip).trimEndSecVideo = leftTrimEnd;
@@ -1664,7 +1779,7 @@ export default function Editor({ projectId }: EditorProps) {
       });
     });
     setBreakToolHoverClipId(null);
-  }, []);
+  }, [globalSpeedNum]);
 
   useEffect(() => {
     if (!clipContextMenu) return;
@@ -1741,6 +1856,34 @@ export default function Editor({ projectId }: EditorProps) {
     [clips, selectedClipId, updateClip]
   );
 
+  const onTransformSpeedChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const v = e.target.value;
+      setSpeedInput(v);
+      const p = parseFloat(v);
+      if (!Number.isFinite(p) || p <= 0.01) return;
+      const speed = Math.min(p, 100);
+      const sel = clips.find((c) => c.id === selectedClipId);
+      const isMedia =
+        sel != null &&
+        (sel.kind === "video" || sel.kind === "audio" || sel.kind === "combined");
+      if (isMedia && selectedClipId) {
+        updateClip(selectedClipId, { playbackSpeed: speed });
+      } else {
+        setGlobalSpeedInput(String(speed));
+        setClips((prev) =>
+          prev.map((c) => {
+            const k = c.kind ?? "combined";
+            return k === "video" || k === "audio" || k === "combined"
+              ? { ...c, playbackSpeed: undefined }
+              : c;
+          })
+        );
+      }
+    },
+    [clips, selectedClipId, updateClip]
+  );
+
   /** Update only the trim for the given track (video or audio row). Prevents trimming one row from changing the other.
    *  For linked clips, the same trim change is applied to the partner.
    *  When startTimeSec is in the patch (e.g. when trimming from left), it is applied so the timeline graphic shortens from the left. */
@@ -1804,11 +1947,10 @@ export default function Editor({ projectId }: EditorProps) {
         });
         const updated = next.find((c) => c.id === clipId)!;
         const oldEnd =
-          toFinite(clip.startTimeSec, 0) +
-          Math.max(0, toFinite(clip.trimEndSec, 0) - toFinite(clip.trimStartSec, 0));
+          toFinite(clip.startTimeSec, 0) + clipTimelineDurationForTotal(clip, globalSpeedNum);
         const newEnd =
           toFinite(updated.startTimeSec, 0) +
-          Math.max(0, toFinite(updated.trimEndSec, 0) - toFinite(updated.trimStartSec, 0));
+          clipTimelineDurationForTotal(updated, globalSpeedNum);
         const delta = oldEnd - newEnd;
         if (delta <= 0) return next;
         return next.map((c) =>
@@ -1820,7 +1962,7 @@ export default function Editor({ projectId }: EditorProps) {
         );
       });
     },
-    []
+    [globalSpeedNum]
   );
 
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -1838,7 +1980,7 @@ export default function Editor({ projectId }: EditorProps) {
       if (aIndex === -1) return prevClips;
       const a = prevClips[aIndex];
       const aTrack = trackIndex ?? toFinite(a.trackIndex, 0);
-      const aDur = Math.max(0, toFinite(a.trimEndSec, 0) - toFinite(a.trimStartSec, 0));
+      const aDur = clipTimelineDurationForTotal(a, globalSpeedNum);
       const aStart = Math.max(0, newStartSec);
       const aEnd = aStart + aDur;
 
@@ -1863,53 +2005,36 @@ export default function Editor({ projectId }: EditorProps) {
           if (skipIds.has(b.id)) return b;
           if (toFinite(b.trackIndex, 0) !== anchorTrack) return b;
           const bStart = toFinite(b.startTimeSec, 0);
-          const bDur = Math.max(0, toFinite(b.trimEndSec, 0) - toFinite(b.trimStartSec, 0));
+          const bDur = clipTimelineDurationForTotal(b, globalSpeedNum);
           const bEnd = bStart + bDur;
           if (anchorEnd <= bStart || anchorStart >= bEnd) return b;
 
-          const bTrimStart = toFinite(b.trimStartSec, 0);
-          const bTrimEnd = toFinite(b.trimEndSec, 0);
-
           if (anchorEnd > bStart && anchorEnd < bEnd && anchorStart <= bStart) {
             const trimOff = anchorEnd - bStart;
+            const ds = timelineDeltaToSource(b, trimOff, globalSpeedNum);
             return {
-              ...b,
+              ...patchTrimStartBySourceDelta(b, ds),
               startTimeSec: anchorEnd,
-              trimStartSec: Math.min(bTrimEnd - MIN_TRIM_DURATION_SEC, bTrimStart + trimOff),
             };
           }
           if (anchorStart > bStart && anchorStart < bEnd && anchorEnd >= bEnd) {
-            const newDur = anchorStart - bStart;
-            return {
-              ...b,
-              trimEndSec: Math.max(bTrimStart + MIN_TRIM_DURATION_SEC, bTrimStart + newDur),
-            };
+            return patchTrimEndFromTimelineSpan(b, bStart, anchorStart, globalSpeedNum);
           }
           if (anchorStart <= bStart && anchorEnd >= bEnd) {
-            return { ...b, trimEndSec: bTrimStart };
+            return patchTrimZeroLength(b);
           }
           if (bStart < anchorStart && bEnd > anchorEnd) {
-            return {
-              ...b,
-              trimEndSec: Math.max(
-                bTrimStart + MIN_TRIM_DURATION_SEC,
-                bTrimStart + (anchorStart - bStart)
-              ),
-            };
+            return patchTrimEndFromTimelineSpan(b, bStart, anchorStart, globalSpeedNum);
           }
           if (anchorStart < bEnd && anchorEnd > bStart && anchorStart > bStart) {
-            const newDur = anchorStart - bStart;
-            return {
-              ...b,
-              trimEndSec: Math.max(bTrimStart + MIN_TRIM_DURATION_SEC, bTrimStart + newDur),
-            };
+            return patchTrimEndFromTimelineSpan(b, bStart, anchorStart, globalSpeedNum);
           }
           if (anchorEnd > bStart && anchorEnd < bEnd) {
             const trimOff = anchorEnd - bStart;
+            const ds = timelineDeltaToSource(b, trimOff, globalSpeedNum);
             return {
-              ...b,
+              ...patchTrimStartBySourceDelta(b, ds),
               startTimeSec: anchorEnd,
-              trimStartSec: Math.min(bTrimEnd - MIN_TRIM_DURATION_SEC, bTrimStart + trimOff),
             };
           }
           return b;
@@ -1922,10 +2047,7 @@ export default function Editor({ projectId }: EditorProps) {
         if (partner) {
           const pTrack = toFinite(partner.trackIndex, 0);
           if (pTrack !== aTrack) {
-            const pDur = Math.max(
-              0,
-              toFinite(partner.trimEndSec, 0) - toFinite(partner.trimStartSec, 0)
-            );
+            const pDur = clipTimelineDurationForTotal(partner, globalSpeedNum);
             const pStart = toFinite(partner.startTimeSec, 0);
             const pEnd = pStart + pDur;
             next = resolveOverlaps(next, pStart, pEnd, pTrack);
@@ -1954,7 +2076,7 @@ export default function Editor({ projectId }: EditorProps) {
 
       return next;
     },
-    []
+    [globalSpeedNum]
   );
 
   const getTimelineX = useCallback((clientX: number): number => {
@@ -2090,6 +2212,7 @@ export default function Editor({ projectId }: EditorProps) {
               const z = parseFloat(globalZoomInput);
               return Number.isFinite(z) && z > 0 ? z : 1;
             })(),
+            speed: globalSpeedNum,
           },
         });
         const blob = await getBlob();
@@ -2132,6 +2255,7 @@ export default function Editor({ projectId }: EditorProps) {
       subtitlePositionX,
       subtitlePositionY,
       globalZoomInput,
+      globalSpeedNum,
     ]
   );
 
@@ -2168,6 +2292,31 @@ export default function Editor({ projectId }: EditorProps) {
       setZoomInput(globalZoomInput);
     }
   }, [selectedClipId, selectedIsVideoForZoom, selectedClip?.videoZoom, globalZoomInput]);
+
+  useEffect(() => {
+    const g = parseFloat(globalSpeedInput);
+    const fallback = Number.isFinite(g) && g > 0.01 ? Math.min(g, 100) : 1;
+    if (
+      selectedClip &&
+      (selectedClip.kind === "video" ||
+        selectedClip.kind === "audio" ||
+        selectedClip.kind === "combined")
+    ) {
+      setSpeedInput(
+        selectedClip.playbackSpeed != null &&
+          Number.isFinite(selectedClip.playbackSpeed)
+          ? String(selectedClip.playbackSpeed)
+          : String(fallback)
+      );
+    } else {
+      setSpeedInput(globalSpeedInput);
+    }
+  }, [
+    selectedClipId,
+    selectedClip?.playbackSpeed,
+    selectedClip?.kind,
+    globalSpeedInput,
+  ]);
 
   useEffect(() => {
     if (isAudioClipSelected && selectedClip) {
@@ -2268,6 +2417,7 @@ export default function Editor({ projectId }: EditorProps) {
                 const n = parseInt(compHeightInput, 10);
                 return Number.isFinite(n) && n > 0 ? n : undefined;
               })()}
+              speed={globalSpeedNum}
             />
           </div>
         </div>
@@ -2841,6 +2991,30 @@ export default function Editor({ projectId }: EditorProps) {
               </div>
             )}
           </div>
+          <div className="border-b border-foreground/10">
+            <button
+              type="button"
+              onClick={() => setVideoOpen((v) => !v)}
+              className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium text-foreground/80 hover:bg-foreground/5"
+            >
+              Video
+              <span className="text-xs text-foreground/40">{videoOpen ? "▾" : "▸"}</span>
+            </button>
+            {videoOpen && (
+              <div className="flex flex-col gap-3 px-3 pb-3">
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-foreground/50">Speed</span>
+                  <input
+                    type="text"
+                    value={speedInput}
+                    onChange={onTransformSpeedChange}
+                    placeholder="1"
+                    className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
+                  />
+                </label>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -3084,23 +3258,30 @@ export default function Editor({ projectId }: EditorProps) {
                         const trimOffset = k === "audio"
                           ? toFinite(displayClipA.trimStartSec, 0)
                           : toFinite(displayClipV.trimStartSec, 0);
-                        const slotLeft = `${((clip.startTimeSec ?? 0) - trimOffset) * timelinePxPerSec}px`;
+                        const rowSpeed =
+                          k === "subtitle" || k === "text"
+                            ? 1
+                            : clipPlaybackSpeed(clip, globalSpeedNum);
+                        const slotLeft = `${((clip.startTimeSec ?? 0) - trimOffset / rowSpeed) * timelinePxPerSec}px`;
                         const clipOpacity = clip.disabled ? 0.35 : 1;
                         if (k === "combined") {
                           const trimStart = toFinite(displayClipV.trimStartSec, 0);
                           const trimEnd = toFinite(displayClipV.trimEndSec, 10);
                           const dur = Math.max(0, trimEnd - trimStart);
                           const fullDur = Math.max(dur, toFinite(clip.durationSec, trimEnd || 10));
-                          const slotW = Math.max(24, fullDur * timelinePxPerSec);
+                          const combSpeed = clipPlaybackSpeed(clip, globalSpeedNum);
+                          const slotW = Math.max(24, (fullDur / combSpeed) * timelinePxPerSec);
+                          const combSlotLeft = `${((clip.startTimeSec ?? 0) - trimStart / combSpeed) * timelinePxPerSec}px`;
                           return (
                             <div
                               key={clip.id}
                               className="absolute top-0 flex h-full flex-col"
-                              style={{ left: slotLeft, width: `${slotW}px`, pointerEvents: "none", opacity: clipOpacity }}
+                              style={{ left: combSlotLeft, width: `${slotW}px`, pointerEvents: "none", opacity: clipOpacity }}
                             >
                               <div className="h-1/2 min-h-0 overflow-hidden">
                                 <TimelineClipBlock
                                   clip={displayClipV}
+                                  globalPlaybackFallback={globalSpeedNum}
                                   pxPerSec={timelinePxPerSec}
                                   isSelected={selectedClipId === clip.id || (clip.linkedClipId != null && selectedClipId === clip.linkedClipId)}
                                   isDragged={draggedId === clip.id}
@@ -3116,6 +3297,7 @@ export default function Editor({ projectId }: EditorProps) {
                               <div className="h-1/2 min-h-0 overflow-hidden">
                                 <TimelineAudioBlock
                                   clip={displayClipA}
+                                  globalPlaybackFallback={globalSpeedNum}
                                   pxPerSec={timelinePxPerSec}
                                   isSelected={selectedClipId === clip.id || (clip.linkedClipId != null && selectedClipId === clip.linkedClipId)}
                                   isDragged={draggedId === clip.id}
@@ -3206,6 +3388,7 @@ export default function Editor({ projectId }: EditorProps) {
                             <div key={clip.id} className="absolute top-0 h-full" style={{ left: slotLeft, pointerEvents: "none", opacity: clipOpacity }}>
                               <TimelineAudioBlock
                                 clip={displayClipA}
+                                globalPlaybackFallback={globalSpeedNum}
                                 pxPerSec={timelinePxPerSec}
                                 isSelected={selectedClipId === clip.id || (clip.linkedClipId != null && selectedClipId === clip.linkedClipId)}
                                 isDragged={draggedId === clip.id}
@@ -3226,6 +3409,7 @@ export default function Editor({ projectId }: EditorProps) {
                           <div key={clip.id} className="absolute top-0 h-full" style={{ left: slotLeft, pointerEvents: "none", opacity: clipOpacity }}>
                             <TimelineClipBlock
                               clip={displayClipV}
+                              globalPlaybackFallback={globalSpeedNum}
                               pxPerSec={timelinePxPerSec}
                               isSelected={selectedClipId === clip.id || (clip.linkedClipId != null && selectedClipId === clip.linkedClipId)}
                               isDragged={draggedId === clip.id}
@@ -3385,8 +3569,19 @@ export default function Editor({ projectId }: EditorProps) {
 
 const RemotionPlayerPreview = React.forwardRef<
   PlayerRefType | null,
-  { clips: EditorClip[]; durationInFrames: number; subtitleStyle?: SubtitleStyle; zoom?: number; compWidth?: number; compHeight?: number }
->(function RemotionPlayerPreview({ clips, durationInFrames, subtitleStyle, zoom, compWidth: compWidthProp, compHeight: compHeightProp }, ref) {
+  {
+    clips: EditorClip[];
+    durationInFrames: number;
+    subtitleStyle?: SubtitleStyle;
+    zoom?: number;
+    speed?: number;
+    compWidth?: number;
+    compHeight?: number;
+  }
+>(function RemotionPlayerPreview(
+  { clips, durationInFrames, subtitleStyle, zoom, speed, compWidth: compWidthProp, compHeight: compHeightProp },
+  ref
+) {
   const safeDurationInFrames = Math.max(1, Math.floor(toFinite(durationInFrames, 1)));
   const compWidth = compWidthProp != null && Number.isFinite(compWidthProp) && compWidthProp > 0 ? compWidthProp : toFinite(COMP_WIDTH, 1920);
   const compHeight = compHeightProp != null && Number.isFinite(compHeightProp) && compHeightProp > 0 ? compHeightProp : toFinite(COMP_HEIGHT, 1080);
@@ -3411,7 +3606,12 @@ const RemotionPlayerPreview = React.forwardRef<
       <RemotionPlayer
         ref={ref as React.Ref<PlayerRefType | null>}
         component={EditorCompositionWithProps}
-        inputProps={{ clips, subtitleStyle, zoom: zoom ?? 1 }}
+        inputProps={{
+          clips,
+          subtitleStyle,
+          zoom: zoom ?? 1,
+          speed: speed ?? 1,
+        }}
         durationInFrames={safeDurationInFrames}
         compositionWidth={compWidth}
         compositionHeight={compHeight}
@@ -3424,10 +3624,9 @@ const RemotionPlayerPreview = React.forwardRef<
   );
 });
 
-const MIN_TRIM_DURATION_SEC = 0.1;
-
 function TimelineClipBlock({
   clip,
+  globalPlaybackFallback,
   pxPerSec,
   isSelected,
   isDragged,
@@ -3444,6 +3643,8 @@ function TimelineClipBlock({
   onBreakToolClick,
 }: {
   clip: EditorClip;
+  /** Resolved with clip.playbackSpeed for timeline bar width / break tool */
+  globalPlaybackFallback?: number;
   pxPerSec: number;
   isSelected: boolean;
   isDragged: boolean;
@@ -3471,12 +3672,15 @@ function TimelineClipBlock({
   const trimEnd = toFinite(clip.trimEndSec, 10);
   const durationSec = Math.max(0, trimEnd - trimStart);
   const fullDuration = Math.max(durationSec, toFinite(clip.durationSec, trimEnd || 10));
+  const speed = clipPlaybackSpeed(clip, globalPlaybackFallback);
+  const timelineDurSec = durationSec / speed;
+  const timelineFullDur = fullDuration / speed;
   const widthPx = Math.max(
     minClipWidthPx,
-    Math.min(fullDuration * pxPerSec, durationSec * pxPerSec)
+    Math.min(timelineFullDur * pxPerSec, timelineDurSec * pxPerSec)
   );
   const safeWidth = toFinite(widthPx, minClipWidthPx);
-  const wrapperWidthPx = Math.max(safeWidth, toFinite(fullDuration * pxPerSec, safeWidth));
+  const wrapperWidthPx = Math.max(safeWidth, toFinite(timelineFullDur * pxPerSec, safeWidth));
   const clipLeftPx =
     fullDuration > 0
       ? (trimStart / fullDuration) * wrapperWidthPx
@@ -3485,8 +3689,8 @@ function TimelineClipBlock({
   const startTimeSec = toFinite(clip.startTimeSec, 0);
   const isHoveredForBreak = breakToolEnabled && breakToolHoverClipId === clip.id;
   const breakLinePx =
-    isHoveredForBreak && breakToolHoverTimelineSec != null && durationSec > 0
-      ? Math.max(0, Math.min(safeWidth, ((breakToolHoverTimelineSec - startTimeSec) / durationSec) * safeWidth))
+    isHoveredForBreak && breakToolHoverTimelineSec != null && timelineDurSec > 0
+      ? Math.max(0, Math.min(safeWidth, ((breakToolHoverTimelineSec - startTimeSec) / timelineDurSec) * safeWidth))
       : null;
 
   const getTimelineSecFromEvent = (e: React.MouseEvent | MouseEvent) => {
@@ -3495,7 +3699,7 @@ function TimelineClipBlock({
     const rect = bar.getBoundingClientRect();
     const localX = e.clientX - rect.left;
     const frac = Math.max(0, Math.min(1, localX / safeWidth));
-    return startTimeSec + frac * durationSec;
+    return startTimeSec + frac * timelineDurSec;
   };
 
   useEffect(() => {
@@ -3514,7 +3718,7 @@ function TimelineClipBlock({
           Math.min(sec, trimEnd - MIN_TRIM_DURATION_SEC)
         );
         const delta = newStart - trimStart;
-        const newStartTimeSec = toFinite(clip.startTimeSec, 0) + delta;
+        const newStartTimeSec = toFinite(clip.startTimeSec, 0) + delta / speed;
         onUpdate({ trimStartSec: newStart, startTimeSec: newStartTimeSec });
       } else {
         const newEnd = Math.max(
@@ -3531,7 +3735,7 @@ function TimelineClipBlock({
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
     };
-  }, [trimDrag, fullDuration, trimStart, trimEnd, onUpdate]);
+  }, [trimDrag, fullDuration, trimStart, trimEnd, onUpdate, speed, clip.startTimeSec]);
 
   return (
     <div
@@ -3807,6 +4011,7 @@ function TimelineTextBlock({
 
 function TimelineAudioBlock({
   clip,
+  globalPlaybackFallback,
   pxPerSec,
   isSelected,
   isDragged,
@@ -3823,6 +4028,7 @@ function TimelineAudioBlock({
   onBreakToolClick,
 }: {
   clip: EditorClip;
+  globalPlaybackFallback?: number;
   pxPerSec: number;
   isSelected: boolean;
   isDragged: boolean;
@@ -3851,21 +4057,24 @@ function TimelineAudioBlock({
   const trimEnd = toFinite(clip.trimEndSec, 10);
   const durationSec = Math.max(0, trimEnd - trimStart);
   const fullDuration = Math.max(durationSec, toFinite(clip.durationSec, trimEnd || 10));
+  const speed = clipPlaybackSpeed(clip, globalPlaybackFallback);
+  const timelineDurSec = durationSec / speed;
+  const timelineFullDur = fullDuration / speed;
   const minClipWidthPx = Math.max(24, 0.1 * pxPerSec);
   const widthPx = Math.max(
     minClipWidthPx,
-    Math.min(fullDuration * pxPerSec, durationSec * pxPerSec)
+    Math.min(timelineFullDur * pxPerSec, timelineDurSec * pxPerSec)
   );
   const safeWidth = toFinite(widthPx, minClipWidthPx);
-  const wrapperWidthPx = Math.max(safeWidth, toFinite(fullDuration * pxPerSec, safeWidth));
+  const wrapperWidthPx = Math.max(safeWidth, toFinite(timelineFullDur * pxPerSec, safeWidth));
   const clipLeftPx =
     fullDuration > 0 ? (trimStart / fullDuration) * wrapperWidthPx : 0;
 
   const startTimeSec = toFinite(clip.startTimeSec, 0);
   const isHoveredForBreak = breakToolEnabled && breakToolHoverClipId === clip.id;
   const breakLinePx =
-    isHoveredForBreak && breakToolHoverTimelineSec != null && durationSec > 0
-      ? Math.max(0, Math.min(safeWidth, ((breakToolHoverTimelineSec - startTimeSec) / durationSec) * safeWidth))
+    isHoveredForBreak && breakToolHoverTimelineSec != null && timelineDurSec > 0
+      ? Math.max(0, Math.min(safeWidth, ((breakToolHoverTimelineSec - startTimeSec) / timelineDurSec) * safeWidth))
       : null;
 
   const getTimelineSecFromEvent = (e: React.MouseEvent | MouseEvent) => {
@@ -3874,7 +4083,7 @@ function TimelineAudioBlock({
     const rect = bar.getBoundingClientRect();
     const localX = e.clientX - rect.left - clipLeftPx;
     const frac = Math.max(0, Math.min(1, localX / safeWidth));
-    return startTimeSec + frac * durationSec;
+    return startTimeSec + frac * timelineDurSec;
   };
 
   const onWaveformLoadedRef = useRef(onWaveformLoaded);
@@ -3922,7 +4131,7 @@ function TimelineAudioBlock({
       if (trimDrag.side === "left") {
         const newStart = Math.max(0, Math.min(sec, trimEnd - MIN_TRIM_DURATION_SEC));
         const delta = newStart - trimStart;
-        const newStartTimeSec = toFinite(clip.startTimeSec, 0) + delta;
+        const newStartTimeSec = toFinite(clip.startTimeSec, 0) + delta / speed;
         onUpdate({
           trimStartSec: newStart,
           startTimeSec: newStartTimeSec,
@@ -3943,7 +4152,7 @@ function TimelineAudioBlock({
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
     };
-  }, [trimDrag, fullDuration, trimStart, trimEnd, onUpdate]);
+  }, [trimDrag, fullDuration, trimStart, trimEnd, onUpdate, speed, clip.startTimeSec]);
 
   const waveform = clip.waveformData ?? [];
   useEffect(() => {
