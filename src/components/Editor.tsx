@@ -301,6 +301,8 @@ export interface EditorClip {
   textWidth?: number;
   /** Volume 0–1 for audio/combined clips. */
   volume?: number;
+  /** Preview scale for video / combined clips (falls back to global Transform zoom when unset). */
+  videoZoom?: number;
 }
 
 /** Remove one clip from an array and clear partner's linkedClipId. Same logic as removeClip but pure. */
@@ -493,7 +495,11 @@ export function EditorCompositionWithProps({
   zoom?: number;
 }) {
   const { fps, width: compW, height: compH } = useVideoConfig();
-  const zoom = Number.isFinite(zoomProp) && zoomProp > 0 ? zoomProp : 1;
+  const globalZoom = Number.isFinite(zoomProp) && zoomProp > 0 ? zoomProp : 1;
+  const clipVideoZoom = (clip: EditorClip) => {
+    const z = clip.videoZoom;
+    return z != null && Number.isFinite(z) && z > 0 ? z : globalZoom;
+  };
   const allEnabled = rawClips.filter((c) => !c.disabled);
   const clips = allEnabled.filter((c) => c.kind !== "subtitle" && c.kind !== "text");
   const subtitleClips = allEnabled.filter((c) => c.kind === "subtitle");
@@ -664,7 +670,7 @@ export function EditorCompositionWithProps({
                           style={{
                             width: "100%",
                             height: "100%",
-                            transform: `scale(${zoom})`,
+                            transform: `scale(${clipVideoZoom(clip)})`,
                             transformOrigin: "center center",
                             display: "flex",
                             alignItems: "center",
@@ -849,6 +855,8 @@ export default function Editor({ projectId }: EditorProps) {
   const [transformOpen, setTransformOpen] = useState(false);
   const [transcribeOpen, setTranscribeOpen] = useState(false);
   const [zoomInput, setZoomInput] = useState("1");
+  /** Persisted global Transform zoom (applied to all video clips when they have no per-clip videoZoom). */
+  const [globalZoomInput, setGlobalZoomInput] = useState("1");
   const [compWidthInput, setCompWidthInput] = useState("1920");
   const [compHeightInput, setCompHeightInput] = useState("1080");
   const transformSettingsLoadedRef = useRef(false);
@@ -892,6 +900,7 @@ export default function Editor({ projectId }: EditorProps) {
       subtitleSettingsLoadedRef.current = true;
     });
     const t = loadEditorTransformSettings(projectId);
+    setGlobalZoomInput(t.zoom);
     setZoomInput(t.zoom);
     setCompWidthInput(t.compWidth);
     setCompHeightInput(t.compHeight);
@@ -928,11 +937,11 @@ export default function Editor({ projectId }: EditorProps) {
   useEffect(() => {
     if (typeof window === "undefined" || !transformSettingsLoadedRef.current) return;
     saveEditorTransformSettings(projectId, {
-      zoom: zoomInput,
+      zoom: globalZoomInput,
       compWidth: compWidthInput,
       compHeight: compHeightInput,
     });
-  }, [zoomInput, compWidthInput, compHeightInput]);
+  }, [globalZoomInput, compWidthInput, compHeightInput, projectId]);
 
   useEffect(() => {
     if (typeof window === "undefined" || hasHydratedRef.current) return;
@@ -1706,6 +1715,32 @@ export default function Editor({ projectId }: EditorProps) {
     []
   );
 
+  const onTransformZoomChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const v = e.target.value;
+      setZoomInput(v);
+      const p = parseFloat(v);
+      if (!Number.isFinite(p) || p <= 0) return;
+      const sel = clips.find((c) => c.id === selectedClipId);
+      const isVid =
+        sel != null && (sel.kind === "video" || sel.kind === "combined");
+      if (isVid && selectedClipId) {
+        updateClip(selectedClipId, { videoZoom: p });
+      } else {
+        setGlobalZoomInput(String(p));
+        setClips((prev) =>
+          prev.map((c) => {
+            const k = c.kind ?? "combined";
+            return k === "video" || k === "combined"
+              ? { ...c, videoZoom: undefined }
+              : c;
+          })
+        );
+      }
+    },
+    [clips, selectedClipId, updateClip]
+  );
+
   /** Update only the trim for the given track (video or audio row). Prevents trimming one row from changing the other.
    *  For linked clips, the same trim change is applied to the partner.
    *  When startTimeSec is in the patch (e.g. when trimming from left), it is applied so the timeline graphic shortens from the left. */
@@ -2052,7 +2087,7 @@ export default function Editor({ projectId }: EditorProps) {
               positionY: subtitlePositionY,
             },
             zoom: (() => {
-              const z = parseFloat(zoomInput);
+              const z = parseFloat(globalZoomInput);
               return Number.isFinite(z) && z > 0 ? z : 1;
             })(),
           },
@@ -2083,7 +2118,21 @@ export default function Editor({ projectId }: EditorProps) {
         setExporting(false);
       }
     },
-    [clips, durationInFrames, projectId, subtitleTextSize, subtitleTextColor, subtitleBgColor, subtitleWidth, subtitlePositionX, subtitlePositionY]
+    [
+      clips,
+      durationInFrames,
+      projectId,
+      subtitleTextSize,
+      subtitleTextColor,
+      subtitleBgColor,
+      subtitleBorderColor,
+      subtitleHighlightTextColor,
+      subtitleHighlightBgColor,
+      subtitleWidth,
+      subtitlePositionX,
+      subtitlePositionY,
+      globalZoomInput,
+    ]
   );
 
   const openExportModal = useCallback(() => {
@@ -2102,6 +2151,24 @@ export default function Editor({ projectId }: EditorProps) {
 
   const selectedClip = clips.find((c) => c.id === selectedClipId);
   const isAudioClipSelected = selectedClip?.kind === "audio" || selectedClip?.kind === "combined";
+  const selectedIsVideoForZoom =
+    selectedClip != null &&
+    (selectedClip.kind === "video" || selectedClip.kind === "combined");
+
+  useEffect(() => {
+    const g = parseFloat(globalZoomInput);
+    const fallback = Number.isFinite(g) && g > 0 ? g : 1;
+    if (selectedIsVideoForZoom && selectedClip) {
+      setZoomInput(
+        selectedClip.videoZoom != null && Number.isFinite(selectedClip.videoZoom)
+          ? String(selectedClip.videoZoom)
+          : String(fallback)
+      );
+    } else {
+      setZoomInput(globalZoomInput);
+    }
+  }, [selectedClipId, selectedIsVideoForZoom, selectedClip?.videoZoom, globalZoomInput]);
+
   useEffect(() => {
     if (isAudioClipSelected && selectedClip) {
       setVolumeInputValue(String(selectedClip.volume ?? 1));
@@ -2190,7 +2257,7 @@ export default function Editor({ projectId }: EditorProps) {
                 positionY: subtitlePositionY,
               }}
               zoom={(() => {
-                const z = parseFloat(zoomInput);
+                const z = parseFloat(globalZoomInput);
                 return Number.isFinite(z) && z > 0 ? z : 1;
               })()}
               compWidth={(() => {
@@ -2218,11 +2285,14 @@ export default function Editor({ projectId }: EditorProps) {
             {transformOpen && (
               <div className="flex flex-col gap-3 px-3 pb-3">
                 <label className="flex flex-col gap-1">
-                  <span className="text-xs text-foreground/50">Zoom</span>
+                  <span className="text-xs text-foreground/50">
+                    Zoom
+                    {selectedIsVideoForZoom ? " (selected clip)" : " (all video clips)"}
+                  </span>
                   <input
                     type="text"
                     value={zoomInput}
-                    onChange={(e) => setZoomInput(e.target.value)}
+                    onChange={onTransformZoomChange}
                     className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
                     placeholder="e.g. 1 or 1.5"
                   />
