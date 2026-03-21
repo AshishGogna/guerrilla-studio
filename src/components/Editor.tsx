@@ -225,6 +225,22 @@ export function clipPlaybackSpeed(clip: EditorClip, globalFallback?: number): nu
   return 1;
 }
 
+/** Latest timeline end time (seconds) among clips on a given track. */
+function getMaxEndOnTrack(
+  clipList: EditorClip[],
+  trackIndex: number,
+  globalSpeedNum: number
+): number {
+  let maxEnd = 0;
+  for (const c of clipList) {
+    if (toFinite(c.trackIndex, 0) !== trackIndex) continue;
+    const end =
+      toFinite(c.startTimeSec, 0) + clipTimelineDurationForTotal(c, globalSpeedNum);
+    if (end > maxEnd) maxEnd = end;
+  }
+  return maxEnd;
+}
+
 /** Timeline duration (seconds) for a media clip’s current trim; subtitles/text ignore speed. */
 export function clipTimelineDurationForTotal(clip: EditorClip, globalFallback?: number): number {
   const k = clip.kind ?? "combined";
@@ -419,6 +435,53 @@ function applyTextClipStylePatch(
       return c.id === onlyTextClipId ? { ...c, ...patch } : c;
     }
     return { ...c, ...patch };
+  });
+}
+
+function newEditorClipId(): string {
+  return `clip-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
+/** Clips to copy: selection + linked partner on another track, if any. */
+function collectClipsToDuplicate(clips: EditorClip[], selectedId: string): EditorClip[] {
+  const clip = clips.find((c) => c.id === selectedId);
+  if (!clip) return [];
+  const out: EditorClip[] = [clip];
+  if (clip.linkedClipId) {
+    const p = clips.find((c) => c.id === clip.linkedClipId);
+    if (p && !out.some((x) => x.id === p.id)) out.push(p);
+  }
+  return out;
+}
+
+/** New clips with fresh ids, same tracks as originals, shared start after the last clip ends on each involved track. */
+function duplicateClipsForPaste(
+  originals: EditorClip[],
+  existingClips: EditorClip[],
+  globalSpeedNum: number
+): EditorClip[] {
+  const idMap = new Map<string, string>();
+  for (const c of originals) {
+    idMap.set(c.id, newEditorClipId());
+  }
+  const trackIndices = [...new Set(originals.map((c) => toFinite(c.trackIndex, 0)))];
+  const pasteStart = Math.max(
+    0,
+    ...trackIndices.map((t) => getMaxEndOnTrack(existingClips, t, globalSpeedNum))
+  );
+  return originals.map((c) => {
+    const newId = idMap.get(c.id)!;
+    let linked: string | undefined;
+    if (c.linkedClipId) {
+      const mapped = idMap.get(c.linkedClipId);
+      if (mapped) linked = mapped;
+    }
+    return {
+      ...c,
+      id: newId,
+      startTimeSec: pasteStart,
+      linkedClipId: linked,
+    };
   });
 }
 
@@ -952,6 +1015,8 @@ export default function Editor({ projectId }: EditorProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioFileInputRef = useRef<HTMLInputElement>(null);
   const playerRef = useRef<PlayerRefType | null>(null);
+  /** Deep-cloned clips from Edit → Copy (Cmd/Ctrl+C); paste appends after track end. */
+  const clipsClipboardRef = useRef<EditorClip[] | null>(null);
   const [breakToolEnabled, setBreakToolEnabled] = useState(false);
   const [breakToolHoverClipId, setBreakToolHoverClipId] = useState<string | null>(null);
   const [breakToolHoverTimelineSec, setBreakToolHoverTimelineSec] = useState(0);
@@ -2457,6 +2522,44 @@ export default function Editor({ projectId }: EditorProps) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [selectedClipId, removeClip]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+      const target = document.activeElement;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          (target as HTMLElement).isContentEditable)
+      ) {
+        return;
+      }
+      const k = e.key.toLowerCase();
+      if (k === "c") {
+        if (selectedClipId == null) return;
+        const toCopy = collectClipsToDuplicate(clips, selectedClipId);
+        if (toCopy.length === 0) return;
+        e.preventDefault();
+        clipsClipboardRef.current = JSON.parse(JSON.stringify(toCopy)) as EditorClip[];
+        return;
+      }
+      if (k === "v") {
+        const snap = clipsClipboardRef.current;
+        if (!snap || snap.length === 0) return;
+        e.preventDefault();
+        setClips((prev) => {
+          const pasted = duplicateClipsForPaste(snap, prev, globalSpeedNum);
+          setSelectedClipId(pasted[0]?.id ?? null);
+          return [...prev, ...pasted];
+        });
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [clips, selectedClipId, globalSpeedNum]);
 
   const lastWasPlayingRef = useRef(false);
   useEffect(() => {
