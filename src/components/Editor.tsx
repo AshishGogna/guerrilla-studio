@@ -407,6 +407,21 @@ export interface EditorClip {
   playbackSpeed?: number;
 }
 
+/** Apply style/content patch to text clips: single clip when `onlyTextClipId` is set, else all text clips. */
+function applyTextClipStylePatch(
+  prev: EditorClip[],
+  patch: Partial<EditorClip>,
+  onlyTextClipId: string | null
+): EditorClip[] {
+  return prev.map((c) => {
+    if (c.kind !== "text") return c;
+    if (onlyTextClipId != null) {
+      return c.id === onlyTextClipId ? { ...c, ...patch } : c;
+    }
+    return { ...c, ...patch };
+  });
+}
+
 /** Remove one clip from an array and clear partner's linkedClipId. Same logic as removeClip but pure. */
 function removeClipFromArray(clips: EditorClip[], idToRemove: string): EditorClip[] {
   const clip = clips.find((c) => c.id === idToRemove);
@@ -2314,6 +2329,43 @@ export default function Editor({ projectId }: EditorProps) {
     selectedClip != null &&
     (selectedClip.kind === "video" || selectedClip.kind === "combined");
 
+  /** When set, Texts panel edits apply only to this clip; otherwise to all text clips. */
+  const selectedTextClipId =
+    selectedClip?.kind === "text" && selectedClipId ? selectedClipId : null;
+
+  useEffect(() => {
+    if (selectedClip?.kind !== "text") return;
+    setTextFontFamily(selectedClip.fontFamily ?? "sans-serif");
+    setTextSizeInput(String(selectedClip.textSize ?? 60));
+    setTextColor(selectedClip.textColor ?? "#000000");
+    setTextBgColor(selectedClip.textBgColor ?? "#ffffff");
+    setTextPositionX(
+      selectedClip.textPositionX != null && Number.isFinite(selectedClip.textPositionX)
+        ? String(selectedClip.textPositionX)
+        : ""
+    );
+    setTextPositionY(
+      selectedClip.textPositionY != null && Number.isFinite(selectedClip.textPositionY)
+        ? String(selectedClip.textPositionY)
+        : ""
+    );
+    setTextWidthInput(
+      selectedClip.textWidth != null && Number.isFinite(selectedClip.textWidth)
+        ? String(selectedClip.textWidth)
+        : ""
+    );
+  }, [
+    selectedClipId,
+    selectedClip?.kind,
+    selectedClip?.fontFamily,
+    selectedClip?.textSize,
+    selectedClip?.textColor,
+    selectedClip?.textBgColor,
+    selectedClip?.textPositionX,
+    selectedClip?.textPositionY,
+    selectedClip?.textWidth,
+  ]);
+
   useEffect(() => {
     const g = parseFloat(globalZoomInput);
     const fallback = Number.isFinite(g) && g > 0 ? g : 1;
@@ -2852,7 +2904,7 @@ export default function Editor({ projectId }: EditorProps) {
                       const v = e.target.value;
                       setTextFontFamily(v);
                       setClips((prev) =>
-                        prev.map((c) => (c.kind === "text" ? { ...c, fontFamily: v } : c))
+                        applyTextClipStylePatch(prev, { fontFamily: v }, selectedTextClipId)
                       );
                     }}
                     className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
@@ -2877,7 +2929,7 @@ export default function Editor({ projectId }: EditorProps) {
                       const num = parseFloat(textSizeInput);
                       const size = Number.isFinite(num) && num > 0 ? num : 60;
                       setClips((prev) =>
-                        prev.map((c) => (c.kind === "text" ? { ...c, textSize: size } : c))
+                        applyTextClipStylePatch(prev, { textSize: size }, selectedTextClipId)
                       );
                     }}
                     placeholder="60"
@@ -2894,12 +2946,14 @@ export default function Editor({ projectId }: EditorProps) {
                       const num = parseFloat(textWidthInput);
                       if (Number.isFinite(num) && num > 0) {
                         setClips((prev) =>
-                          prev.map((c) => (c.kind === "text" ? { ...c, textWidth: num } : c))
+                          applyTextClipStylePatch(prev, { textWidth: num }, selectedTextClipId)
                         );
                       } else {
                         setClips((prev) =>
-                          prev.map((c) =>
-                            c.kind === "text" ? { ...c, textWidth: undefined } : c
+                          applyTextClipStylePatch(
+                            prev,
+                            { textWidth: undefined },
+                            selectedTextClipId
                           )
                         );
                       }
@@ -2960,7 +3014,7 @@ export default function Editor({ projectId }: EditorProps) {
                         const n = parseFloat(textPositionX);
                         if (!Number.isFinite(n)) return;
                         setClips((prev) =>
-                          prev.map((c) => (c.kind === "text" ? { ...c, textPositionX: n } : c))
+                          applyTextClipStylePatch(prev, { textPositionX: n }, selectedTextClipId)
                         );
                       }}
                       placeholder="X"
@@ -2976,7 +3030,7 @@ export default function Editor({ projectId }: EditorProps) {
                         const n = parseFloat(textPositionY);
                         if (!Number.isFinite(n)) return;
                         setClips((prev) =>
-                          prev.map((c) => (c.kind === "text" ? { ...c, textPositionY: n } : c))
+                          applyTextClipStylePatch(prev, { textPositionY: n }, selectedTextClipId)
                         );
                       }}
                       placeholder="Y"
@@ -3018,7 +3072,7 @@ export default function Editor({ projectId }: EditorProps) {
                   onChange={(v) => {
                     setTextColor(v);
                     setClips((prev) =>
-                      prev.map((c) => (c.kind === "text" ? { ...c, textColor: v } : c))
+                      applyTextClipStylePatch(prev, { textColor: v }, selectedTextClipId)
                     );
                   }}
                   onClose={() => setTextPanelColorPickerOpen(null)}
@@ -3030,7 +3084,7 @@ export default function Editor({ projectId }: EditorProps) {
                   onChange={(v) => {
                     setTextBgColor(v);
                     setClips((prev) =>
-                      prev.map((c) => (c.kind === "text" ? { ...c, textBgColor: v } : c))
+                      applyTextClipStylePatch(prev, { textBgColor: v }, selectedTextClipId)
                     );
                   }}
                   onClose={() => setTextPanelColorPickerOpen(null)}
