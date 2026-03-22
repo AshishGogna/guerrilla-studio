@@ -395,7 +395,7 @@ export interface EditorClip {
   disabled?: boolean;
   /** Subtitle text (for subtitle clips). */
   text?: string;
-  /** Word-level timing for karaoke-style highlight (start/end in timeline seconds). */
+  /** Word-level timing for karaoke highlight: seconds relative to this clip’s Sequence (0 = clip start). */
   words?: { start: number; end: number; text: string }[];
   /** Font family for text clips. */
   fontFamily?: string;
@@ -548,6 +548,7 @@ function SubtitleBlock({
 }) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+  /** Time into this subtitle clip; matches `words[].start/end` (local to Sequence, not global timeline). */
   const currentTimeSec = frame / Math.max(1, fps);
 
   const baseStyle: React.CSSProperties = {
@@ -1442,11 +1443,29 @@ export default function Editor({ projectId }: EditorProps) {
         const trimText = seg.text.trim();
         let words: { start: number; end: number; text: string }[] | undefined;
         if (seg.words?.length) {
-          words = seg.words.map((w) => ({
-            start: segStart + toFinite(w.start, 0),
-            end: segStart + toFinite(w.end, 0),
-            text: (w.word ?? w.text ?? "").trim(),
-          })).filter((w) => w.text.length > 0);
+          // SubtitleBlock uses useCurrentFrame() inside <Sequence> = seconds *local* to this clip (0…dur).
+          // Whisper JSON uses absolute seconds from file start for both segments and words. Map to local:
+          // word_local = word_abs - seg.start. If an API emits words already relative to the segment,
+          // raw < seg.start (for a late segment) — use raw as local.
+          words = seg.words
+            .map((w) => {
+              const rawS = toFinite(w.start, 0);
+              const rawE = toFinite(w.end, 0);
+              const looksAbsolute =
+                rawS >= segStart - 1e-3 || rawE > segStart + 1e-3;
+              const startLocal = looksAbsolute
+                ? Math.max(0, rawS - segStart)
+                : Math.max(0, rawS);
+              const endLocal = looksAbsolute
+                ? Math.max(0, rawE - segStart)
+                : Math.max(0, rawE);
+              return {
+                start: startLocal,
+                end: Math.max(startLocal + 0.01, endLocal),
+                text: (w.word ?? w.text ?? "").trim(),
+              };
+            })
+            .filter((w) => w.text.length > 0);
         }
         if (!words?.length && trimText) {
           const tokens = trimText.split(/\s+/);
@@ -2889,12 +2908,11 @@ export default function Editor({ projectId }: EditorProps) {
                             } else if (c.words?.length === newTokens.length) {
                               newWords = c.words.map((w, i) => ({ ...w, text: newTokens[i] ?? w.text }));
                             } else {
-                              const segStart = toFinite(c.startTimeSec, 0);
                               const segDur = Math.max(0.01, toFinite(c.trimEndSec, 0) - toFinite(c.trimStartSec, 0));
                               const n = newTokens.length;
                               newWords = newTokens.map((text, j) => ({
-                                start: segStart + (j / n) * segDur,
-                                end: segStart + ((j + 1) / n) * segDur,
+                                start: (j / n) * segDur,
+                                end: ((j + 1) / n) * segDur,
                                 text,
                               }));
                             }
