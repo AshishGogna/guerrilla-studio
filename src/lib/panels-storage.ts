@@ -115,6 +115,8 @@ export interface EditorSubtitleSettings {
   borderColor: string;
   highlightTextColor: string;
   highlightBgColor: string;
+  /** When true, preview/export shows only the current karaoke word (Transcribe panel). */
+  showHighlightedWordOnly: boolean;
 }
 
 const DEFAULT_SUBTITLE_SETTINGS: EditorSubtitleSettings = {
@@ -127,6 +129,7 @@ const DEFAULT_SUBTITLE_SETTINGS: EditorSubtitleSettings = {
   borderColor: "#ffffff",
   highlightTextColor: "#ffff00",
   highlightBgColor: "#000000",
+  showHighlightedWordOnly: false,
 };
 
 export function loadEditorState(projectId: string): EditorState {
@@ -168,6 +171,10 @@ export function loadEditorSubtitleSettings(projectId: string): EditorSubtitleSet
         borderColor: typeof parsed.borderColor === "string" ? parsed.borderColor : DEFAULT_SUBTITLE_SETTINGS.borderColor,
         highlightTextColor: typeof parsed.highlightTextColor === "string" ? parsed.highlightTextColor : DEFAULT_SUBTITLE_SETTINGS.highlightTextColor,
         highlightBgColor: typeof parsed.highlightBgColor === "string" ? parsed.highlightBgColor : DEFAULT_SUBTITLE_SETTINGS.highlightBgColor,
+        showHighlightedWordOnly:
+          typeof parsed.showHighlightedWordOnly === "boolean"
+            ? parsed.showHighlightedWordOnly
+            : DEFAULT_SUBTITLE_SETTINGS.showHighlightedWordOnly,
       };
     }
   } catch {

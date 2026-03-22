@@ -536,6 +536,8 @@ export type SubtitleStyle = {
   borderColor: string;
   highlightTextColor: string;
   highlightBgColor: string;
+  /** When true, only the active karaoke word is visible (no other words). */
+  showHighlightedWordOnly?: boolean;
 };
 
 /** Renders subtitle text with optional word-level highlight (yellow) at current time. */
@@ -577,6 +579,37 @@ function SubtitleBlock({
   const words = sub.words;
   const highlightTextColor = subtitleStyle?.highlightTextColor ?? "#ffff00";
   const highlightBgColor = subtitleStyle?.highlightBgColor ?? "#000000";
+  const showHighlightedWordOnly = subtitleStyle?.showHighlightedWordOnly === true;
+
+  if (words != null && words.length > 0 && showHighlightedWordOnly) {
+    const idx = words.findIndex(
+      (w) => currentTimeSec >= w.start && currentTimeSec < w.end
+    );
+    if (idx < 0) return null;
+    const w = words[idx];
+    const bg = highlightBgColor === TRANSPARENT_VALUE ? "transparent" : highlightBgColor;
+    return (
+      <div style={baseStyle}>
+        <span style={{ position: "relative", display: "inline-block" }}>
+          <span
+            style={{
+              position: "absolute",
+              left: -10,
+              right: -10,
+              top: -2,
+              bottom: -2,
+              backgroundColor: bg,
+              borderRadius: 10,
+              zIndex: 0,
+            }}
+            aria-hidden
+          />
+          <span style={{ position: "relative", zIndex: 1, color: highlightTextColor }}>{w.text}</span>
+        </span>
+      </div>
+    );
+  }
+
   if (words != null && words.length > 0) {
     return (
       <div style={baseStyle}>
@@ -1061,6 +1094,7 @@ export default function Editor({ projectId }: EditorProps) {
    const [subtitleBorderColor, setSubtitleBorderColor] = useState("#ffffff");
   const [subtitleHighlightTextColor, setSubtitleHighlightTextColor] = useState("#ffff00");
   const [subtitleHighlightBgColor, setSubtitleHighlightBgColor] = useState("#000000");
+  const [subtitleShowHighlightedWordOnly, setSubtitleShowHighlightedWordOnly] = useState(false);
   const [subtitleWidth, setSubtitleWidth] = useState(800);
   const [subtitlePositionX, setSubtitlePositionX] = useState(Math.round(COMP_WIDTH / 2));
   const [subtitlePositionY, setSubtitlePositionY] = useState(Math.round(COMP_HEIGHT * 0.3));
@@ -1088,6 +1122,7 @@ export default function Editor({ projectId }: EditorProps) {
     setSubtitleBorderColor(s.borderColor);
     setSubtitleHighlightTextColor(s.highlightTextColor);
     setSubtitleHighlightBgColor(s.highlightBgColor);
+    setSubtitleShowHighlightedWordOnly(s.showHighlightedWordOnly ?? false);
     setSubtitleWidth(s.width);
     setSubtitlePositionX(s.positionX);
     setSubtitlePositionY(s.positionY);
@@ -1115,6 +1150,7 @@ export default function Editor({ projectId }: EditorProps) {
       borderColor: subtitleBorderColor,
       highlightTextColor: subtitleHighlightTextColor,
       highlightBgColor: subtitleHighlightBgColor,
+      showHighlightedWordOnly: subtitleShowHighlightedWordOnly,
       width: subtitleWidth,
       positionX: subtitlePositionX,
       positionY: subtitlePositionY,
@@ -1126,6 +1162,7 @@ export default function Editor({ projectId }: EditorProps) {
     subtitleBorderColor,
     subtitleHighlightTextColor,
     subtitleHighlightBgColor,
+    subtitleShowHighlightedWordOnly,
     subtitleWidth,
     subtitlePositionX,
     subtitlePositionY,
@@ -2338,6 +2375,7 @@ export default function Editor({ projectId }: EditorProps) {
               borderColor: subtitleBorderColor,
               highlightTextColor: subtitleHighlightTextColor,
               highlightBgColor: subtitleHighlightBgColor,
+              showHighlightedWordOnly: subtitleShowHighlightedWordOnly,
               width: subtitleWidth,
               positionX: subtitlePositionX,
               positionY: subtitlePositionY,
@@ -2385,6 +2423,7 @@ export default function Editor({ projectId }: EditorProps) {
       subtitleBorderColor,
       subtitleHighlightTextColor,
       subtitleHighlightBgColor,
+      subtitleShowHighlightedWordOnly,
       subtitleWidth,
       subtitlePositionX,
       subtitlePositionY,
@@ -2633,6 +2672,7 @@ export default function Editor({ projectId }: EditorProps) {
                 borderColor: subtitleBorderColor,
                 highlightTextColor: subtitleHighlightTextColor,
                 highlightBgColor: subtitleHighlightBgColor,
+                showHighlightedWordOnly: subtitleShowHighlightedWordOnly,
                 width: subtitleWidth,
                 positionX: subtitlePositionX,
                 positionY: subtitlePositionY,
@@ -2844,6 +2884,15 @@ export default function Editor({ projectId }: EditorProps) {
                       </>
                     )}
                   </button>
+                </label>
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={subtitleShowHighlightedWordOnly}
+                    onChange={(e) => setSubtitleShowHighlightedWordOnly(e.target.checked)}
+                    className="rounded border-foreground/30"
+                  />
+                  <span className="text-xs text-foreground/80">Show highlighted word only</span>
                 </label>
                 <label className="flex flex-col gap-1">
                   <span className="text-xs text-foreground/50">Width (px)</span>
