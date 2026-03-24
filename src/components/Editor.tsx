@@ -526,6 +526,41 @@ async function decodeAudioWaveform(src: string): Promise<number[]> {
   return out.map((v) => v / peak);
 }
 
+/** Load media metadata and return full duration in seconds (undefined on failure). */
+async function probeMediaDurationSec(
+  src: string,
+  kind: "audio" | "video"
+): Promise<number | undefined> {
+  return new Promise<number | undefined>((resolve) => {
+    const el =
+      kind === "audio"
+        ? document.createElement("audio")
+        : document.createElement("video");
+    let done = false;
+    const finish = (duration?: number) => {
+      if (done) return;
+      done = true;
+      el.removeAttribute("src");
+      try {
+        el.load();
+      } catch {
+        // ignore cleanup errors
+      }
+      resolve(duration);
+    };
+    el.preload = "metadata";
+    el.onloadedmetadata = () => {
+      const d = toFinite(
+        (el as HTMLAudioElement | HTMLVideoElement).duration,
+        0
+      );
+      finish(d > 0 ? d : undefined);
+    };
+    el.onerror = () => finish(undefined);
+    el.src = src;
+  });
+}
+
 export type SubtitleStyle = {
   textSize: number;
   textColor: string;
@@ -1299,7 +1334,8 @@ export default function Editor({ projectId }: EditorProps) {
     setAddUrl("");
   }, [globalSpeedNum]);
 
-  const addAudioClip = useCallback((src: string, fileName?: string) => {
+  const addAudioClip = useCallback((src: string, fileName?: string, durationSec?: number) => {
+    const endSec = toFinite(durationSec, 10);
     setClips((prev) => {
       const maxTrack = prev.length === 0
         ? -1
@@ -1312,7 +1348,8 @@ export default function Editor({ projectId }: EditorProps) {
           id,
           src,
           trimStartSec: 0,
-          trimEndSec: 10,
+          trimEndSec: Math.max(0, endSec),
+          durationSec: Number.isFinite(Number(durationSec)) ? durationSec : undefined,
           startTimeSec: 0,
           trackIndex: newTrack,
           kind: "audio" as const,
@@ -1948,15 +1985,17 @@ export default function Editor({ projectId }: EditorProps) {
   );
 
   const handleUploadClips = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = e.target.files;
       if (!files?.length) return;
       for (const file of Array.from(files)) {
         const url = URL.createObjectURL(file);
         if (file.type.startsWith("audio/")) {
-          addAudioClip(url, file.name);
+          const durationSec = await probeMediaDurationSec(url, "audio");
+          addAudioClip(url, file.name, durationSec);
         } else {
-          addClip(url);
+          const durationSec = await probeMediaDurationSec(url, "video");
+          addClip(url, durationSec);
         }
       }
       e.target.value = "";
