@@ -68,10 +68,13 @@ export default function World({ projectId }: WorldProps) {
   };
 
   const handleGenerateObjectReferences = async () => {
-    const raw = getData(projectId, "objectReferences");
+    let raw = getData(projectId, "references");
     if (!Array.isArray(raw)) {
-      alert('No object references found. Save a list under data.objectReferences first.');
-      return;
+      raw = JSON.parse(raw);
+      if (!Array.isArray(raw)) {
+        alert('No object references found. Save a list under data.objectReferences first.');
+        return;
+      }
     }
     const refs = raw as unknown[];
     const parsed = refs
@@ -89,6 +92,8 @@ export default function World({ projectId }: WorldProps) {
       return;
     }
 
+    //gemini-2.5-flash-image
+    //gemini-3-pro-image-preview
     setGeneratingObjectRefs(true);
     try {
       for (const obj of parsed) {
@@ -99,7 +104,7 @@ export default function World({ projectId }: WorldProps) {
           fileName,
           "1:1",
           undefined,
-          "gemini-3-pro-image-preview"
+          "gemini-2.5-flash-image"
         );
         addData(projectId, obj.id, imagePath);
       }

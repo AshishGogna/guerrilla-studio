@@ -446,10 +446,13 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
         <button
           type="button"
           onClick={async () => {
-            const raw = getData(projectId, "scenes");
+            let raw = getData(projectId, "scenes");
             if (!Array.isArray(raw)) {
-              alert("No scenes found. Save a list as data.scenes first.");
-              return;
+              raw = JSON.parse(raw);
+              if (!Array.isArray(raw)) {
+                alert('No scenes found. Save a list as data.scenes first.');
+                return;
+              }
             }
             const newPanels: PanelItem[] = await Promise.all(
               raw.map(async (scene) => {
@@ -540,10 +543,13 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
         <button
           type="button"
           onClick={async () => {
-            const raw = getData(projectId, "scenes");
+            let raw = getData(projectId, "scenes");
             if (!Array.isArray(raw)) {
-              alert("No scenes found. Save a list as data.scenes first.");
-              return;
+              raw = JSON.parse(raw);
+              if (!Array.isArray(raw)) {
+                alert("No scenes found. Save a list as data.scenes first.");
+                return;
+              }
             }
             const prompts = raw
               .map((scene) => {
