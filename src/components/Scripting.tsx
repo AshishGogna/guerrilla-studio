@@ -36,6 +36,7 @@ function resolveDataPlaceholders(text: string, projectId: string): string {
   return text.replace(/`([^`]+)`/g, (_, inner) => {
     const trimmed = inner.trim();
     if (trimmed.startsWith("data.")) {
+      console.log("trimmed AAA:", trimmed);
       const key = trimmed.slice(5).trim();
       const value = getData(projectId, key);
       if (value === undefined) return "";

@@ -1146,6 +1146,7 @@ export default function Editor({ projectId }: EditorProps) {
   timelinePxPerSecRef.current = timelinePxPerSec;
   const skipNextSaveRef = useRef(true);
   const hasHydratedRef = useRef(false);
+  const blobPersistInFlightRef = useRef(false);
   const subtitleSettingsLoadedRef = useRef(false);
 
   useEffect(() => {
@@ -1251,38 +1252,48 @@ export default function Editor({ projectId }: EditorProps) {
       skipNextSaveRef.current = false;
       return;
     }
-    const hasBlob = clips.some((c) => c.src.startsWith("blob:"));
-    if (hasBlob) {
-      (async () => {
-        const updated: EditorClip[] = await Promise.all(
-          clips.map(async (c): Promise<EditorClip> => {
-            if (!c.src.startsWith("blob:")) return c;
-            try {
-              const res = await fetch(c.src);
-              const blob = await res.blob();
-              const form = new FormData();
-              form.append("file", blob, c.fileName || `${c.id}.mp4`);
-              form.append("projectId", projectId);
-              form.append("clipId", c.id);
-              const r = await fetch("/api/editor-save-blob", {
-                method: "POST",
-                body: form,
-              });
-              const data = await r.json();
-              if (data.path) return { ...c, src: data.path };
-            } catch {
-              // ignore
-            }
-            return c;
-          })
-        );
-        setClips(updated);
-        saveEditorState(projectId, { clips: updated });
-      })();
-    } else {
+    const blobClips = clips.filter((c) => c.src.startsWith("blob:"));
+    if (blobClips.length === 0) {
       saveEditorState(projectId, { clips });
+      return;
     }
-  }, [clips]);
+    if (blobPersistInFlightRef.current) return;
+    blobPersistInFlightRef.current = true;
+    (async () => {
+      const savedPathById = new Map<string, string>();
+      for (const c of blobClips) {
+        try {
+          const res = await fetch(c.src);
+          const blob = await res.blob();
+          const form = new FormData();
+          form.append("file", blob, c.fileName || `${c.id}.mp4`);
+          form.append("projectId", projectId);
+          form.append("clipId", c.id);
+          const r = await fetch("/api/editor-save-blob", {
+            method: "POST",
+            body: form,
+          });
+          const data = await r.json();
+          if (data.path) savedPathById.set(c.id, data.path as string);
+        } catch {
+          // ignore per-clip save failure and continue remaining uploads
+        }
+      }
+      if (savedPathById.size > 0) {
+        setClips((prev) => {
+          const next = prev.map((c) => {
+            const savedPath = savedPathById.get(c.id);
+            if (!savedPath || !c.src.startsWith("blob:")) return c;
+            return { ...c, src: savedPath };
+          });
+          saveEditorState(projectId, { clips: next });
+          return next;
+        });
+      }
+    })().finally(() => {
+      blobPersistInFlightRef.current = false;
+    });
+  }, [clips, projectId]);
 
   const globalSpeedNum = useMemo(() => {
     const g = parseFloat(globalSpeedInput);
@@ -1602,9 +1613,19 @@ export default function Editor({ projectId }: EditorProps) {
   }, [clips]);
 
   const transcribeAll = useCallback(async () => {
-    const audioClips = clips.filter(
-      (c) => (c.kind === "audio" || c.kind === "combined") && !c.disabled
-    );
+    const selected = selectedClipId
+      ? clips.find((c) => c.id === selectedClipId)
+      : null;
+    const selectedIsAudioLike =
+      selected != null &&
+      !selected.disabled &&
+      (selected.kind === "audio" || selected.kind === "combined");
+
+    const audioClips = selectedIsAudioLike
+      ? [selected]
+      : clips.filter(
+          (c) => (c.kind === "audio" || c.kind === "combined") && !c.disabled
+        );
     if (audioClips.length === 0) return;
     setIsTranscribingAll(true);
     try {
@@ -1614,7 +1635,7 @@ export default function Editor({ projectId }: EditorProps) {
     } finally {
       setIsTranscribingAll(false);
     }
-  }, [clips, transcribeClip]);
+  }, [clips, selectedClipId, transcribeClip]);
 
   const transcribeClipRaw = useCallback(async (clip: EditorClip): Promise<{ start: number; end: number; text: string }[]> => {
     try {
