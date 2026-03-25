@@ -70,7 +70,7 @@ export default function World({ projectId }: WorldProps) {
   const handleGenerateObjectReferences = async () => {
     let raw = getData(projectId, "references");
     if (!Array.isArray(raw)) {
-      raw = JSON.parse(raw);
+      raw = JSON.parse(String(raw ?? "null")) as unknown;
       if (!Array.isArray(raw)) {
         alert('No object references found. Save a list under data.objectReferences first.');
         return;

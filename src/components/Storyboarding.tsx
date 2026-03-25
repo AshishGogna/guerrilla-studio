@@ -1,6 +1,7 @@
 "use client";
 
 import { generateImage } from "@/lib/ai";
+import { searchImage } from "@/lib/Search";
 import { addData, getData, getAll, removeData } from "@/lib/data";
 import {
   loadStoryboardState,
@@ -353,6 +354,10 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
     const panel = currentPanels[panelIndex];
     if (panel.mode !== "image" || !panel.promptImage.trim() || panel.generating) return;
     const promptTrimmed = panel.promptImage.trim();
+    if (promptTrimmed.toLowerCase().startsWith("search: ")) {
+      searchImage(promptTrimmed.slice("search: ".length));
+      return;
+    }
     const sourcePanelIndex = /^\d+$/.test(promptTrimmed) ? parseInt(promptTrimmed, 10) : -1;
     if (
       sourcePanelIndex >= 0 &&
@@ -448,7 +453,7 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
           onClick={async () => {
             let raw = getData(projectId, "scenes");
             if (!Array.isArray(raw)) {
-              raw = JSON.parse(raw);
+              raw = JSON.parse(String(raw ?? "null")) as unknown;
               if (!Array.isArray(raw)) {
                 alert('No scenes found. Save a list as data.scenes first.');
                 return;
@@ -545,7 +550,7 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
           onClick={async () => {
             let raw = getData(projectId, "scenes");
             if (!Array.isArray(raw)) {
-              raw = JSON.parse(raw);
+              raw = JSON.parse(String(raw ?? "null")) as unknown;
               if (!Array.isArray(raw)) {
                 alert("No scenes found. Save a list as data.scenes first.");
                 return;
