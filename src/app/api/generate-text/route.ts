@@ -25,7 +25,7 @@ export async function POST(request: Request) {
     );
   }
 
-  let body: { userPrompt?: string; systemPrompt?: string; model?: string };
+  let body: { userPrompt?: string; systemPrompt?: string; model?: string; tools?: string };
   try {
     body = await request.json();
   } catch {
@@ -53,6 +53,12 @@ export async function POST(request: Request) {
       ? body.model.trim()
       : "gpt-5-mini-2025-08-07";
 
+  const toolsStr = 
+    typeof body.tools === "string" && body.tools.trim()
+      ? body.tools.trim()
+      : "[]";
+  const tools = JSON.parse(toolsStr);
+
   try {
     const res = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
@@ -64,6 +70,7 @@ export async function POST(request: Request) {
         model,
         instructions: systemPrompt,
         input: userPrompt,
+        tools,
       }),
     });
 
