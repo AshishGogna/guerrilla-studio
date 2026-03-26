@@ -58,6 +58,60 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
+function audioBufferToWavBlob(buffer: AudioBuffer): Blob {
+  const numChannels = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const numFrames = buffer.length;
+  const bytesPerSample = 2; // 16-bit PCM
+  const blockAlign = numChannels * bytesPerSample;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = numFrames * blockAlign;
+  const headerSize = 44;
+  const out = new ArrayBuffer(headerSize + dataSize);
+  const view = new DataView(out);
+  let offset = 0;
+
+  const writeU16 = (v: number) => {
+    view.setUint16(offset, v, true);
+    offset += 2;
+  };
+  const writeU32 = (v: number) => {
+    view.setUint32(offset, v, true);
+    offset += 4;
+  };
+  const writeStr = (s: string) => {
+    for (let i = 0; i < s.length; i++) view.setUint8(offset++, s.charCodeAt(i));
+  };
+
+  writeStr("RIFF");
+  writeU32(36 + dataSize);
+  writeStr("WAVE");
+  writeStr("fmt ");
+  writeU32(16);
+  writeU16(1);
+  writeU16(numChannels);
+  writeU32(sampleRate);
+  writeU32(byteRate);
+  writeU16(blockAlign);
+  writeU16(16);
+  writeStr("data");
+  writeU32(dataSize);
+
+  const channels: Float32Array[] = [];
+  for (let c = 0; c < numChannels; c++) channels.push(buffer.getChannelData(c));
+  for (let i = 0; i < numFrames; i++) {
+    for (let c = 0; c < numChannels; c++) {
+      let sample = channels[c][i] ?? 0;
+      sample = Math.max(-1, Math.min(1, sample));
+      const s = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+      view.setInt16(offset, Math.round(s), true);
+      offset += 2;
+    }
+  }
+
+  return new Blob([out], { type: "audio/wav" });
+}
+
 const SUBTITLE_RECOMMENDED_COLORS = [
   "#ffffff", "#000000", "#ffff00", "#00ffff", "#00ff00", "#ff6600",
   "#ff00ff", "#c0c0c0", "#333333", "#1a1a1a", "#ffeb3b", "#e3f2fd",
@@ -2492,6 +2546,111 @@ export default function Editor({ projectId }: EditorProps) {
     ]
   );
 
+  const handleExportAudio = useCallback(async () => {
+    if (clips.length === 0) {
+      alert("Add at least one clip to export.");
+      return;
+    }
+    setExporting(true);
+    try {
+      const sorted = [...clips].sort(
+        (a, b) => toFinite(a.startTimeSec, 0) - toFinite(b.startTimeSec, 0)
+      );
+      const first = sorted[0];
+      const w =
+        first?.width != null && Number.isFinite(first.width) ? first.width : COMP_WIDTH;
+      const h =
+        first?.height != null && Number.isFinite(first.height) ? first.height : COMP_HEIGHT;
+
+      const safeDuration = Math.max(1, toFinite(durationInFrames, 1));
+      const { getBlob } = await renderMediaOnWeb({
+        composition: {
+          id: "editor-composition",
+          component: EditorCompositionWithProps,
+          durationInFrames: safeDuration,
+          fps: FPS,
+          width: w,
+          height: h,
+          defaultProps: { clips: [] },
+        },
+        inputProps: {
+          clips,
+          subtitleStyle: {
+            textSize: subtitleTextSize,
+            textColor: subtitleTextColor,
+            backgroundColor: subtitleBgColor,
+            borderColor: subtitleBorderColor,
+            highlightTextColor: subtitleHighlightTextColor,
+            highlightBgColor: subtitleHighlightBgColor,
+            showHighlightedWordOnly: subtitleShowHighlightedWordOnly,
+            width: subtitleWidth,
+            positionX: subtitlePositionX,
+            positionY: subtitlePositionY,
+          },
+          zoom: (() => {
+            const z = parseFloat(globalZoomInput);
+            return Number.isFinite(z) && z > 0 ? z : 1;
+          })(),
+          speed: globalSpeedNum,
+        },
+      });
+
+      const videoBlob = await getBlob();
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      try {
+        const ab = await videoBlob.arrayBuffer();
+        const audioBuffer = await ctx.decodeAudioData(ab.slice(0));
+        const wavBlob = audioBufferToWavBlob(audioBuffer);
+
+        const url = URL.createObjectURL(wavBlob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "edited-audio.wav";
+        a.click();
+        URL.revokeObjectURL(url);
+
+        const form = new FormData();
+        form.append("file", wavBlob, "exported-audio.wav");
+        form.append("projectId", projectId);
+        form.append("clipId", "exported-audio");
+        const saveRes = await fetch("/api/editor-save-blob", {
+          method: "POST",
+          body: form,
+        });
+        const saveData = (await saveRes.json()) as { path?: string };
+        if (saveData.path) {
+          addData(projectId, "exportedAudio", saveData.path);
+        }
+      } finally {
+        try {
+          await ctx.close();
+        } catch {
+          // ignore
+        }
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Export audio failed");
+    } finally {
+      setExporting(false);
+    }
+  }, [
+    clips,
+    durationInFrames,
+    globalZoomInput,
+    globalSpeedNum,
+    projectId,
+    subtitleTextSize,
+    subtitleTextColor,
+    subtitleBgColor,
+    subtitleBorderColor,
+    subtitleHighlightTextColor,
+    subtitleHighlightBgColor,
+    subtitleShowHighlightedWordOnly,
+    subtitleWidth,
+    subtitlePositionX,
+    subtitlePositionY,
+  ]);
+
   const openExportModal = useCallback(() => {
     const sorted = [...clips].sort(
       (a, b) => toFinite(a.startTimeSec, 0) - toFinite(b.startTimeSec, 0)
@@ -3480,6 +3639,14 @@ export default function Editor({ projectId }: EditorProps) {
                 <path d="m21 21-4.35-4.35" />
                 <path d="M8 11h6" />
               </svg>
+            </button>
+            <button
+              type="button"
+              onClick={handleExportAudio}
+              disabled={clips.length === 0 || exporting}
+              className="rounded border border-foreground/20 bg-foreground/10 px-3 py-1.5 text-sm hover:bg-foreground/20 disabled:opacity-50"
+            >
+              Export audio
             </button>
             <button
               type="button"
