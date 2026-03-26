@@ -14,6 +14,21 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 const MIN_TEXTAREA_HEIGHT = 44;
 
+/** Public files under /public — must start with / or img/fetch breaks on routes like /panels/id */
+function normalizePublicAssetUrl(url: string | null): string | null {
+  if (url == null || url === "") return url;
+  if (
+    url.startsWith("/") ||
+    url.startsWith("blob:") ||
+    url.startsWith("data:") ||
+    url.startsWith("http://") ||
+    url.startsWith("https://")
+  ) {
+    return url;
+  }
+  return `/${url}`;
+}
+
 const IMAGE_MODELS = ["gemini-2.5-flash-image", "gemini-3-pro-image-preview"] as const;
 const ASPECT_RATIOS = ["1:1", "16:9", "9:16"] as const;
 const SCALES = ["1x", "2x"] as const;
@@ -73,11 +88,13 @@ const defaultPanel: PanelItem = {
 
 function persistedToPanel(p: StoryboardPanelPersisted & { prompt?: string; imageModel?: string }): PanelItem {
   return {
-    imageUrl: p.imageUrl,
+    imageUrl: normalizePublicAssetUrl(p.imageUrl),
     promptImage: p.promptImage ?? (p as { prompt?: string }).prompt ?? "",
     promptVideo: p.promptVideo ?? "",
     mode: p.mode === "video" ? "video" : "image",
-    referenceImages: p.referenceImages.map((r) => ({ url: r.url })),
+    referenceImages: p.referenceImages.map((r) => ({
+      url: normalizePublicAssetUrl(r.url) ?? r.url,
+    })),
     generating: false,
   };
 }
@@ -296,7 +313,7 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
         alert(data?.error ?? "Upload failed");
         continue;
       }
-      newRefs.push({ url: data.filePath });
+      newRefs.push({ url: normalizePublicAssetUrl(data.filePath) ?? data.filePath });
     }
     if (newRefs.length > 0) {
       setPanels((prev) => {
@@ -328,7 +345,7 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
         alert(data?.error ?? "Upload failed");
         return;
       }
-      updatePanel(panelIndex, { imageUrl: data.filePath });
+      updatePanel(panelIndex, { imageUrl: normalizePublicAssetUrl(data.filePath) });
     } catch (err) {
       alert(err instanceof Error ? err.message : "Upload failed");
     }
@@ -496,7 +513,7 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
                       });
                       const data = await res.json();
                       if (res.ok && typeof data?.filePath === "string") {
-                        url = `/${data.filePath}`;
+                        url = normalizePublicAssetUrl(data.filePath) ?? data.filePath;
                       }
                     } catch {
                       // skip this reference on upload failure

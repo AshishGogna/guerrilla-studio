@@ -12,6 +12,7 @@ import {
 const MODEL_OPTIONS = [
   "gpt-5.4",
   "gpt-5-mini-2025-08-07",
+  "gemini-3-flash-preview",
 ] as const;
 
 /** Convert camelCase to normal case (e.g. youtubeTitle -> Youtube Title). */

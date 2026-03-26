@@ -7,11 +7,15 @@ export async function generateText(
   model: string
 ): Promise<string> {
   const textModel = model ?? MODEL;
+
+  const tools = JSON.stringify([{type:"web_search"}]);
+
+
   console.log('AI: generateText:', userPrompt, systemPrompt, textModel);
   const res = await fetch("/api/generate-text", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ userPrompt, systemPrompt, model: textModel }),
+    body: JSON.stringify({ userPrompt, systemPrompt, model: textModel, tools }),
   });
 
   const data = await res.json();

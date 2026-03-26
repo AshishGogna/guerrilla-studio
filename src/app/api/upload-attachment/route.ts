@@ -38,8 +38,8 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(bytes);
     await writeFile(filePath, buffer);
 
-    // Return public path
-    const publicPath = `projects/${projectId}/${fileName}.${fileExtension}`;
+    // Root-absolute path so <img src> works from nested routes (e.g. /panels/id)
+    const publicPath = `/projects/${projectId}/${fileName}.${fileExtension}`;
 
     return NextResponse.json({
       fileName: file.name,

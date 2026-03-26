@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     const destPath = join(uploadsDir, fileName);
     await writeFile(destPath, buffer);
 
-    const publicPath = `projects/${projectId}/${fileName}`;
+    const publicPath = `/projects/${projectId}/${fileName}`;
     return NextResponse.json({ filePath: publicPath });
   } catch (error) {
     console.error("Upload from path error:", error);

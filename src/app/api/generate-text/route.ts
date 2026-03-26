@@ -1,5 +1,22 @@
 import { NextResponse } from "next/server";
 
+function isGeminiModel(model: string): boolean {
+  return model.toLowerCase().includes("gemini");
+}
+
+function extractTextFromGeminiResponse(data: unknown): string | null {
+  const candidates = (data as { candidates?: unknown })?.candidates;
+  if (!Array.isArray(candidates) || candidates.length === 0) return null;
+  const parts = (candidates[0] as { content?: { parts?: unknown } })?.content?.parts;
+  if (!Array.isArray(parts)) return null;
+  const texts: string[] = [];
+  for (const part of parts) {
+    const p = part as { text?: string };
+    if (typeof p?.text === "string" && p.text.length > 0) texts.push(p.text);
+  }
+  return texts.length > 0 ? texts.join("") : null;
+}
+
 function extractTextFromResponsesOutput(output: unknown): string | null {
   if (!Array.isArray(output)) return null;
   const parts: string[] = [];
@@ -17,14 +34,6 @@ function extractTextFromResponsesOutput(output: unknown): string | null {
 }
 
 export async function POST(request: Request) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: "OPENAI_API_KEY is not configured" },
-      { status: 500 }
-    );
-  }
-
   let body: { userPrompt?: string; systemPrompt?: string; model?: string; tools?: string };
   try {
     body = await request.json();
@@ -53,13 +62,82 @@ export async function POST(request: Request) {
       ? body.model.trim()
       : "gpt-5-mini-2025-08-07";
 
-  const toolsStr = 
-    typeof body.tools === "string" && body.tools.trim()
-      ? body.tools.trim()
-      : "[]";
-  const tools = JSON.parse(toolsStr);
-
   try {
+    if (isGeminiModel(model)) {
+      const geminiKey = process.env.GEMINI_API_KEY;
+      if (!geminiKey) {
+        return NextResponse.json(
+          { error: "GEMINI_API_KEY is not configured" },
+          { status: 500 }
+        );
+      }
+
+      const payload: Record<string, unknown> = {
+        contents: [
+          {
+            parts: [{ text: userPrompt }],
+          },
+        ],
+      };
+      if (systemPrompt) {
+        payload.systemInstruction = {
+          parts: [{ text: systemPrompt }],
+        };
+      }
+
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+        {
+          method: "POST",
+          headers: {
+            "x-goog-api-key": geminiKey,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        const message =
+          data?.error?.message ?? data?.message ?? `Gemini API error: ${res.status}`;
+        return NextResponse.json({ error: message }, { status: res.status });
+      }
+
+      const content = extractTextFromGeminiResponse(data);
+      if (content === null) {
+        return NextResponse.json(
+          { error: "Unexpected response from Gemini" },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({ content });
+    }
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: "OPENAI_API_KEY is not configured" },
+        { status: 500 }
+      );
+    }
+
+    const toolsStr =
+      typeof body.tools === "string" && body.tools.trim()
+        ? body.tools.trim()
+        : "[]";
+    let tools: unknown;
+    try {
+      tools = JSON.parse(toolsStr);
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid tools JSON" },
+        { status: 400 }
+      );
+    }
+
     const res = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
