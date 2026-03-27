@@ -58,8 +58,24 @@ export default function BaseNode({ id, data, children, className }: Props) {
           className="nodrag w-full rounded border border-foreground/25 bg-transparent px-1 py-0.5 text-sm font-semibold outline-none"
         />
       ) : (
-        // NOTE: no `nodrag` here; otherwise there is nothing draggable on short nodes.
-        <div className="text-left text-sm font-semibold">{data.title}</div>
+        // NOTE: no `nodrag` on wrapper; otherwise there is nothing draggable on short nodes.
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0 truncate text-left text-sm font-semibold">{data.title}</div>
+          <button
+            type="button"
+            className="nodrag rounded p-1 text-foreground/70 hover:bg-foreground/10 hover:text-foreground"
+            title="Play"
+            aria-label="Play"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+            }}
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden>
+              <path d="M8 5v14l11-7z" />
+            </svg>
+          </button>
+        </div>
       )}
 
       {children ? <div className="mt-2">{children}</div> : null}

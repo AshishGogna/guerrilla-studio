@@ -2,14 +2,21 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ReactFlow, {
+  addEdge,
   Background,
   Controls,
   MiniMap,
+  ReactFlowProvider,
+  type Connection,
+  type Edge,
   type Node,
   type NodeMouseHandler,
+  useReactFlow,
+  useEdgesState,
   useNodesState,
 } from "reactflow";
 import BaseNode, { type BaseNodeData } from "./BaseNode";
+import CanvasMenu, { type CanvasNodeTypeId } from "./CanvasMenu";
 import NodeMenu from "./NodeMenu";
 import NodeText, { type NodeTextData } from "./NodeText";
 
@@ -20,7 +27,8 @@ const nodeTypes = {
   nodeText: NodeText,
 };
 
-export default function Nodes({ projectId }: NodesProps) {
+function NodesInner({ projectId }: NodesProps) {
+  const rf = useReactFlow();
   const [renamingNodeId, setRenamingNodeId] = useState<string | null>(null);
 
   const onTitleChange = useCallback((nodeId: string, title: string) => {
@@ -40,6 +48,19 @@ export default function Nodes({ projectId }: NodesProps) {
     setRenamingNodeId(null);
   }, []);
 
+  const onTextChange = useCallback((nodeId: string, text: string) => {
+    setNodes((prev) =>
+      prev.map((n) =>
+        n.id === nodeId
+          ? {
+              ...n,
+              data: { ...(n.data as NodeTextData), text, onTextChange },
+            }
+          : n
+      )
+    );
+  }, []);
+
   const initialNodes = useMemo<Node[]>(
     () => [
       {
@@ -52,13 +73,17 @@ export default function Nodes({ projectId }: NodesProps) {
         id: "text-1",
         type: "nodeText",
         position: { x: 620, y: 180 },
-        data: { title: "NodeText", text: "NodeText value", onTitleChange },
+        data: { title: "NodeText", text: "NodeText value", onTitleChange, onTextChange },
       },
     ],
-    [onTitleChange, projectId]
+    [onTextChange, onTitleChange, projectId]
   );
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [menuState, setMenuState] = useState<{ nodeId: string; x: number; y: number } | null>(null);
+  const [canvasMenu, setCanvasMenu] = useState<{ x: number; y: number; flowX: number; flowY: number } | null>(
+    null
+  );
 
   useEffect(() => {
     setNodes((prev) =>
@@ -69,18 +94,68 @@ export default function Nodes({ projectId }: NodesProps) {
           onTitleChange,
           onRenameDone,
           isRenaming: renamingNodeId === n.id,
+          ...(n.type === "nodeText" ? { onTextChange } : {}),
         };
         return { ...n, data: next as typeof next };
       })
     );
-  }, [onRenameDone, onTitleChange, renamingNodeId, setNodes]);
+  }, [onRenameDone, onTextChange, onTitleChange, renamingNodeId, setNodes]);
 
   const handleNodeContextMenu = useCallback<NodeMouseHandler>(
     (event, node) => {
       event.preventDefault();
+      setCanvasMenu(null);
       setMenuState({ nodeId: node.id, x: event.clientX, y: event.clientY });
     },
     []
+  );
+
+  const handlePaneContextMenu = useCallback(
+    (event: React.MouseEvent) => {
+      event.preventDefault();
+      setMenuState(null);
+      const pos = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+      setCanvasMenu({ x: event.clientX, y: event.clientY, flowX: pos.x, flowY: pos.y });
+    },
+    [rf]
+  );
+
+  const addNodeOfType = useCallback(
+    (type: CanvasNodeTypeId) => {
+      if (!canvasMenu) return;
+      const id = `${type}-${Date.now()}`;
+      const position = { x: canvasMenu.flowX, y: canvasMenu.flowY };
+      const baseData: BaseNodeData = { title: type === "base" ? "Base Node" : "NodeText", onTitleChange };
+      const data =
+        type === "nodeText"
+          ? ({ ...baseData, text: "", onTextChange } satisfies NodeTextData)
+          : baseData;
+      setNodes((prev) => [
+        ...prev,
+        {
+          id,
+          type,
+          position,
+          data,
+        } as Node,
+      ]);
+      setCanvasMenu(null);
+    },
+    [canvasMenu, onTextChange, onTitleChange, setNodes]
+  );
+
+  const onConnect = useCallback(
+    (connection: Connection) => {
+      setEdges((eds) => addEdge(connection, eds));
+    },
+    [setEdges]
+  );
+
+  const onEdgeClick = useCallback(
+    (_event: React.MouseEvent, edge: Edge) => {
+      setEdges((eds) => eds.filter((e) => e.id !== edge.id));
+    },
+    [setEdges]
   );
 
   const handleRenameNode = useCallback(() => {
@@ -100,9 +175,14 @@ export default function Nodes({ projectId }: NodesProps) {
       <ReactFlow
         nodes={nodes}
         onNodesChange={onNodesChange}
-        edges={[]}
+        edges={edges}
+        onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+        onEdgeClick={onEdgeClick}
+        deleteKeyCode={["Backspace", "Delete"]}
         nodeTypes={nodeTypes}
         onPaneClick={() => setMenuState(null)}
+        onPaneContextMenu={handlePaneContextMenu}
         onNodeContextMenu={handleNodeContextMenu}
         zoomOnDoubleClick={false}
         fitView
@@ -123,6 +203,26 @@ export default function Nodes({ projectId }: NodesProps) {
           onClose={() => setMenuState(null)}
         />
       ) : null}
+      {canvasMenu ? (
+        <CanvasMenu
+          x={canvasMenu.x}
+          y={canvasMenu.y}
+          nodeTypes={[
+            { id: "base", label: "Base" },
+            { id: "nodeText", label: "Text" },
+          ]}
+          onAddNodeType={addNodeOfType}
+          onClose={() => setCanvasMenu(null)}
+        />
+      ) : null}
     </div>
+  );
+}
+
+export default function Nodes(props: NodesProps) {
+  return (
+    <ReactFlowProvider>
+      <NodesInner {...props} />
+    </ReactFlowProvider>
   );
 }

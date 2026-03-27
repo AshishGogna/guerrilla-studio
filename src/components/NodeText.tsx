@@ -1,18 +1,57 @@
 "use client";
 
+import { useState } from "react";
 import { Handle, Position, type NodeProps } from "reactflow";
 import BaseNode, { type BaseNodeData } from "./BaseNode";
+import FullScreenTextModal from "./FullScreenTextModal";
 
 export type NodeTextData = BaseNodeData & {
   text: string;
+  onTextChange?: (nodeId: string, text: string) => void;
 };
 
 export default function NodeText(props: NodeProps<NodeTextData>) {
+  const [openFullScreen, setOpenFullScreen] = useState(false);
+
   return (
-    <BaseNode {...props} className="border-accent/50">
-      <div className="text-sm text-foreground/90">{props.data.text}</div>
-      <Handle type="source" position={Position.Right} />
-    </BaseNode>
+    <>
+      <BaseNode {...props} className="min-w-[440px] border-accent/50">
+        <div className="relative">
+          <textarea
+            className="nodrag nowheel min-h-[184px] w-full resize-none rounded bg-transparent pr-0 text-sm text-foreground/90 outline-none"
+            value={props.data.text}
+            onChange={(e) => props.data.onTextChange?.(props.id, e.target.value)}
+            onMouseDown={(e) => e.stopPropagation()}
+          />
+          <button
+            type="button"
+            className="nodrag absolute bottom-2 right-2 rounded bg-transparent p-1 text-foreground/80"
+            title="Open fullscreen"
+            aria-label="Open fullscreen text editor"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpenFullScreen(true);
+            }}
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+              <path d="M8 3H3v5" />
+              <path d="M16 3h5v5" />
+              <path d="M3 16v5h5" />
+              <path d="M21 16v5h-5" />
+            </svg>
+          </button>
+        </div>
+        <Handle type="target" position={Position.Left} />
+        <Handle type="source" position={Position.Right} />
+      </BaseNode>
+      <FullScreenTextModal
+        open={openFullScreen}
+        text={props.data.text}
+        onChange={(value) => props.data.onTextChange?.(props.id, value)}
+        onClose={() => setOpenFullScreen(false)}
+      />
+    </>
   );
 }
 
