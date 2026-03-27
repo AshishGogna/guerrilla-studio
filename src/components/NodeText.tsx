@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Handle, Position, type NodeProps } from "reactflow";
+import { useEffect, useState } from "react";
+import { Handle, Position, type Node, type NodeProps, useReactFlow } from "reactflow";
 import BaseNode, { type BaseNodeData } from "./BaseNode";
 import FullScreenTextModal from "./FullScreenTextModal";
 
@@ -12,6 +12,12 @@ export type NodeTextData = BaseNodeData & {
 
 export default function NodeText(props: NodeProps<NodeTextData>) {
   const [openFullScreen, setOpenFullScreen] = useState(false);
+  const [draftText, setDraftText] = useState(props.data.text ?? "");
+  const rf = useReactFlow();
+
+  useEffect(() => {
+    setDraftText(props.data.text ?? "");
+  }, [props.data.text]);
 
   return (
     <>
@@ -19,8 +25,21 @@ export default function NodeText(props: NodeProps<NodeTextData>) {
         <div className="relative">
           <textarea
             className="nodrag nowheel min-h-[184px] w-full resize-none rounded bg-transparent pr-0 text-sm text-foreground/90 outline-none"
-            value={props.data.text}
-            onChange={(e) => props.data.onTextChange?.(props.id, e.target.value)}
+            value={draftText}
+            onChange={(e) => {
+              const next = e.target.value;
+              setDraftText(next);
+              // Prefer updating React Flow state directly so persistence always works,
+              // even if callback fields were stripped/re-hydrated.
+              rf.setNodes((prev) =>
+                prev.map((n: Node<Record<string, unknown>>) =>
+                  n.id === props.id
+                    ? { ...n, data: { ...(n.data as Record<string, unknown>), text: next } }
+                    : n
+                )
+              );
+              props.data.onTextChange?.(props.id, next);
+            }}
             onMouseDown={(e) => e.stopPropagation()}
           />
           <button
@@ -47,8 +66,18 @@ export default function NodeText(props: NodeProps<NodeTextData>) {
       </BaseNode>
       <FullScreenTextModal
         open={openFullScreen}
-        text={props.data.text}
-        onChange={(value) => props.data.onTextChange?.(props.id, value)}
+        text={draftText}
+        onChange={(value) => {
+          setDraftText(value);
+          rf.setNodes((prev) =>
+            prev.map((n: Node<Record<string, unknown>>) =>
+              n.id === props.id
+                ? { ...n, data: { ...(n.data as Record<string, unknown>), text: value } }
+                : n
+            )
+          );
+          props.data.onTextChange?.(props.id, value);
+        }}
         onClose={() => setOpenFullScreen(false)}
       />
     </>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import ReactFlow, {
   addEdge,
   Background,
@@ -37,7 +37,7 @@ function NodesInner({ projectId }: NodesProps) {
         n.id === nodeId
           ? {
               ...n,
-              data: { ...(n.data as BaseNodeData), title, onTitleChange },
+              data: { ...((n.data as unknown as BaseNodeData) ?? {}), title, onTitleChange },
             }
           : n
       )
@@ -54,41 +54,49 @@ function NodesInner({ projectId }: NodesProps) {
         n.id === nodeId
           ? {
               ...n,
-              data: { ...(n.data as NodeTextData), text, onTextChange },
+              data: { ...((n.data as unknown as NodeTextData) ?? {}), text, onTextChange },
             }
           : n
       )
     );
   }, []);
 
-  const initialNodes = useMemo<Node[]>(
-    () => [
-      {
-        id: "base",
-        type: "base",
-        position: { x: 320, y: 180 },
-        data: { title: `Base Node (${projectId})`, onTitleChange },
-      },
-      {
-        id: "text-1",
-        type: "nodeText",
-        position: { x: 620, y: 180 },
-        data: { title: "NodeText", text: "NodeText value", onTitleChange, onTextChange },
-      },
-    ],
-    [onTextChange, onTitleChange, projectId]
-  );
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [nodes, setNodes, onNodesChange] = useNodesState<Record<string, unknown>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [menuState, setMenuState] = useState<{ nodeId: string; x: number; y: number } | null>(null);
   const [canvasMenu, setCanvasMenu] = useState<{ x: number; y: number; flowX: number; flowY: number } | null>(
     null
   );
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/nodes-state?projectId=${encodeURIComponent(projectId)}`);
+        const data = (await res.json().catch(() => null)) as { nodes?: unknown; edges?: unknown } | null;
+        if (cancelled) return;
+        const loadedNodes = Array.isArray(data?.nodes) ? (data?.nodes as Node<Record<string, unknown>>[]) : [];
+        const loadedEdges = Array.isArray(data?.edges) ? (data?.edges as Edge[]) : [];
+        setNodes(loadedNodes);
+        setEdges(loadedEdges);
+      } catch {
+        if (cancelled) return;
+        setNodes([]);
+        setEdges([]);
+      } finally {
+        if (!cancelled) setHydrated(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, setEdges, setNodes]);
 
   useEffect(() => {
     setNodes((prev) =>
       prev.map((n) => {
-        const d = n.data as BaseNodeData;
+        const d = n.data as unknown as BaseNodeData;
         const next = {
           ...d,
           onTitleChange,
@@ -96,10 +104,35 @@ function NodesInner({ projectId }: NodesProps) {
           isRenaming: renamingNodeId === n.id,
           ...(n.type === "nodeText" ? { onTextChange } : {}),
         };
-        return { ...n, data: next as typeof next };
+        return { ...n, data: next as unknown as Record<string, unknown> };
       })
     );
   }, [onRenameDone, onTextChange, onTitleChange, renamingNodeId, setNodes]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const tidyNodes = nodes.map((n) => {
+      const base = n.data as unknown as Partial<BaseNodeData> & Record<string, unknown>;
+      const data: Record<string, unknown> = { ...base };
+      delete data.onTitleChange;
+      delete data.onRenameDone;
+      delete data.isRenaming;
+      if ("onTextChange" in data) delete data.onTextChange;
+      return { ...n, data };
+    });
+    const tidyEdges = edges.map((e) => ({ ...e }));
+    const payload = { nodes: tidyNodes, edges: tidyEdges };
+    const timeout = setTimeout(() => {
+      fetch("/api/nodes-state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId, state: payload }),
+      }).catch(() => {
+        // ignore
+      });
+    }, 250);
+    return () => clearTimeout(timeout);
+  }, [edges, hydrated, nodes, projectId]);
 
   const handleNodeContextMenu = useCallback<NodeMouseHandler>(
     (event, node) => {
@@ -137,7 +170,7 @@ function NodesInner({ projectId }: NodesProps) {
           type,
           position,
           data,
-        } as Node,
+        } as Node<Record<string, unknown>>,
       ]);
       setCanvasMenu(null);
     },
