@@ -3,13 +3,15 @@
 import { useState } from "react";
 import Editor, { type EditorProps } from "./Editor";
 import Metadata, { type MetadataProps } from "./Metadata";
+import Nodes from "./Nodes";
 import Scripting from "./Scripting";
 import Storyboarding, { type StoryboardingProps } from "./Storyboarding";
 import World, { type WorldProps } from "./World";
 
-type TabId = "world" | "scripting" | "storyboarding" | "editing" | "metadata";
+type TabId = "nodes" | "world" | "scripting" | "storyboarding" | "editing" | "metadata";
 
 const TABS: { id: TabId; label: string }[] = [
+  { id: "nodes", label: "Nodes" },
   { id: "world", label: "World" },
   { id: "scripting", label: "Scripting" },
   { id: "storyboarding", label: "Storyboarding" },
@@ -43,6 +45,7 @@ export default function TopTabs({ projectId }: Props) {
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
+        {activeTab === "nodes" && <Nodes projectId={projectId} />}
         {activeTab === "world" && <World projectId={projectId} />}
         {activeTab === "scripting" && <Scripting projectId={projectId} />}
         {activeTab === "storyboarding" && <Storyboarding projectId={projectId} />}
