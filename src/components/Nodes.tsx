@@ -22,12 +22,14 @@ import NodeText, { type NodeTextData } from "./NodeText";
 import { generateText } from "@/lib/ai";
 import { NodesProvider } from "./NodesContext";
 import { parseAiResponse, parsePrompt } from "@/lib/textParser";
+import NodeStoryboard, { type NodeStoryboardData } from "./NodeStoryboard";
 
 export type NodesProps = { projectId: string };
 
 const nodeTypes = {
   base: BaseNode,
   nodeText: NodeText,
+  nodeStoryboard: NodeStoryboard,
 };
 
 function NodesInner({ projectId }: NodesProps) {
@@ -220,11 +222,21 @@ function NodesInner({ projectId }: NodesProps) {
       if (!canvasMenu) return;
       const id = `${type}-${Date.now()}`;
       const position = { x: canvasMenu.flowX, y: canvasMenu.flowY };
-      const baseData: BaseNodeData = { title: type === "base" ? "Base Node" : "NodeText", onTitleChange };
+      const baseData: BaseNodeData = {
+        title:
+          type === "base"
+            ? "Base Node"
+            : type === "nodeStoryboard"
+              ? "Storyboard"
+              : "NodeText",
+        onTitleChange,
+      };
       const data =
         type === "nodeText"
           ? ({ ...baseData, text: "", onTextChange } satisfies NodeTextData)
-          : baseData;
+          : type === "nodeStoryboard"
+            ? ({ ...baseData, imageModel: "gemini-2.5-flash-image" } satisfies NodeStoryboardData)
+            : baseData;
       setNodes((prev) => [
         ...prev,
         {
@@ -315,6 +327,7 @@ function NodesInner({ projectId }: NodesProps) {
           nodeTypes={[
             { id: "base", label: "Base" },
             { id: "nodeText", label: "Text" },
+            { id: "nodeStoryboard", label: "Storyboard" },
           ]}
           onAddNodeType={addNodeOfType}
           onClose={() => setCanvasMenu(null)}
