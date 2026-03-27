@@ -209,6 +209,133 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
   const [importText, setImportText] = useState("");
   const [downloadingAll, setDownloadingAll] = useState(false);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const commandKey = `guerrilla-studio:storyboardingCommand:${projectId}`;
+    const runningKey = `guerrilla-studio:storyboardingRunAllRunning:${projectId}`;
+    let running = false;
+
+    const runFromCommand = async () => {
+      if (running) return;
+      const raw = localStorage.getItem(commandKey);
+      if (!raw) return;
+      let cmd: { type?: string; ts?: number } | null = null;
+      try {
+        cmd = JSON.parse(raw) as { type?: string; ts?: number };
+      } catch {
+        cmd = null;
+      }
+      if (!cmd || cmd.type !== "runAll") return;
+
+      // consume command
+      localStorage.removeItem(commandKey);
+
+      running = true;
+      localStorage.setItem(runningKey, "1");
+      try {
+        // 1) Clear
+        const all = getAll(projectId);
+        Object.keys(all)
+          .filter((k) => k.startsWith("storyboard"))
+          .forEach((k) => removeData(projectId, k));
+        setPanels([]);
+
+        // allow state to flush
+        await new Promise((r) => setTimeout(r, 0));
+
+        // 2) Import Scenes (same logic as button)
+        let scenesRaw: unknown = getData(projectId, "scenes");
+        if (!Array.isArray(scenesRaw)) {
+          scenesRaw = JSON.parse(String(scenesRaw ?? "null")) as unknown;
+          if (!Array.isArray(scenesRaw)) {
+            alert('No scenes found. Save a list as data.scenes first.');
+            return;
+          }
+        }
+        // Densify in case data.scenes is a sparse array (holes cause undefined panels).
+        const scenesArr = Array.from(scenesRaw as unknown[]);
+        const newPanels: PanelItem[] = await Promise.all(
+          scenesArr.map(async (scene: unknown) => {
+            const sceneObj =
+              typeof scene === "object" && scene !== null ? (scene as Record<string, unknown>) : null;
+            const imageGenerationPrompt =
+              sceneObj && "imageGenerationPrompt" in sceneObj
+                ? String(sceneObj.imageGenerationPrompt ?? "")
+                : "";
+            const prompt =
+              typeof scene === "string"
+                ? scene
+                : sceneObj && "prompt" in sceneObj
+                  ? String(sceneObj.prompt ?? "")
+                  : sceneObj && "promptImage" in sceneObj
+                    ? String(sceneObj.promptImage ?? "")
+                    : sceneObj && "description" in sceneObj
+                      ? String(sceneObj.description ?? "")
+                      : "";
+            const referenceImages: RefImage[] = [];
+            const refEntries = sceneObj && "references" in sceneObj && Array.isArray(sceneObj.references)
+              ? (sceneObj.references as unknown[]).filter((r): r is string => typeof r === "string")
+              : [];
+            for (const ref of refEntries) {
+              const key = ref.startsWith("data.") ? ref.slice(5).trim() : ref.trim();
+              if (!key) continue;
+              const pathValue = getData(projectId, key);
+              if (typeof pathValue !== "string" || !pathValue.trim()) continue;
+              let url = pathValue.trim();
+              if (url.startsWith("file://")) {
+                try {
+                  const res = await fetch("/api/upload-from-path", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ projectId, filePath: url }),
+                  });
+                  const data = await res.json();
+                  if (res.ok && typeof data?.filePath === "string") {
+                    url = normalizePublicAssetUrl(data.filePath) ?? data.filePath;
+                  }
+                } catch {
+                  // skip this reference on upload failure
+                }
+              }
+              referenceImages.push({ url });
+            }
+            return {
+              ...defaultPanel,
+              promptImage: imageGenerationPrompt || prompt,
+              promptVideo: "",
+              referenceImages,
+            };
+          })
+        );
+        if (newPanels.length === 0) {
+          alert("data.scenes is empty.");
+          return;
+        }
+        setPanels(newPanels);
+
+        // allow panels state/ref to flush before generation loop
+        await new Promise((r) => setTimeout(r, 0));
+
+        // 3) Generate All (use the existing handler, which uses current state)
+        await handleGenerateAll();
+      } finally {
+        running = false;
+        localStorage.removeItem(runningKey);
+      }
+    };
+
+    runFromCommand();
+
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === commandKey) runFromCommand();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [projectId]);
+
   async function handleDownloadAll() {
     const urls = panels
       .map((p) => p.imageUrl)
@@ -369,7 +496,22 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
   async function handleGenerateImage(panelIndex: number) {
     const currentPanels = panelsRef.current;
     const panel = currentPanels[panelIndex];
-    if (panel.mode !== "image" || !panel.promptImage.trim() || panel.generating) return;
+    if (!panel) {
+      console.log("[Storyboarding] generate panel skip (missing panel)", { projectId, panelIndex });
+      return;
+    }
+    if (panel.mode !== "image") {
+      console.log("[Storyboarding] generate panel skip (not image mode)", { projectId, panelIndex, mode: panel.mode });
+      return;
+    }
+    if (!panel.promptImage.trim()) {
+      console.log("[Storyboarding] generate panel skip (empty prompt)", { projectId, panelIndex });
+      return;
+    }
+    if (panel.generating) {
+      console.log("[Storyboarding] generate panel skip (already generating)", { projectId, panelIndex });
+      return;
+    }
     const promptTrimmed = panel.promptImage.trim();
     if (promptTrimmed.toLowerCase().startsWith("search: ")) {
       searchImage(promptTrimmed.slice("search: ".length));
@@ -384,6 +526,10 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
       updatePanel(panelIndex, { imageUrl: currentPanels[sourcePanelIndex].imageUrl ?? null });
       return;
     }
+    console.log(
+      "[Storyboarding] generate panel start",
+      { projectId, panelIndex, prompt: promptTrimmed.slice(0, 140) }
+    );
     updatePanel(panelIndex, { generating: true });
     try {
       const attachedImages =
@@ -405,14 +551,23 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
         imageModel
       );
       updatePanel(panelIndex, { imageUrl: imagePath, generating: false });
+      console.log(
+        "[Storyboarding] generate panel done",
+        { projectId, panelIndex, imagePath }
+      );
     } catch (err) {
       updatePanel(panelIndex, { generating: false });
+      console.log(
+        "[Storyboarding] generate panel error",
+        { projectId, panelIndex, error: err instanceof Error ? err.message : err }
+      );
       alert(err instanceof Error ? err.message : "Failed to generate image");
     }
   }
 
   async function handleGenerateAll() {
-    for (let i = 0; i < panels.length; i++) {
+    const currentPanels = panelsRef.current;
+    for (let i = 0; i < currentPanels.length; i++) {
       await handleGenerateImage(i);
       await new Promise((r) => setTimeout(r, 2000));
     }

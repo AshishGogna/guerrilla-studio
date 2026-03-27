@@ -14,7 +14,7 @@ export type NodeStoryboardData = BaseNodeData & {
 };
 
 export default function NodeStoryboard(props: NodeProps<NodeStoryboardData>) {
-  const { projectId } = useNodesContext();
+  const { projectId, runStoryboardAll } = useNodesContext();
   const [imageModel, setImageModel] = useState<ImageModel>(
     props.data.imageModel ?? IMAGE_MODELS[0]
   );
@@ -34,7 +34,9 @@ export default function NodeStoryboard(props: NodeProps<NodeStoryboardData>) {
     <BaseNode
       {...props}
       className="min-w-[360px] border-foreground/20"
-      onPlayClick={() => {}}
+      onPlayClick={() => {
+        runStoryboardAll();
+      }}
     >
       <div className="text-sm text-foreground/80">{`{${scenesCount} Scenes}`}</div>
 
