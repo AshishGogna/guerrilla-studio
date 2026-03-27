@@ -2,12 +2,26 @@
 
 import { createContext, useContext } from "react";
 
-type NodesContextValue = { projectId: string };
+type NodesContextValue = {
+  projectId: string;
+  playNode: (nodeId: string) => void;
+  playChain: (nodeId: string) => void;
+};
 
 const NodesContext = createContext<NodesContextValue | null>(null);
 
-export function NodesProvider({ projectId, children }: { projectId: string; children: React.ReactNode }) {
-  return <NodesContext.Provider value={{ projectId }}>{children}</NodesContext.Provider>;
+export function NodesProvider({
+  projectId,
+  playNode,
+  playChain,
+  children,
+}: {
+  projectId: string;
+  playNode: (nodeId: string) => void;
+  playChain: (nodeId: string) => void;
+  children: React.ReactNode;
+}) {
+  return <NodesContext.Provider value={{ projectId, playNode, playChain }}>{children}</NodesContext.Provider>;
 }
 
 export function useNodesContext(): NodesContextValue {

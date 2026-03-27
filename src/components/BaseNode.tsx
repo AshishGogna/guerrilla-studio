@@ -6,18 +6,19 @@ import type { NodeProps } from "reactflow";
 export type BaseNodeData = {
   title: string;
   isRenaming?: boolean;
+  isPlaying?: boolean;
   onTitleChange?: (nodeId: string, title: string) => void;
   onRenameDone?: () => void;
-  onPlay?: (nodeId: string) => void;
 };
 
 type Props = NodeProps<BaseNodeData> & {
   children?: ReactNode;
   className?: string;
   onPlayClick?: () => void;
+  onPlayChainClick?: () => void;
 };
 
-export default function BaseNode({ id, data, children, className, onPlayClick }: Props) {
+export default function BaseNode({ id, data, children, className, onPlayClick, onPlayChainClick }: Props) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(data.title);
 
@@ -38,7 +39,8 @@ export default function BaseNode({ id, data, children, className, onPlayClick }:
   return (
     <div
       className={[
-        "min-w-[220px] rounded-lg border border-foreground/20 bg-[#171717] px-3 py-2 text-foreground shadow-sm",
+        "min-w-[220px] rounded-lg border bg-[#171717] px-3 py-2 text-foreground shadow-sm",
+        data.isPlaying ? "border-green-500 animate-pulse" : "border-foreground/20",
         className ?? "",
       ].join(" ")}
     >
@@ -63,22 +65,45 @@ export default function BaseNode({ id, data, children, className, onPlayClick }:
         // NOTE: no `nodrag` on wrapper; otherwise there is nothing draggable on short nodes.
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0 truncate text-left text-sm font-semibold">{data.title}</div>
-          {onPlayClick ? (
-            <button
-              type="button"
-              className="nodrag rounded p-1 text-foreground/70 hover:bg-foreground/10 hover:text-foreground"
-              title="Play"
-              aria-label="Play"
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                onPlayClick();
-              }}
-            >
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden>
-                <path d="M8 5v14l11-7z" />
-              </svg>
-            </button>
+          {onPlayClick || onPlayChainClick ? (
+            <div className="nodrag flex items-center gap-1">
+              {onPlayClick ? (
+                <button
+                  type="button"
+                  className="rounded p-1 text-foreground/70 hover:bg-foreground/10 hover:text-foreground"
+                  title="Play"
+                  aria-label="Play"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onPlayClick();
+                  }}
+                >
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden>
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                </button>
+              ) : null}
+              {onPlayChainClick ? (
+                <button
+                  type="button"
+                  className="rounded p-1 text-foreground/70 hover:bg-foreground/10 hover:text-foreground"
+                  title="Play chain"
+                  aria-label="Play chain"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onPlayChainClick();
+                  }}
+                >
+                  {/* Fast-forward / sequential play icon */}
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden>
+                    <path d="M4 6v12l8-6z" />
+                    <path d="M12 6v12l8-6z" />
+                  </svg>
+                </button>
+              ) : null}
+            </div>
           ) : null}
         </div>
       )}

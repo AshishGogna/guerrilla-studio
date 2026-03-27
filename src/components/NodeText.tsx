@@ -4,8 +4,6 @@ import { useEffect, useState } from "react";
 import { Handle, Position, type Node, type NodeProps, useReactFlow } from "reactflow";
 import BaseNode, { type BaseNodeData } from "./BaseNode";
 import FullScreenTextModal from "./FullScreenTextModal";
-import { generateText } from "@/lib/ai";
-import { parseAiResponse, parsePrompt } from "@/lib/textParser";
 import { useNodesContext } from "./NodesContext";
 
 export type NodeTextData = BaseNodeData & {
@@ -17,7 +15,7 @@ export default function NodeText(props: NodeProps<NodeTextData>) {
   const [openFullScreen, setOpenFullScreen] = useState(false);
   const [draftText, setDraftText] = useState(props.data.text ?? "");
   const rf = useReactFlow();
-  const { projectId } = useNodesContext();
+  const { projectId, playNode, playChain } = useNodesContext();
 
   useEffect(() => {
     setDraftText(props.data.text ?? "");
@@ -28,17 +26,8 @@ export default function NodeText(props: NodeProps<NodeTextData>) {
       <BaseNode
         {...props}
         className="min-w-[440px] border-accent/50"
-        onPlayClick={async () => {
-          try {
-            // Execute only for this node's text.
-            const userPrompt = parsePrompt(projectId, draftText);
-            const output = await generateText(userPrompt, "", "gpt-5.4");
-            parseAiResponse(projectId, output);
-          } catch (err) {
-            console.error(err);
-            alert(err instanceof Error ? err.message : "Play failed");
-          }
-        }}
+        onPlayClick={() => playNode(props.id)}
+        onPlayChainClick={() => playChain(props.id)}
       >
         <div className="relative">
           <textarea

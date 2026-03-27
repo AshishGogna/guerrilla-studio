@@ -21,6 +21,7 @@ import NodeMenu from "./NodeMenu";
 import NodeText, { type NodeTextData } from "./NodeText";
 import { generateText } from "@/lib/ai";
 import { NodesProvider } from "./NodesContext";
+import { parseAiResponse, parsePrompt } from "@/lib/textParser";
 
 export type NodesProps = { projectId: string };
 
@@ -65,6 +66,7 @@ function NodesInner({ projectId }: NodesProps) {
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Record<string, unknown>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [playingNodeIds, setPlayingNodeIds] = useState<Set<string>>(() => new Set());
   const [menuState, setMenuState] = useState<{ nodeId: string; x: number; y: number } | null>(null);
   const [canvasMenu, setCanvasMenu] = useState<{ x: number; y: number; flowX: number; flowY: number } | null>(
     null
@@ -73,17 +75,50 @@ function NodesInner({ projectId }: NodesProps) {
 
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
+  const edgesRef = useRef(edges);
+  edgesRef.current = edges;
 
-  const onPlay = useCallback(async (nodeId: string) => {
-    const node = nodesRef.current.find((n) => n.id === nodeId);
-    if (!node || node.type !== "nodeText") return;
-    const text = String((node.data as Record<string, unknown>)?.text ?? "");
-    try {
-      await generateText(text, "", "gpt-5.4");
-    } catch (err) {
-      console.error(err);
-    }
-  }, []);
+  const playTextNodeOnce = useCallback(
+    async (nodeId: string) => {
+      console.log('playTextNodeOnce AAAA:', nodeId);
+      const node = nodesRef.current.find((n) => n.id === nodeId);
+      if (!node || node.type !== "nodeText") return;
+      const rawText = String((node.data as Record<string, unknown>)?.text ?? "");
+      setPlayingNodeIds((prev) => new Set(prev).add(nodeId));
+      try {
+        const userPrompt = parsePrompt(projectId, rawText);
+        const output = await generateText(userPrompt, "", "gpt-5.4");
+        parseAiResponse(projectId, output);
+      } finally {
+        setPlayingNodeIds((prev) => {
+          const next = new Set(prev);
+          next.delete(nodeId);
+          return next;
+        });
+      }
+    },
+    [projectId]
+  );
+
+  const playChainFrom = useCallback(
+    async (startNodeId: string) => {
+      const visited = new Set<string>();
+      let current = startNodeId;
+      while (current && !visited.has(current)) {
+        visited.add(current);
+        await playTextNodeOnce(current);
+
+        // Follow first outgoing edge only (simple + predictable).
+        const nextEdge = edgesRef.current.find((e) => e.source === current);
+        if (!nextEdge) break;
+        const nextId = nextEdge.target;
+        const nextNode = nodesRef.current.find((n) => n.id === nextId);
+        if (!nextNode || nextNode.type !== "nodeText") break;
+        current = nextId;
+      }
+    },
+    [playTextNodeOnce]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -117,14 +152,23 @@ function NodesInner({ projectId }: NodesProps) {
           ...d,
           onTitleChange,
           onRenameDone,
-          ...(n.type === "nodeText" ? { onPlay } : {}),
+          isPlaying: playingNodeIds.has(n.id),
           isRenaming: renamingNodeId === n.id,
           ...(n.type === "nodeText" ? { onTextChange } : {}),
         };
         return { ...n, data: next as unknown as Record<string, unknown> };
       })
     );
-  }, [onPlay, onRenameDone, onTextChange, onTitleChange, projectId, renamingNodeId, setNodes]);
+  }, [
+    onRenameDone,
+    onTextChange,
+    onTitleChange,
+    playChainFrom,
+    playTextNodeOnce,
+    playingNodeIds,
+    renamingNodeId,
+    setNodes,
+  ]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -134,6 +178,7 @@ function NodesInner({ projectId }: NodesProps) {
       delete data.onTitleChange;
       delete data.onRenameDone;
       delete data.isRenaming;
+      delete data.isPlaying;
       if ("onTextChange" in data) delete data.onTextChange;
       return { ...n, data };
     });
@@ -222,7 +267,15 @@ function NodesInner({ projectId }: NodesProps) {
 
   return (
     <div className="w-full" style={{ height: "calc(100vh - 120px)", minHeight: 520 }}>
-      <NodesProvider projectId={projectId}>
+      <NodesProvider
+        projectId={projectId}
+        playNode={(id) => {
+          void playTextNodeOnce(id);
+        }}
+        playChain={(id) => {
+          void playChainFrom(id);
+        }}
+      >
         <ReactFlow
           nodes={nodes}
           onNodesChange={onNodesChange}
