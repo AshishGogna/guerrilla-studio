@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import ReactFlow, {
   addEdge,
   Background,
@@ -19,6 +19,8 @@ import BaseNode, { type BaseNodeData } from "./BaseNode";
 import CanvasMenu, { type CanvasNodeTypeId } from "./CanvasMenu";
 import NodeMenu from "./NodeMenu";
 import NodeText, { type NodeTextData } from "./NodeText";
+import { generateText } from "@/lib/ai";
+import { NodesProvider } from "./NodesContext";
 
 export type NodesProps = { projectId: string };
 
@@ -69,6 +71,20 @@ function NodesInner({ projectId }: NodesProps) {
   );
   const [hydrated, setHydrated] = useState(false);
 
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
+
+  const onPlay = useCallback(async (nodeId: string) => {
+    const node = nodesRef.current.find((n) => n.id === nodeId);
+    if (!node || node.type !== "nodeText") return;
+    const text = String((node.data as Record<string, unknown>)?.text ?? "");
+    try {
+      await generateText(text, "", "gpt-5.4");
+    } catch (err) {
+      console.error(err);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -101,13 +117,14 @@ function NodesInner({ projectId }: NodesProps) {
           ...d,
           onTitleChange,
           onRenameDone,
+          ...(n.type === "nodeText" ? { onPlay } : {}),
           isRenaming: renamingNodeId === n.id,
           ...(n.type === "nodeText" ? { onTextChange } : {}),
         };
         return { ...n, data: next as unknown as Record<string, unknown> };
       })
     );
-  }, [onRenameDone, onTextChange, onTitleChange, renamingNodeId, setNodes]);
+  }, [onPlay, onRenameDone, onTextChange, onTitleChange, projectId, renamingNodeId, setNodes]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -205,28 +222,30 @@ function NodesInner({ projectId }: NodesProps) {
 
   return (
     <div className="w-full" style={{ height: "calc(100vh - 120px)", minHeight: 520 }}>
-      <ReactFlow
-        nodes={nodes}
-        onNodesChange={onNodesChange}
-        edges={edges}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        onEdgeClick={onEdgeClick}
-        deleteKeyCode={["Backspace", "Delete"]}
-        nodeTypes={nodeTypes}
-        onPaneClick={() => setMenuState(null)}
-        onPaneContextMenu={handlePaneContextMenu}
-        onNodeContextMenu={handleNodeContextMenu}
-        zoomOnDoubleClick={false}
-        fitView
-        fitViewOptions={{ padding: 0.4 }}
-        style={{ width: "100%", height: "100%" }}
-        className="bg-background text-foreground"
-      >
-        <MiniMap />
-        <Controls />
-        <Background />
-      </ReactFlow>
+      <NodesProvider projectId={projectId}>
+        <ReactFlow
+          nodes={nodes}
+          onNodesChange={onNodesChange}
+          edges={edges}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onEdgeClick={onEdgeClick}
+          deleteKeyCode={["Backspace", "Delete"]}
+          nodeTypes={nodeTypes}
+          onPaneClick={() => setMenuState(null)}
+          onPaneContextMenu={handlePaneContextMenu}
+          onNodeContextMenu={handleNodeContextMenu}
+          zoomOnDoubleClick={false}
+          fitView
+          fitViewOptions={{ padding: 0.4 }}
+          style={{ width: "100%", height: "100%" }}
+          className="bg-background text-foreground"
+        >
+          <MiniMap />
+          <Controls />
+          <Background />
+        </ReactFlow>
+      </NodesProvider>
       {menuState ? (
         <NodeMenu
           x={menuState.x}

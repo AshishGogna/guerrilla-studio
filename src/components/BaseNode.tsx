@@ -8,14 +8,16 @@ export type BaseNodeData = {
   isRenaming?: boolean;
   onTitleChange?: (nodeId: string, title: string) => void;
   onRenameDone?: () => void;
+  onPlay?: (nodeId: string) => void;
 };
 
 type Props = NodeProps<BaseNodeData> & {
   children?: ReactNode;
   className?: string;
+  onPlayClick?: () => void;
 };
 
-export default function BaseNode({ id, data, children, className }: Props) {
+export default function BaseNode({ id, data, children, className, onPlayClick }: Props) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(data.title);
 
@@ -61,20 +63,23 @@ export default function BaseNode({ id, data, children, className }: Props) {
         // NOTE: no `nodrag` on wrapper; otherwise there is nothing draggable on short nodes.
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0 truncate text-left text-sm font-semibold">{data.title}</div>
-          <button
-            type="button"
-            className="nodrag rounded p-1 text-foreground/70 hover:bg-foreground/10 hover:text-foreground"
-            title="Play"
-            aria-label="Play"
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-            }}
-          >
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden>
-              <path d="M8 5v14l11-7z" />
-            </svg>
-          </button>
+          {onPlayClick ? (
+            <button
+              type="button"
+              className="nodrag rounded p-1 text-foreground/70 hover:bg-foreground/10 hover:text-foreground"
+              title="Play"
+              aria-label="Play"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onPlayClick();
+              }}
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden>
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            </button>
+          ) : null}
         </div>
       )}
 
