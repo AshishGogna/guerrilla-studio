@@ -23,6 +23,7 @@ import { generateText } from "@/lib/ai";
 import { NodesProvider } from "./NodesContext";
 import { parseAiResponse, parsePrompt } from "@/lib/textParser";
 import NodeStoryboard, { type NodeStoryboardData } from "./NodeStoryboard";
+import { getScenesArrayFromProject } from "@/lib/storyboardNumericPrompt";
 import NodeLabel, { type NodeLabelData } from "./NodeLabel";
 
 export type NodesProps = { projectId: string };
@@ -300,7 +301,15 @@ function NodesInner({ projectId }: NodesProps) {
         type === "nodeText"
           ? ({ ...baseData, text: "", onTextChange } satisfies NodeTextData)
           : type === "nodeStoryboard"
-            ? ({ ...baseData, imageModel: "gemini-2.5-flash-image" } satisfies NodeStoryboardData)
+            ? ({
+                ...baseData,
+                imageModel: "gemini-2.5-flash-image",
+                aspectRatio: "16:9",
+                fromScene: "0",
+                toScene: String(
+                  Math.max(0, getScenesArrayFromProject(projectId).length - 1)
+                ),
+              } satisfies NodeStoryboardData)
             : type === "nodeLabel"
               ? ({
                   label: "Label",
@@ -321,7 +330,7 @@ function NodesInner({ projectId }: NodesProps) {
       ]);
       setCanvasMenu(null);
     },
-    [canvasMenu, onLabelChange, onTextChange, onTitleChange, setNodes]
+    [canvasMenu, onLabelChange, onTextChange, onTitleChange, projectId, setNodes]
   );
 
   const onConnect = useCallback(

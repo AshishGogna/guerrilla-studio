@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import JSZip from "jszip";
-import { Handle, Position, type NodeProps } from "reactflow";
+import { Handle, Position, type NodeProps, useReactFlow } from "reactflow";
 import BaseNode, { type BaseNodeData } from "./BaseNode";
 import { useNodesContext } from "./NodesContext";
 import { getData } from "@/lib/data";
@@ -18,7 +18,17 @@ type AspectRatio = (typeof ASPECT_RATIOS)[number];
 
 export type NodeStoryboardData = BaseNodeData & {
   imageModel?: ImageModel;
+  /** Persisted on node + synced to storyboard state for generation */
+  aspectRatio?: string;
+  fromScene?: string;
+  toScene?: string;
 };
+
+function defaultToSceneIndex(projectId: string): string {
+  const scenesLen = getScenesArrayFromProject(projectId).length;
+  const panelLen = loadStoryboardState(projectId).panels.length;
+  return String(Math.max(0, Math.max(panelLen, scenesLen) - 1));
+}
 
 function extractVideoPromptFromScene(scene: unknown): string {
   if (typeof scene === "string") return "";
@@ -58,20 +68,27 @@ async function copyTextToClipboard(text: string): Promise<void> {
 }
 
 export default function NodeStoryboard(props: NodeProps<NodeStoryboardData>) {
-  const { id } = props;
+  const { id, data } = props;
   const { projectId, setNodePlaying } = useNodesContext();
+  const rf = useReactFlow();
   const runLockRef = useRef(false);
 
-  const [imageModel, setImageModel] = useState<ImageModel>(
-    props.data.imageModel ?? IMAGE_MODELS[0]
-  );
-  const [aspectRatio, setAspectRatio] = useState<AspectRatio>("16:9");
-  const [fromScene, setFromScene] = useState("0");
-  const [toScene, setToScene] = useState(() => {
-    const scenesLen = getScenesArrayFromProject(projectId).length;
-    const panelLen = loadStoryboardState(projectId).panels.length;
-    return String(Math.max(0, Math.max(panelLen, scenesLen) - 1));
+  const [imageModel, setImageModel] = useState<ImageModel>(() => {
+    if (data.imageModel && IMAGE_MODELS.includes(data.imageModel)) return data.imageModel;
+    const m = loadStoryboardState(projectId).imageModel;
+    if (IMAGE_MODELS.includes(m as ImageModel)) return m as ImageModel;
+    return IMAGE_MODELS[0];
   });
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>(() => {
+    if (data.aspectRatio && ASPECT_RATIOS.includes(data.aspectRatio as AspectRatio)) {
+      return data.aspectRatio as AspectRatio;
+    }
+    const ar = loadStoryboardState(projectId).aspectRatio;
+    if (ASPECT_RATIOS.includes(ar as AspectRatio)) return ar as AspectRatio;
+    return "16:9";
+  });
+  const [fromScene, setFromScene] = useState(() => data.fromScene ?? "0");
+  const [toScene, setToScene] = useState(() => data.toScene ?? defaultToSceneIndex(projectId));
   const [downloadBusy, setDownloadBusy] = useState(false);
 
   const scenesCount = useMemo(() => {
@@ -90,27 +107,43 @@ export default function NodeStoryboard(props: NodeProps<NodeStoryboardData>) {
     return Math.max(0, Math.max(story.panels.length, scenesCount) - 1);
   }, [projectId, scenesCount]);
 
+  /** Re-hydrate from persisted node data (e.g. after nodes.json load). */
   useEffect(() => {
-    const s = loadStoryboardState(projectId);
-    const ar = s.aspectRatio;
-    if (ASPECT_RATIOS.includes(ar as AspectRatio)) {
-      setAspectRatio(ar as AspectRatio);
-    } else {
-      setAspectRatio("16:9");
+    if (data.aspectRatio && ASPECT_RATIOS.includes(data.aspectRatio as AspectRatio)) {
+      setAspectRatio(data.aspectRatio as AspectRatio);
     }
-    const m = s.imageModel;
-    if (IMAGE_MODELS.includes(m as ImageModel)) {
-      setImageModel(m as ImageModel);
+    if (data.imageModel && IMAGE_MODELS.includes(data.imageModel)) {
+      setImageModel(data.imageModel);
     }
-  }, [projectId]);
+    if (typeof data.fromScene === "string") setFromScene(data.fromScene);
+    if (typeof data.toScene === "string") setToScene(data.toScene);
+  }, [
+    data.aspectRatio,
+    data.imageModel,
+    data.fromScene,
+    data.toScene,
+    id,
+  ]);
+
+  const patchNodeData = useCallback(
+    (patch: Partial<NodeStoryboardData>) => {
+      rf.setNodes((nds) =>
+        nds.map((n) =>
+          n.id === id ? { ...n, data: { ...(n.data as object), ...patch } } : n
+        )
+      );
+    },
+    [id, rf]
+  );
 
   useEffect(() => {
-    setToScene((prev) => {
-      const n = parseInt(prev, 10);
-      if (Number.isNaN(n) || n > maxSceneIndex) return String(maxSceneIndex);
-      return prev;
-    });
-  }, [maxSceneIndex]);
+    const n = parseInt(toScene, 10);
+    if (Number.isNaN(n) || n > maxSceneIndex) {
+      const next = String(maxSceneIndex);
+      setToScene(next);
+      patchNodeData({ toScene: next });
+    }
+  }, [maxSceneIndex, patchNodeData, toScene]);
 
   const persistStoryboardField = useCallback(
     (patch: Partial<{ aspectRatio: string; imageModel: string }>) => {
@@ -221,6 +254,7 @@ export default function NodeStoryboard(props: NodeProps<NodeStoryboardData>) {
             const v = e.target.value as AspectRatio;
             setAspectRatio(v);
             persistStoryboardField({ aspectRatio: v });
+            patchNodeData({ aspectRatio: v });
           }}
           className="nodrag w-full rounded border border-foreground/20 bg-transparent px-2 py-1.5 text-sm"
         >
@@ -240,6 +274,7 @@ export default function NodeStoryboard(props: NodeProps<NodeStoryboardData>) {
             const v = e.target.value as ImageModel;
             setImageModel(v);
             persistStoryboardField({ imageModel: v });
+            patchNodeData({ imageModel: v });
           }}
           className="nodrag w-full rounded border border-foreground/20 bg-transparent px-2 py-1.5 text-sm"
         >
@@ -258,7 +293,11 @@ export default function NodeStoryboard(props: NodeProps<NodeStoryboardData>) {
             type="text"
             inputMode="numeric"
             value={fromScene}
-            onChange={(e) => setFromScene(e.target.value)}
+            onChange={(e) => {
+              const v = e.target.value;
+              setFromScene(v);
+              patchNodeData({ fromScene: v });
+            }}
             className="nodrag w-full rounded border border-foreground/20 bg-transparent px-2 py-1.5 text-sm"
           />
         </div>
@@ -268,7 +307,11 @@ export default function NodeStoryboard(props: NodeProps<NodeStoryboardData>) {
             type="text"
             inputMode="numeric"
             value={toScene}
-            onChange={(e) => setToScene(e.target.value)}
+            onChange={(e) => {
+              const v = e.target.value;
+              setToScene(v);
+              patchNodeData({ toScene: v });
+            }}
             className="nodrag w-full rounded border border-foreground/20 bg-transparent px-2 py-1.5 text-sm"
           />
         </div>
