@@ -23,6 +23,7 @@ import { generateText } from "@/lib/ai";
 import { NodesProvider } from "./NodesContext";
 import { parseAiResponse, parsePrompt } from "@/lib/textParser";
 import NodeStoryboard, { type NodeStoryboardData } from "./NodeStoryboard";
+import NodeLabel, { type NodeLabelData } from "./NodeLabel";
 
 export type NodesProps = { projectId: string };
 
@@ -30,6 +31,7 @@ const nodeTypes = {
   base: BaseNode,
   nodeText: NodeText,
   nodeStoryboard: NodeStoryboard,
+  nodeLabel: NodeLabel,
 };
 
 function NodesInner({ projectId }: NodesProps) {
@@ -66,11 +68,29 @@ function NodesInner({ projectId }: NodesProps) {
     );
   }, []);
 
+  const onLabelChange = useCallback((nodeId: string, label: string) => {
+    setNodes((prev) =>
+      prev.map((n) =>
+        n.id === nodeId && n.type === "nodeLabel"
+          ? {
+              ...n,
+              data: { ...((n.data as unknown as NodeLabelData) ?? {}), label, onLabelChange },
+            }
+          : n
+      )
+    );
+  }, []);
+
   const [nodes, setNodes, onNodesChange] = useNodesState<Record<string, unknown>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [playingNodeIds, setPlayingNodeIds] = useState<Set<string>>(() => new Set());
   const [nodePlayingIds, setNodePlayingIds] = useState<Set<string>>(() => new Set());
-  const [menuState, setMenuState] = useState<{ nodeId: string; x: number; y: number } | null>(null);
+  const [menuState, setMenuState] = useState<{
+    nodeId: string;
+    x: number;
+    y: number;
+    nodeType: string;
+  } | null>(null);
   const [canvasMenu, setCanvasMenu] = useState<{ x: number; y: number; flowX: number; flowY: number } | null>(
     null
   );
@@ -159,6 +179,16 @@ function NodesInner({ projectId }: NodesProps) {
   useEffect(() => {
     setNodes((prev) =>
       prev.map((n) => {
+        if (n.type === "nodeLabel") {
+          const d = (n.data ?? {}) as unknown as NodeLabelData;
+          const next: NodeLabelData = {
+            ...d,
+            onLabelChange,
+            onRenameDone,
+            isRenaming: renamingNodeId === n.id,
+          };
+          return { ...n, data: next as unknown as Record<string, unknown> };
+        }
         const d = n.data as unknown as BaseNodeData;
         const next = {
           ...d,
@@ -172,6 +202,7 @@ function NodesInner({ projectId }: NodesProps) {
       })
     );
   }, [
+    onLabelChange,
     onRenameDone,
     onTextChange,
     onTitleChange,
@@ -193,6 +224,7 @@ function NodesInner({ projectId }: NodesProps) {
       delete data.isRenaming;
       delete data.isPlaying;
       if ("onTextChange" in data) delete data.onTextChange;
+      if ("onLabelChange" in data) delete data.onLabelChange;
       return { ...n, data };
     });
     const tidyEdges = edges.map((e) => ({ ...e }));
@@ -213,10 +245,32 @@ function NodesInner({ projectId }: NodesProps) {
     (event, node) => {
       event.preventDefault();
       setCanvasMenu(null);
-      setMenuState({ nodeId: node.id, x: event.clientX, y: event.clientY });
+      setMenuState({
+        nodeId: node.id,
+        x: event.clientX,
+        y: event.clientY,
+        nodeType: node.type ?? "",
+      });
     },
     []
   );
+
+  const scaleLabelFont = useCallback((nodeId: string, multiplyBy: number) => {
+    setNodes((prev) =>
+      prev.map((n) => {
+        if (n.id !== nodeId || n.type !== "nodeLabel") return n;
+        const d = (n.data ?? {}) as NodeLabelData;
+        const fs =
+          typeof d.fontSizePx === "number" && d.fontSizePx > 0 ? d.fontSizePx : 14;
+        const raw = fs * multiplyBy;
+        const next =
+          multiplyBy > 1
+            ? Math.min(256, Math.round(raw * 100) / 100)
+            : Math.max(6, Math.round(raw * 100) / 100);
+        return { ...n, data: { ...d, fontSizePx: next } };
+      })
+    );
+  }, [setNodes]);
 
   const handlePaneContextMenu = useCallback(
     (event: React.MouseEvent) => {
@@ -247,7 +301,15 @@ function NodesInner({ projectId }: NodesProps) {
           ? ({ ...baseData, text: "", onTextChange } satisfies NodeTextData)
           : type === "nodeStoryboard"
             ? ({ ...baseData, imageModel: "gemini-2.5-flash-image" } satisfies NodeStoryboardData)
-            : baseData;
+            : type === "nodeLabel"
+              ? ({
+                  label: "Label",
+                  width: 168,
+                  height: 48,
+                  fontSizePx: 14,
+                  onLabelChange,
+                } satisfies NodeLabelData)
+              : baseData;
       setNodes((prev) => [
         ...prev,
         {
@@ -259,7 +321,7 @@ function NodesInner({ projectId }: NodesProps) {
       ]);
       setCanvasMenu(null);
     },
-    [canvasMenu, onTextChange, onTitleChange, setNodes]
+    [canvasMenu, onLabelChange, onTextChange, onTitleChange, setNodes]
   );
 
   const onConnect = useCallback(
@@ -330,6 +392,20 @@ function NodesInner({ projectId }: NodesProps) {
           onRename={handleRenameNode}
           onDelete={handleDeleteNode}
           onClose={() => setMenuState(null)}
+          extraItems={
+            menuState.nodeType === "nodeLabel"
+              ? [
+                  {
+                    label: "Scale up 2×",
+                    onClick: () => scaleLabelFont(menuState.nodeId, 2),
+                  },
+                  {
+                    label: "Scale down 2×",
+                    onClick: () => scaleLabelFont(menuState.nodeId, 0.5),
+                  },
+                ]
+              : undefined
+          }
         />
       ) : null}
       {canvasMenu ? (
@@ -340,6 +416,7 @@ function NodesInner({ projectId }: NodesProps) {
             { id: "base", label: "Base" },
             { id: "nodeText", label: "Text" },
             { id: "nodeStoryboard", label: "Storyboard" },
+            { id: "nodeLabel", label: "Label" },
           ]}
           onAddNodeType={addNodeOfType}
           onClose={() => setCanvasMenu(null)}
