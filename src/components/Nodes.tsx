@@ -28,6 +28,33 @@ import { loadStoryboardState, saveStoryboardState, type StoryboardPanelPersisted
 
 export type NodesProps = { projectId: string };
 
+/** Same as Storyboarding: public paths must be root-absolute for fetch. */
+function normalizePublicAssetUrl(url: string | null): string | null {
+  if (url == null || url === "") return url;
+  if (
+    url.startsWith("/") ||
+    url.startsWith("blob:") ||
+    url.startsWith("data:") ||
+    url.startsWith("http://") ||
+    url.startsWith("https://")
+  ) {
+    return url;
+  }
+  return `/${url}`;
+}
+
+async function fetchUrlAsBase64(url: string): Promise<string> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch image: ${url}`);
+  const blob = await res.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
 const nodeTypes = {
   base: BaseNode,
   nodeText: NodeText,
@@ -150,31 +177,61 @@ function NodesInner({ projectId }: NodesProps) {
         return;
       }
 
-      const panels: StoryboardPanelPersisted[] = scenesArr.map((scene) => {
-        const sceneObj =
-          typeof scene === "object" && scene !== null ? (scene as Record<string, unknown>) : null;
-        const imageGenerationPrompt =
-          sceneObj && "imageGenerationPrompt" in sceneObj
-            ? String(sceneObj.imageGenerationPrompt ?? "")
-            : "";
-        const prompt =
-          typeof scene === "string"
-            ? scene
-            : sceneObj && "prompt" in sceneObj
-              ? String(sceneObj.prompt ?? "")
-              : sceneObj && "promptImage" in sceneObj
-                ? String(sceneObj.promptImage ?? "")
-                : sceneObj && "description" in sceneObj
-                  ? String(sceneObj.description ?? "")
-                  : "";
-        return {
-          imageUrl: null,
-          promptImage: imageGenerationPrompt || prompt,
-          promptVideo: "",
-          mode: "image",
-          referenceImages: [],
-        };
-      });
+      const panels: StoryboardPanelPersisted[] = await Promise.all(
+        scenesArr.map(async (scene) => {
+          const sceneObj =
+            typeof scene === "object" && scene !== null ? (scene as Record<string, unknown>) : null;
+          const imageGenerationPrompt =
+            sceneObj && "imageGenerationPrompt" in sceneObj
+              ? String(sceneObj.imageGenerationPrompt ?? "")
+              : "";
+          const prompt =
+            typeof scene === "string"
+              ? scene
+              : sceneObj && "prompt" in sceneObj
+                ? String(sceneObj.prompt ?? "")
+                : sceneObj && "promptImage" in sceneObj
+                  ? String(sceneObj.promptImage ?? "")
+                  : sceneObj && "description" in sceneObj
+                    ? String(sceneObj.description ?? "")
+                    : "";
+          const referenceImages: { url: string }[] = [];
+          const refEntries =
+            sceneObj && "references" in sceneObj && Array.isArray(sceneObj.references)
+              ? (sceneObj.references as unknown[]).filter((r): r is string => typeof r === "string")
+              : [];
+          for (const ref of refEntries) {
+            const key = ref.startsWith("data.") ? ref.slice(5).trim() : ref.trim();
+            if (!key) continue;
+            const pathValue = getData(projectId, key);
+            if (typeof pathValue !== "string" || !pathValue.trim()) continue;
+            let url = pathValue.trim();
+            if (url.startsWith("file://")) {
+              try {
+                const upRes = await fetch("/api/upload-from-path", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ projectId, filePath: url }),
+                });
+                const upData = await upRes.json();
+                if (upRes.ok && typeof upData?.filePath === "string") {
+                  url = normalizePublicAssetUrl(upData.filePath) ?? upData.filePath;
+                }
+              } catch {
+                // skip this reference on upload failure
+              }
+            }
+            referenceImages.push({ url });
+          }
+          return {
+            imageUrl: null,
+            promptImage: imageGenerationPrompt || prompt,
+            promptVideo: "",
+            mode: "image" as const,
+            referenceImages,
+          };
+        })
+      );
 
       // Persist imported panels immediately
       const prev = loadStoryboardState(projectId);
@@ -185,6 +242,16 @@ function NodesInner({ projectId }: NodesProps) {
         const p = panels[i];
         const promptTrimmed = (p.promptImage ?? "").trim();
         if (!promptTrimmed) continue;
+        const attachedImages =
+          p.referenceImages.length > 0
+            ? await Promise.all(
+                p.referenceImages.map(async (ref, j) => ({
+                  fileName: `ref-${j}.png`,
+                  base64: await fetchUrlAsBase64(ref.url),
+                }))
+              )
+            : undefined;
+
         const imagePath = await (async () => {
           const res = await fetch("/api/generate-panel-image", {
             method: "POST",
@@ -194,7 +261,7 @@ function NodesInner({ projectId }: NodesProps) {
               model: prev.imageModel ?? "gemini-2.5-flash-image",
               outputFileName: `panel-${i}`,
               aspectRatio: prev.aspectRatio ?? "16:9",
-              attachedImages: [],
+              attachedImages: attachedImages ?? [],
               projectId,
             }),
           });
