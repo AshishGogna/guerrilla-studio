@@ -10,6 +10,7 @@ const MIN_H = 28;
 
 export type NodeLabelData = {
   label: string;
+  /** Width at default font size (14px); rendered width scales with fontSizePx */
   width?: number;
   height?: number;
   /** Text size in CSS px */
@@ -22,10 +23,12 @@ export type NodeLabelData = {
 
 export default function NodeLabel({ id, data, selected }: NodeProps<NodeLabelData>) {
   const label = data.label ?? "Label";
-  const width = typeof data.width === "number" && data.width > 0 ? data.width : DEFAULT_W;
+  const baseWidth = typeof data.width === "number" && data.width > 0 ? data.width : DEFAULT_W;
   const height = typeof data.height === "number" && data.height > 0 ? data.height : DEFAULT_H;
   const fontSizePx =
     typeof data.fontSizePx === "number" && data.fontSizePx > 0 ? data.fontSizePx : DEFAULT_FONT_PX;
+  /** Wider type → wider box; height stays from `height` only */
+  const displayWidth = Math.max(48, Math.round(baseWidth * (fontSizePx / DEFAULT_FONT_PX)));
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(label);
@@ -57,7 +60,7 @@ export default function NodeLabel({ id, data, selected }: NodeProps<NodeLabelDat
         selected ? "text-accent" : "text-foreground/90",
       ].join(" ")}
       style={{
-        width,
+        width: displayWidth,
         minHeight: height,
         boxSizing: "border-box",
         ...textStyle,
@@ -89,11 +92,11 @@ export default function NodeLabel({ id, data, selected }: NodeProps<NodeLabelDat
           }}
           style={{
             ...textStyle,
-            height: Math.max(MIN_H, fontSizePx * 2),
+            minHeight: Math.max(MIN_H, height - 4),
           }}
         />
       ) : (
-        <div className="whitespace-pre-wrap break-words" style={{ ...textStyle, minHeight: fontSizePx * 1.35 }}>
+        <div className="whitespace-pre-wrap break-words" style={textStyle}>
           {label}
         </div>
       )}
