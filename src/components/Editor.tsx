@@ -27,6 +27,9 @@ type PlayerRefType = import("@remotion/player").PlayerRef;
 const FPS = 30;
 const COMP_WIDTH = 1920;
 const COMP_HEIGHT = 1080;
+/** Max on-screen preview box; composition aspect ratio (Transform resolution) is preserved inside. */
+const PREVIEW_DISPLAY_MAX_W = 960;
+const PREVIEW_DISPLAY_MAX_H = 540;
 const CLIP_WIDTH_PX_PER_SEC = 64;
 const TRACK_HEIGHT_PX = 48;
 /** Minimum segment duration (sec) when splitting by silences; shorter segments are skipped to avoid very thin clips. */
@@ -2874,12 +2877,35 @@ export default function Editor({ projectId }: EditorProps) {
     [getTimelineX, totalDurationSec, timelinePxPerSec]
   );
 
+  /** On-screen preview matches Transform resolution aspect ratio; scaled down to fit max box. */
+  const previewDisplayPx = useMemo(() => {
+    const w = parseInt(compWidthInput, 10);
+    const h = parseInt(compHeightInput, 10);
+    const cw = Number.isFinite(w) && w > 0 ? w : COMP_WIDTH;
+    const ch = Number.isFinite(h) && h > 0 ? h : COMP_HEIGHT;
+    const scale = Math.min(PREVIEW_DISPLAY_MAX_W / cw, PREVIEW_DISPLAY_MAX_H / ch, 1);
+    return {
+      width: Math.max(1, Math.round(cw * scale)),
+      height: Math.max(1, Math.round(ch * scale)),
+    };
+  }, [compWidthInput, compHeightInput]);
+
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background text-foreground">
       {/* Preview + Right Panel */}
-      <div className="flex shrink-0 border-b border-foreground/10 bg-black/40" style={{ height: 300 }}>
-        <div className="flex flex-1 items-center justify-center p-4">
-          <div className="aspect-video w-full max-w-4xl overflow-hidden rounded-lg bg-black">
+      <div
+        className="flex shrink-0 border-b border-foreground/10 bg-black/40 py-3"
+        style={{ minHeight: previewDisplayPx.height + 24 }}
+      >
+        <div className="flex min-h-0 flex-1 items-center justify-center px-4">
+          <div
+            className="overflow-hidden rounded-lg bg-black shadow-lg"
+            style={{
+              width: previewDisplayPx.width,
+              height: previewDisplayPx.height,
+              flexShrink: 0,
+            }}
+          >
             <RemotionPlayerPreview
               ref={playerRef}
               clips={clips}
@@ -4118,18 +4144,16 @@ const RemotionPlayerPreview = React.forwardRef<
   const safeDurationInFrames = Math.max(1, Math.floor(toFinite(durationInFrames, 1)));
   const compWidth = compWidthProp != null && Number.isFinite(compWidthProp) && compWidthProp > 0 ? compWidthProp : toFinite(COMP_WIDTH, 1920);
   const compHeight = compHeightProp != null && Number.isFinite(compHeightProp) && compHeightProp > 0 ? compHeightProp : toFinite(COMP_HEIGHT, 1080);
-  const playerWidth = 640;
-  const playerHeight = 360;
   const safeStyle: React.CSSProperties = {
-    width: toFinite(playerWidth, 640),
-    height: toFinite(playerHeight, 360),
+    width: "100%",
+    height: "100%",
     maxWidth: "100%",
     maxHeight: "100%",
   };
   const wrapperStyle: React.CSSProperties = {
     width: "100%",
     height: "100%",
-    minHeight: toFinite(200, 200),
+    minHeight: 0,
     display: "flex",
     justifyContent: "center",
     alignItems: "center",
