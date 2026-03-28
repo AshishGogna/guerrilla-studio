@@ -4838,6 +4838,8 @@ function TimelineAudioBlock({
 }) {
   const barRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  /** Bumps when timeline clip bar resizes so waveform redraws after layout (fixes ch=1 “vertical lines” until volume changes). */
+  const [waveformLayoutGen, setWaveformLayoutGen] = useState(0);
   const [trimDrag, setTrimDrag] = useState<{
     side: "left" | "right";
     startX: number;
@@ -4944,7 +4946,18 @@ function TimelineAudioBlock({
 
   const waveform = clip.waveformData?.length ? clip.waveformData : EMPTY_WAVEFORM;
   const WAVEFORM_SILENT_EPS = 1e-5;
-  useEffect(() => {
+
+  useLayoutEffect(() => {
+    const barEl = barRef.current;
+    if (!barEl || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      setWaveformLayoutGen((g) => g + 1);
+    });
+    ro.observe(barEl);
+    return () => ro.disconnect();
+  }, []);
+
+  useLayoutEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const parent = canvas.parentElement;
@@ -4952,7 +4965,13 @@ function TimelineAudioBlock({
     const rect = parent.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     const cw = Math.max(1, Math.round(wrapperWidthPx));
-    const ch = Math.max(1, Math.round(rect.height));
+    const barClientH = barRef.current?.clientHeight ?? 0;
+    const canvasClientH = canvas.clientHeight;
+    const parentH = Math.round(rect.height);
+    const ch = Math.max(
+      1,
+      parentH || Math.round(canvasClientH) || Math.round(barClientH) || TRACK_HEIGHT_PX
+    );
     canvas.width = cw * dpr;
     canvas.height = ch * dpr;
     const ctx = canvas.getContext("2d");
@@ -4972,7 +4991,7 @@ function TimelineAudioBlock({
       ctx.stroke();
       return;
     }
-    const maxBarH = centerY - 2;
+    const maxBarH = Math.max(1, centerY - 2);
     const vol = Math.max(0, Math.min(1, clip.volume ?? 1));
     const barWidth = Math.max(0.5, cw / waveform.length);
     ctx.fillStyle = "rgba(59, 130, 246, 0.7)";
@@ -4981,7 +5000,7 @@ function TimelineAudioBlock({
       const x = (i / waveform.length) * cw;
       ctx.fillRect(x, centerY - barH, barWidth, barH * 2);
     });
-  }, [waveform, wrapperWidthPx, clip.volume, waveformLoading]);
+  }, [waveform, wrapperWidthPx, clip.volume, waveformLoading, waveformLayoutGen]);
 
   return (
     <div
