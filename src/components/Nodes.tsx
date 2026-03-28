@@ -24,6 +24,10 @@ import { NodesProvider } from "./NodesContext";
 import { parseAiResponse, parsePrompt } from "@/lib/textParser";
 import NodeStoryboard, { type NodeStoryboardData } from "./NodeStoryboard";
 import { executeStoryboardRunAll } from "@/lib/storyboardRunAll";
+import {
+  getStoryboardLastSceneIndex,
+  runStoryboardDownloadAndCopy,
+} from "@/lib/storyboardDownloadCopy";
 import { getScenesArrayFromProject } from "@/lib/storyboardNumericPrompt";
 import NodeLabel, { type NodeLabelData } from "./NodeLabel";
 
@@ -135,12 +139,59 @@ function NodesInner({ projectId }: NodesProps) {
   );
 
   const playStoryboardNodeOnce = useCallback(
-    async (nodeId: string) => {
+    async (nodeId: string, fromChain: boolean) => {
       if (storyboardRunLockRef.current) return;
       storyboardRunLockRef.current = true;
       setNodePlaying(nodeId, true);
       try {
+        if (fromChain) {
+          const last = getStoryboardLastSceneIndex(projectId);
+          const nonce = Date.now();
+          setNodes((prev) =>
+            prev.map((n) => {
+              if (n.id !== nodeId || n.type !== "nodeStoryboard") return n;
+              const d = (n.data ?? {}) as Record<string, unknown>;
+              return {
+                ...n,
+                data: {
+                  ...d,
+                  fromScene: "0",
+                  toScene: String(last),
+                  chainSyncNonce: nonce,
+                },
+              };
+            })
+          );
+        }
         await executeStoryboardRunAll(projectId);
+        if (fromChain) {
+          const scenesArr = getScenesArrayFromProject(projectId);
+          if (scenesArr.length > 0) {
+            const lastAfter = getStoryboardLastSceneIndex(projectId);
+            setNodes((prev) =>
+              prev.map((n) => {
+                if (n.id !== nodeId || n.type !== "nodeStoryboard") return n;
+                const d = (n.data ?? {}) as Record<string, unknown>;
+                return {
+                  ...n,
+                  data: {
+                    ...d,
+                    fromScene: "0",
+                    toScene: String(lastAfter),
+                    chainSyncNonce: Date.now(),
+                  },
+                };
+              })
+            );
+            try {
+              await runStoryboardDownloadAndCopy(projectId, 0, lastAfter);
+            } catch (copyErr) {
+              console.error(copyErr);
+              alert(copyErr instanceof Error ? copyErr.message : "Download & copy failed");
+            }
+            window.open("https://grok.com/imagine", "_blank", "noopener,noreferrer");
+          }
+        }
       } catch (err) {
         console.error(err);
         alert(err instanceof Error ? err.message : "Storyboard run failed");
@@ -149,11 +200,12 @@ function NodesInner({ projectId }: NodesProps) {
         storyboardRunLockRef.current = false;
       }
     },
-    [projectId, setNodePlaying]
+    [projectId, setNodePlaying, setNodes]
   );
 
   const playNodeOnce = useCallback(
-    async (nodeId: string) => {
+    async (nodeId: string, opts?: { fromChain?: boolean }) => {
+      const fromChain = opts?.fromChain ?? false;
       const node = nodesRef.current.find((n) => n.id === nodeId);
       if (!node) return;
       if (node.type === "nodeText") {
@@ -161,7 +213,7 @@ function NodesInner({ projectId }: NodesProps) {
         return;
       }
       if (node.type === "nodeStoryboard") {
-        await playStoryboardNodeOnce(nodeId);
+        await playStoryboardNodeOnce(nodeId, fromChain);
       }
       // base, nodeLabel, etc.: no-op for single play
     },
@@ -174,7 +226,7 @@ function NodesInner({ projectId }: NodesProps) {
       let current = startNodeId;
       while (current && !visited.has(current)) {
         visited.add(current);
-        await playNodeOnce(current);
+        await playNodeOnce(current, { fromChain: true });
 
         // Follow first outgoing edge only (simple + predictable).
         const nextEdge = edgesRef.current.find((e) => e.source === current);
@@ -261,6 +313,7 @@ function NodesInner({ projectId }: NodesProps) {
       delete data.isPlaying;
       if ("onTextChange" in data) delete data.onTextChange;
       if ("onLabelChange" in data) delete data.onLabelChange;
+      if ("chainSyncNonce" in data) delete data.chainSyncNonce;
       return { ...n, data };
     });
     const tidyEdges = edges.map((e) => ({ ...e }));
