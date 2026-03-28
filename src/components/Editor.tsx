@@ -37,6 +37,32 @@ const MIN_SEGMENT_DURATION_SEC = 1;
 const RULER_HEIGHT_PX = 36; // h-9 in Tailwind
 const TIMELINE_PADDING_PX = 16; // p-4 on scroll container
 
+/** Avoid 10k+ DOM nodes on long timelines (hurts drag/render). */
+const RULER_MAX_TICKS = 500;
+
+function buildRulerTicks(totalSec: number): { sec: number; isMajor: boolean }[] {
+  if (totalSec <= 0) return [{ sec: 0, isMajor: true }];
+  let step = 0.25;
+  if (totalSec > 90) step = 1;
+  if (totalSec > 600) step = 5;
+  if (totalSec > 1800) step = 15;
+  if (totalSec > 7200) step = 60;
+  while (totalSec / step > RULER_MAX_TICKS) {
+    step *= 2;
+  }
+  const ticks: { sec: number; isMajor: boolean }[] = [];
+  const count = Math.min(RULER_MAX_TICKS + 1, Math.ceil(totalSec / step) + 1);
+  let lastSec = -1;
+  for (let i = 0; i <= count; i++) {
+    const sec = Math.min(totalSec, Math.round(i * step * 1000) / 1000);
+    if (sec <= lastSec) continue;
+    lastSec = sec;
+    const isMajor = Math.abs(sec - Math.round(sec)) < 0.001;
+    ticks.push({ sec, isMajor });
+  }
+  return ticks;
+}
+
 function formatPlayheadTime(sec: number): string {
   const s = Math.max(0, sec);
   const h = Math.floor(s / 3600);
@@ -2379,19 +2405,31 @@ export default function Editor({ projectId }: EditorProps) {
       if (e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
-      const onMove = (e: MouseEvent) => {
-        const x = Math.max(0, getTimelineX(e.clientX) - TIMELINE_PADDING_PX);
+      const latestXRef = { clientX: e.clientX };
+      let rafId: number | null = null;
+      const flush = (clientX: number) => {
+        const x = Math.max(0, getTimelineX(clientX) - TIMELINE_PADDING_PX);
         const sec = Math.max(0, Math.min(totalDurationSec, x / timelinePxPerSec));
         setPlayheadTimeSec(sec);
         playerRef.current?.seekTo(Math.round(sec * FPS));
       };
+      const onMove = (ev: MouseEvent) => {
+        latestXRef.clientX = ev.clientX;
+        if (rafId != null) cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(() => {
+          rafId = null;
+          flush(latestXRef.clientX);
+        });
+      };
       const onUp = () => {
+        if (rafId != null) cancelAnimationFrame(rafId);
+        flush(latestXRef.clientX);
         document.removeEventListener("mousemove", onMove);
         document.removeEventListener("mouseup", onUp);
         document.body.style.removeProperty("cursor");
         document.body.style.removeProperty("user-select");
       };
-      onMove(e.nativeEvent);
+      flush(e.clientX);
       document.body.style.cursor = "ew-resize";
       document.body.style.userSelect = "none";
       document.addEventListener("mousemove", onMove);
@@ -2409,8 +2447,10 @@ export default function Editor({ projectId }: EditorProps) {
       onSelectIfClick?: () => void
     ) => {
       let hasMoved = false;
-      let currentTrackIndex = initialTrackIndex;
       const initialTimelineX = getTimelineX(initialClientX);
+      const latestPointerRef = { clientX: initialClientX, clientY: 0 };
+      let rafId: number | null = null;
+
       const getTrackIndexFromY = (clientY: number): number => {
         const scrollEl = timelineRef.current;
         if (!scrollEl) return initialTrackIndex;
@@ -2418,30 +2458,49 @@ export default function Editor({ projectId }: EditorProps) {
         const yInScrollContent = clientY - rect.top + scrollEl.scrollTop - RULER_HEIGHT_PX;
         return Math.max(0, Math.floor(yInScrollContent / TRACK_HEIGHT_PX));
       };
-      const onMove = (e: MouseEvent) => {
-        hasMoved = true;
-        const currentTimelineX = getTimelineX(e.clientX);
+
+      const applyDragFromClient = (clientX: number, clientY: number) => {
+        const currentTimelineX = getTimelineX(clientX);
         const deltaSec = (currentTimelineX - initialTimelineX) / timelinePxPerSec;
         const newStartSec = Math.max(0, initialStartTimeSec + deltaSec);
-        currentTrackIndex = getTrackIndexFromY(e.clientY);
+        const trackIdx = getTrackIndexFromY(clientY);
         setClips((prev) => {
           const moved = prev.find((c) => c.id === id);
           const partnerId = moved?.linkedClipId;
           return prev.map((c) => {
-            if (c.id === id) return { ...c, startTimeSec: newStartSec, trackIndex: currentTrackIndex };
+            if (c.id === id) return { ...c, startTimeSec: newStartSec, trackIndex: trackIdx };
             if (partnerId && c.id === partnerId) return { ...c, startTimeSec: newStartSec };
             return c;
           });
         });
       };
+
+      const onMove = (e: MouseEvent) => {
+        hasMoved = true;
+        latestPointerRef.clientX = e.clientX;
+        latestPointerRef.clientY = e.clientY;
+        if (rafId != null) cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(() => {
+          rafId = null;
+          applyDragFromClient(latestPointerRef.clientX, latestPointerRef.clientY);
+        });
+      };
+
       const onEnd = () => {
-        if (!hasMoved) onSelectIfClick?.();
-        else {
-          setClips((prev) => {
-            const clip = prev.find((c) => c.id === id);
-            const start = clip ? toFinite(clip.startTimeSec, 0) : 0;
-            return applyClipPositionAndTrimOverlaps(prev, id, start, currentTrackIndex);
-          });
+        if (rafId != null) {
+          cancelAnimationFrame(rafId);
+          rafId = null;
+        }
+        if (hasMoved) {
+          const currentTimelineX = getTimelineX(latestPointerRef.clientX);
+          const deltaSec = (currentTimelineX - initialTimelineX) / timelinePxPerSec;
+          const newStartSec = Math.max(0, initialStartTimeSec + deltaSec);
+          const finalTrack = getTrackIndexFromY(latestPointerRef.clientY);
+          setClips((prev) =>
+            applyClipPositionAndTrimOverlaps(prev, id, newStartSec, finalTrack)
+          );
+        } else {
+          onSelectIfClick?.();
         }
         setDraggedId(null);
         document.removeEventListener("mousemove", onMove);
@@ -2655,18 +2714,14 @@ export default function Editor({ projectId }: EditorProps) {
   ]);
 
   const openExportModal = useCallback(() => {
-    const sorted = [...clips].sort(
-      (a, b) => toFinite(a.startTimeSec, 0) - toFinite(b.startTimeSec, 0)
-    );
-    const first = sorted[0];
-    const defW =
-      first?.width != null && Number.isFinite(first.width) ? first.width : COMP_WIDTH;
-    const defH =
-      first?.height != null && Number.isFinite(first.height) ? first.height : COMP_HEIGHT;
+    const x = parseInt(compWidthInput, 10);
+    const y = parseInt(compHeightInput, 10);
+    const defW = Number.isFinite(x) && x > 0 ? x : COMP_WIDTH;
+    const defH = Number.isFinite(y) && y > 0 ? y : COMP_HEIGHT;
     setExportResX(defW);
     setExportResY(defH);
     setShowExportModal(true);
-  }, [clips]);
+  }, [compWidthInput, compHeightInput]);
 
   const selectedClip = clips.find((c) => c.id === selectedClipId);
   const isAudioClipSelected = selectedClip?.kind === "audio" || selectedClip?.kind === "combined";
@@ -3729,12 +3784,7 @@ export default function Editor({ projectId }: EditorProps) {
             >
               {(() => {
                 const totalSec = Math.max(0, totalDurationSec);
-                const minorStep = 0.25;
-                const ticks: { sec: number; isMajor: boolean }[] = [];
-                for (let t = 0; t <= totalSec + 0.001; t += minorStep) {
-                  const isMajor = Math.abs(t - Math.round(t)) < 0.001;
-                  ticks.push({ sec: t, isMajor });
-                }
+                const ticks = buildRulerTicks(totalSec);
                 return ticks.map(({ sec, isMajor }) => {
                   const leftPx = sec * timelinePxPerSec;
                   return (
@@ -4254,7 +4304,8 @@ function TimelineClipBlock({
     const bar = barRef.current;
     if (!bar || !onBreakToolMouseMove) return 0;
     const rect = bar.getBoundingClientRect();
-    const localX = e.clientX - rect.left;
+    // Match TimelineAudioBlock: inner strip is offset by clipLeftPx inside the wide wrapper.
+    const localX = e.clientX - rect.left - clipLeftPx;
     const frac = Math.max(0, Math.min(1, localX / safeWidth));
     return startTimeSec + frac * timelineDurSec;
   };
