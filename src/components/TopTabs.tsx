@@ -81,7 +81,17 @@ export default function TopTabs({ projectId }: Props) {
         {activeTab === "world" && <World projectId={projectId} />}
         {activeTab === "scripting" && <Scripting projectId={projectId} />}
         {activeTab === "storyboarding" && <Storyboarding projectId={projectId} />}
-        {activeTab === "editing" && <Editor projectId={projectId} />}
+        {/*
+          Keep Editor mounted while on other tabs so Nodes → "Play" on Editor node can clear/upload
+          without switching away from the Nodes tab (and without losing folder registration).
+        */}
+        <div
+          className="flex min-h-0 flex-1 flex-col overflow-auto"
+          style={{ display: activeTab === "editing" ? "flex" : "none" }}
+          aria-hidden={activeTab !== "editing"}
+        >
+          <Editor projectId={projectId} />
+        </div>
         {activeTab === "metadata" && <Metadata projectId={projectId} />}
       </div>
     </div>

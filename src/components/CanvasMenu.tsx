@@ -2,7 +2,12 @@
 
 import { useState } from "react";
 
-export type CanvasNodeTypeId = "base" | "nodeText" | "nodeStoryboard" | "nodeLabel";
+export type CanvasNodeTypeId =
+  | "base"
+  | "nodeText"
+  | "nodeStoryboard"
+  | "nodeEditor"
+  | "nodeLabel";
 
 type CanvasMenuProps = {
   x: number;

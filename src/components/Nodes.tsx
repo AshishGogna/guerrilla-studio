@@ -30,6 +30,8 @@ import {
 } from "@/lib/storyboardDownloadCopy";
 import { getScenesArrayFromProject } from "@/lib/storyboardNumericPrompt";
 import NodeLabel, { type NodeLabelData } from "./NodeLabel";
+import NodeEditor, { type NodeEditorData } from "./NodeEditor";
+import { requestEditorNodePlay } from "@/lib/editorNodePlayEvent";
 
 export type NodesProps = { projectId: string };
 
@@ -37,6 +39,7 @@ const nodeTypes = {
   base: BaseNode,
   nodeText: NodeText,
   nodeStoryboard: NodeStoryboard,
+  nodeEditor: NodeEditor,
   nodeLabel: NodeLabel,
 };
 
@@ -138,6 +141,30 @@ function NodesInner({ projectId }: NodesProps) {
     [projectId]
   );
 
+  const playEditorNodeOnce = useCallback(
+    async (nodeId: string) => {
+      const node = nodesRef.current.find((n) => n.id === nodeId);
+      const editorData = (node?.data ?? {}) as NodeEditorData;
+      setPlayingNodeIds((prev) => new Set(prev).add(nodeId));
+      try {
+        await requestEditorNodePlay(projectId, nodeId, 600_000, {
+          cutSilences: editorData.cutSilences === true,
+          transcribe: editorData.transcribe === true,
+        });
+      } catch (err) {
+        console.error(err);
+        alert(err instanceof Error ? err.message : "Editor node play failed");
+      } finally {
+        setPlayingNodeIds((prev) => {
+          const next = new Set(prev);
+          next.delete(nodeId);
+          return next;
+        });
+      }
+    },
+    [projectId]
+  );
+
   const playStoryboardNodeOnce = useCallback(
     async (nodeId: string, fromChain: boolean) => {
       if (storyboardRunLockRef.current) return;
@@ -214,10 +241,14 @@ function NodesInner({ projectId }: NodesProps) {
       }
       if (node.type === "nodeStoryboard") {
         await playStoryboardNodeOnce(nodeId, fromChain);
+        return;
+      }
+      if (node.type === "nodeEditor") {
+        await playEditorNodeOnce(nodeId);
       }
       // base, nodeLabel, etc.: no-op for single play
     },
-    [playStoryboardNodeOnce, playTextNodeOnce]
+    [playEditorNodeOnce, playStoryboardNodeOnce, playTextNodeOnce]
   );
 
   const playChainFrom = useCallback(
@@ -382,7 +413,11 @@ function NodesInner({ projectId }: NodesProps) {
             ? "Base Node"
             : type === "nodeStoryboard"
               ? "Storyboard"
-              : "NodeText",
+              : type === "nodeEditor"
+                ? "Editor"
+                : type === "nodeLabel"
+                  ? "Label"
+                  : "NodeText",
         onTitleChange,
       };
       const data =
@@ -398,15 +433,21 @@ function NodesInner({ projectId }: NodesProps) {
                   Math.max(0, getScenesArrayFromProject(projectId).length - 1)
                 ),
               } satisfies NodeStoryboardData)
-            : type === "nodeLabel"
+            : type === "nodeEditor"
               ? ({
-                  label: "Label",
-                  width: 168,
-                  height: 48,
-                  fontSizePx: 14,
-                  onLabelChange,
-                } satisfies NodeLabelData)
-              : baseData;
+                  ...baseData,
+                  cutSilences: false,
+                  transcribe: false,
+                } satisfies NodeEditorData)
+              : type === "nodeLabel"
+                ? ({
+                    label: "Label",
+                    width: 168,
+                    height: 48,
+                    fontSizePx: 14,
+                    onLabelChange,
+                  } satisfies NodeLabelData)
+                : baseData;
       setNodes((prev) => [
         ...prev,
         {
@@ -513,6 +554,7 @@ function NodesInner({ projectId }: NodesProps) {
             { id: "base", label: "Base" },
             { id: "nodeText", label: "Text" },
             { id: "nodeStoryboard", label: "Storyboard" },
+            { id: "nodeEditor", label: "Editor" },
             { id: "nodeLabel", label: "Label" },
           ]}
           onAddNodeType={addNodeOfType}

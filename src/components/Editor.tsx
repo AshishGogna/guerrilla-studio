@@ -2,7 +2,7 @@
 
 import { renderMediaOnWeb } from "@remotion/web-renderer";
 import dynamic from "next/dynamic";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Audio, Video } from "@remotion/media";
 import { AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig } from "remotion";
@@ -15,6 +15,8 @@ import {
   saveEditorSubtitleSettings,
   saveEditorTransformSettings,
 } from "@/lib/panels-storage";
+import { getEditorNodeMediaFiles, isAudioFile } from "@/lib/editorNodeFolderSource";
+import { EDITOR_NODE_PLAY_EVENT, type EditorNodePlayDetail } from "@/lib/editorNodePlayEvent";
 
 const RemotionPlayer = dynamic(
   () =>
@@ -579,6 +581,20 @@ function removeClipFromArray(clips: EditorClip[], idToRemove: string): EditorCli
     );
   }
   return next;
+}
+
+/**
+ * Many clips can share the same blob: URL (e.g. cut-silence segments, linked video+audio).
+ * Only revoke after removal when no remaining clip still references that URL.
+ */
+function revokeBlobSrcIfOrphaned(remainingClips: EditorClip[], src: string): void {
+  if (!src.startsWith("blob:")) return;
+  if (remainingClips.some((c) => c.src === src)) return;
+  try {
+    URL.revokeObjectURL(src);
+  } catch {
+    // ignore
+  }
 }
 
 const WAVEFORM_SAMPLES = 256;
@@ -1155,6 +1171,10 @@ export default function Editor({ projectId }: EditorProps) {
     const raw = loadEditorState(projectId).clips as unknown as EditorClip[];
     return raw.filter((c) => !c.src.startsWith("blob:"));
   });
+  const clipsRef = useRef<EditorClip[]>(clips);
+  useLayoutEffect(() => {
+    clipsRef.current = clips;
+  }, [clips]);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -1169,6 +1189,7 @@ export default function Editor({ projectId }: EditorProps) {
   const playerRef = useRef<PlayerRefType | null>(null);
   /** Deep-cloned clips from Edit → Copy (Cmd/Ctrl+C); paste appends after track end. */
   const clipsClipboardRef = useRef<EditorClip[] | null>(null);
+  const editorNodePlayBusyRef = useRef(false);
   const [breakToolEnabled, setBreakToolEnabled] = useState(false);
   const [breakToolHoverClipId, setBreakToolHoverClipId] = useState<string | null>(null);
   const [breakToolHoverTimelineSec, setBreakToolHoverTimelineSec] = useState(0);
@@ -1230,6 +1251,8 @@ export default function Editor({ projectId }: EditorProps) {
   const skipNextSaveRef = useRef(true);
   const hasHydratedRef = useRef(false);
   const blobPersistInFlightRef = useRef(false);
+  /** When true, a clips change happened while blob upload was running; flush save after it finishes. */
+  const blobSaveSkippedWhileInFlightRef = useRef(false);
   const subtitleSettingsLoadedRef = useRef(false);
 
   useEffect(() => {
@@ -1340,7 +1363,10 @@ export default function Editor({ projectId }: EditorProps) {
       saveEditorState(projectId, { clips });
       return;
     }
-    if (blobPersistInFlightRef.current) return;
+    if (blobPersistInFlightRef.current) {
+      blobSaveSkippedWhileInFlightRef.current = true;
+      return;
+    }
     blobPersistInFlightRef.current = true;
     (async () => {
       const savedPathById = new Map<string, string>();
@@ -1372,9 +1398,22 @@ export default function Editor({ projectId }: EditorProps) {
           saveEditorState(projectId, { clips: next });
           return next;
         });
+      } else {
+        // Uploads failed but timeline (e.g. new subtitles) should still persist
+        saveEditorState(projectId, { clips: clipsRef.current });
       }
     })().finally(() => {
       blobPersistInFlightRef.current = false;
+      if (blobSaveSkippedWhileInFlightRef.current) {
+        blobSaveSkippedWhileInFlightRef.current = false;
+        // Let React commit any clips that changed during upload (e.g. transcribe), then save + re-run effect
+        queueMicrotask(() => {
+          requestAnimationFrame(() => {
+            saveEditorState(projectId, { clips: clipsRef.current });
+            setClips((prev) => [...prev]);
+          });
+        });
+      }
     });
   }, [clips, projectId]);
 
@@ -1582,8 +1621,8 @@ export default function Editor({ projectId }: EditorProps) {
     }
   }, [addAudioClip, stopRecording]);
 
-  const transcribeClip = useCallback(async (clipId: string) => {
-    const clip = clips.find((c) => c.id === clipId);
+  const transcribeClip = useCallback(async (clipId: string, clipHint?: EditorClip) => {
+    const clip = clipHint ?? clips.find((c) => c.id === clipId);
     if (!clip) return;
     setClipContextMenu(null);
     try {
@@ -1695,9 +1734,10 @@ export default function Editor({ projectId }: EditorProps) {
     }
   }, [clips]);
 
-  const transcribeAll = useCallback(async () => {
+  const transcribeAll = useCallback(async (clipsOverride?: EditorClip[]) => {
+    const source = clipsOverride ?? clips;
     const selected = selectedClipId
-      ? clips.find((c) => c.id === selectedClipId)
+      ? source.find((c) => c.id === selectedClipId)
       : null;
     const selectedIsAudioLike =
       selected != null &&
@@ -1706,14 +1746,14 @@ export default function Editor({ projectId }: EditorProps) {
 
     const audioClips = selectedIsAudioLike
       ? [selected]
-      : clips.filter(
+      : source.filter(
           (c) => (c.kind === "audio" || c.kind === "combined") && !c.disabled
         );
     if (audioClips.length === 0) return;
     setIsTranscribingAll(true);
     try {
       for (const clip of audioClips) {
-        await transcribeClip(clip.id);
+        await transcribeClip(clip.id, clip);
       }
     } finally {
       setIsTranscribingAll(false);
@@ -1784,8 +1824,9 @@ export default function Editor({ projectId }: EditorProps) {
     []
   );
 
-  const cutSilences = useCallback(async () => {
-    const audioClips = clips.filter(
+  const cutSilences = useCallback(async (clipsOverride?: EditorClip[]) => {
+    const sourceClips = clipsOverride ?? clips;
+    const audioClips = sourceClips.filter(
       (c) => (c.kind === "audio" || c.kind === "combined") && !c.disabled
     );
     if (audioClips.length === 0) return;
@@ -1810,7 +1851,7 @@ export default function Editor({ projectId }: EditorProps) {
         const segments = buildSegmentsFromSilences(trimStart, trimEnd, silences);
         if (segments.length <= 1) continue;
 
-        const partner = clip.linkedClipId ? clips.find((c) => c.id === clip.linkedClipId) : null;
+        const partner = clip.linkedClipId ? sourceClips.find((c) => c.id === clip.linkedClipId) : null;
         let timelineSec = toFinite(clip.startTimeSec, 0);
 
         const segmentClips: EditorClip[] = [];
@@ -1893,8 +1934,9 @@ export default function Editor({ projectId }: EditorProps) {
         const toRemoveIds = next.filter((c) => c.disabled).map((c) => c.id);
         for (const id of toRemoveIds) {
           const clip = next.find((c) => c.id === id);
-          if (clip?.src.startsWith("blob:")) URL.revokeObjectURL(clip.src);
+          const src = clip?.src ?? "";
           next = removeClipFromArray(next, id);
+          revokeBlobSrcIfOrphaned(next, src);
         }
         // Compact timeline: reassign startTimeSec so no gaps remain
         const nonSub = next.filter((c) => c.kind !== "subtitle");
@@ -1935,11 +1977,24 @@ export default function Editor({ projectId }: EditorProps) {
     }
   }, [clips, detectSilencesForClip, buildSegmentsFromSilences]);
 
+  const flushClipsLayout = useCallback(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolve());
+        });
+      }),
+    []
+  );
+
   const removeClip = useCallback((id: string) => {
     setClips((prev) => {
       const clip = prev.find((c) => c.id === id);
-      if (clip?.src.startsWith("blob:")) URL.revokeObjectURL(clip.src);
-      return removeClipFromArray(prev, id);
+      if (!clip) return prev;
+      const src = clip.src;
+      const next = removeClipFromArray(prev, id);
+      revokeBlobSrcIfOrphaned(next, src);
+      return next;
     });
     if (selectedClipId === id) setSelectedClipId(null);
   }, [selectedClipId]);
@@ -2088,13 +2143,37 @@ export default function Editor({ projectId }: EditorProps) {
     [splitClipAt]
   );
 
-  const handleUploadClips = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = e.target.files;
-      if (!files?.length) return;
-      for (const file of Array.from(files)) {
+  const clearAllClipsProgrammatic = useCallback(async () => {
+    setClips((prev) => {
+      const seenBlob = new Set<string>();
+      prev.forEach((c) => {
+        if (c.src.startsWith("blob:") && !seenBlob.has(c.src)) {
+          seenBlob.add(c.src);
+          URL.revokeObjectURL(c.src);
+        }
+      });
+      return [];
+    });
+    setSelectedClipId(null);
+    setPlayheadTimeSec(0);
+    playerRef.current?.seekTo(0);
+    saveEditorState(projectId, { clips: [] });
+    try {
+      await fetch("/api/editor-clear-saves", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId }),
+      });
+    } catch {
+      // ignore
+    }
+  }, [projectId]);
+
+  const uploadClipsFromFiles = useCallback(
+    async (files: File[]) => {
+      for (const file of files) {
         const url = URL.createObjectURL(file);
-        if (file.type.startsWith("audio/")) {
+        if (isAudioFile(file)) {
           const durationSec = await probeMediaDurationSec(url, "audio");
           addAudioClip(url, file.name, durationSec);
         } else {
@@ -2102,10 +2181,95 @@ export default function Editor({ projectId }: EditorProps) {
           addClip(url, durationSec);
         }
       }
-      e.target.value = "";
     },
     [addClip, addAudioClip]
   );
+
+  const handleUploadClips = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files;
+      if (!files?.length) return;
+      await uploadClipsFromFiles(Array.from(files));
+      e.target.value = "";
+    },
+    [uploadClipsFromFiles]
+  );
+
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      const e = ev as CustomEvent<EditorNodePlayDetail>;
+      const d = e.detail;
+      if (!d || d.projectId !== projectId) return;
+
+      void (async () => {
+        if (editorNodePlayBusyRef.current) {
+          d.reject(new Error("Editor is already processing a node play request."));
+          return;
+        }
+        editorNodePlayBusyRef.current = true;
+        try {
+          const files = await getEditorNodeMediaFiles(d.nodeId);
+          if (!files?.length) {
+            d.reject(
+              new Error(
+                "No clips selected for this node. Use “Choose video/audio files…” on the Editor node, then Play again."
+              )
+            );
+            return;
+          }
+          await clearAllClipsProgrammatic();
+          await uploadClipsFromFiles(files);
+          await flushClipsLayout();
+
+          const hasAudioLike = (list: EditorClip[]) =>
+            list.some(
+              (c) => !c.disabled && (c.kind === "audio" || c.kind === "combined")
+            );
+
+          let working = clipsRef.current;
+          for (let i = 0; i < 80 && !hasAudioLike(working); i++) {
+            await new Promise((r) => setTimeout(r, 25));
+            working = clipsRef.current;
+          }
+
+          if (d.cutSilences) {
+            await cutSilences(working);
+            await flushClipsLayout();
+            await new Promise((r) => setTimeout(r, 50));
+            working = clipsRef.current;
+          }
+
+          if (d.transcribe) {
+            await transcribeAll(working);
+          }
+
+          await flushClipsLayout();
+          // Wait for blob→server persistence to finish so localStorage gets paths + subtitles together
+          const persistDeadline = Date.now() + 180_000;
+          while (blobPersistInFlightRef.current && Date.now() < persistDeadline) {
+            await new Promise((r) => setTimeout(r, 80));
+          }
+          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+          saveEditorState(projectId, { clips: clipsRef.current });
+
+          d.resolve();
+        } catch (err) {
+          d.reject(err instanceof Error ? err : new Error(String(err)));
+        } finally {
+          editorNodePlayBusyRef.current = false;
+        }
+      })();
+    };
+    window.addEventListener(EDITOR_NODE_PLAY_EVENT, handler);
+    return () => window.removeEventListener(EDITOR_NODE_PLAY_EVENT, handler);
+  }, [
+    projectId,
+    clearAllClipsProgrammatic,
+    uploadClipsFromFiles,
+    flushClipsLayout,
+    cutSilences,
+    transcribeAll,
+  ]);
 
   const updateClip = useCallback(
     (id: string, patch: Partial<EditorClip>) => {
@@ -3313,7 +3477,7 @@ export default function Editor({ projectId }: EditorProps) {
                 />
                 <button
                   type="button"
-                  onClick={transcribeAll}
+                  onClick={() => void transcribeAll()}
                   disabled={isTranscribingAll || clips.filter((c) => (c.kind === "audio" || c.kind === "combined") && !c.disabled).length === 0}
                   className="rounded border border-foreground/20 bg-foreground/10 px-3 py-1.5 text-sm hover:bg-foreground/20 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
@@ -3346,7 +3510,7 @@ export default function Editor({ projectId }: EditorProps) {
                 </label>
                 <button
                   type="button"
-                  onClick={cutSilences}
+                  onClick={() => void cutSilences()}
                   disabled={isCuttingSilences || clips.filter((c) => (c.kind === "audio" || c.kind === "combined") && !c.disabled).length === 0}
                   className="rounded border border-foreground/20 bg-foreground/10 px-3 py-1.5 text-sm hover:bg-foreground/20 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
@@ -3742,8 +3906,12 @@ export default function Editor({ projectId }: EditorProps) {
               onClick={async () => {
                 if (clips.length === 0) return;
                 if (!confirm("Clear all clips and delete saved state? This cannot be undone.")) return;
+                const seenBlob = new Set<string>();
                 clips.forEach((c) => {
-                  if (c.src.startsWith("blob:")) URL.revokeObjectURL(c.src);
+                  if (c.src.startsWith("blob:") && !seenBlob.has(c.src)) {
+                    seenBlob.add(c.src);
+                    URL.revokeObjectURL(c.src);
+                  }
                 });
                 setClips([]);
                 setSelectedClipId(null);
