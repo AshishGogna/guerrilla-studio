@@ -23,37 +23,8 @@ import { generateText } from "@/lib/ai";
 import { NodesProvider } from "./NodesContext";
 import { parseAiResponse, parsePrompt } from "@/lib/textParser";
 import NodeStoryboard, { type NodeStoryboardData } from "./NodeStoryboard";
-import { getAll, getData, removeData, addData } from "@/lib/data";
-import { loadStoryboardState, saveStoryboardState, type StoryboardPanelPersisted } from "@/lib/state-storage";
 
 export type NodesProps = { projectId: string };
-
-/** Same as Storyboarding: public paths must be root-absolute for fetch. */
-function normalizePublicAssetUrl(url: string | null): string | null {
-  if (url == null || url === "") return url;
-  if (
-    url.startsWith("/") ||
-    url.startsWith("blob:") ||
-    url.startsWith("data:") ||
-    url.startsWith("http://") ||
-    url.startsWith("https://")
-  ) {
-    return url;
-  }
-  return `/${url}`;
-}
-
-async function fetchUrlAsBase64(url: string): Promise<string> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch image: ${url}`);
-  const blob = await res.blob();
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
-}
 
 const nodeTypes = {
   base: BaseNode,
@@ -98,14 +69,12 @@ function NodesInner({ projectId }: NodesProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Record<string, unknown>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [playingNodeIds, setPlayingNodeIds] = useState<Set<string>>(() => new Set());
-  const [storyboardRunning, setStoryboardRunning] = useState(false);
+  const [nodePlayingIds, setNodePlayingIds] = useState<Set<string>>(() => new Set());
   const [menuState, setMenuState] = useState<{ nodeId: string; x: number; y: number } | null>(null);
   const [canvasMenu, setCanvasMenu] = useState<{ x: number; y: number; flowX: number; flowY: number } | null>(
     null
   );
   const [hydrated, setHydrated] = useState(false);
-  const storyboardRunningKey = `guerrilla-studio:storyboardingRunAllRunning:${projectId}`;
-  const storyboardInProgressRef = useRef(false);
 
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
@@ -154,135 +123,14 @@ function NodesInner({ projectId }: NodesProps) {
     [playTextNodeOnce]
   );
 
-  const runStoryboardAll = useCallback(async () => {
-    if (storyboardInProgressRef.current) return;
-    storyboardInProgressRef.current = true;
-    try {
-      localStorage.setItem(storyboardRunningKey, "1");
-
-      // 1) Clear storyboard data keys
-      const all = getAll(projectId);
-      Object.keys(all)
-        .filter((k) => k.startsWith("storyboard"))
-        .forEach((k) => removeData(projectId, k));
-
-      // 2) Import scenes -> panels
-      let scenesRaw: unknown = getData(projectId, "scenes");
-      if (!Array.isArray(scenesRaw)) {
-        scenesRaw = JSON.parse(String(scenesRaw ?? "null")) as unknown;
-      }
-      const scenesArr = Array.isArray(scenesRaw) ? Array.from(scenesRaw as unknown[]) : [];
-      if (scenesArr.length === 0) {
-        alert("No scenes found in data.scenes.");
-        return;
-      }
-
-      const panels: StoryboardPanelPersisted[] = await Promise.all(
-        scenesArr.map(async (scene) => {
-          const sceneObj =
-            typeof scene === "object" && scene !== null ? (scene as Record<string, unknown>) : null;
-          const imageGenerationPrompt =
-            sceneObj && "imageGenerationPrompt" in sceneObj
-              ? String(sceneObj.imageGenerationPrompt ?? "")
-              : "";
-          const prompt =
-            typeof scene === "string"
-              ? scene
-              : sceneObj && "prompt" in sceneObj
-                ? String(sceneObj.prompt ?? "")
-                : sceneObj && "promptImage" in sceneObj
-                  ? String(sceneObj.promptImage ?? "")
-                  : sceneObj && "description" in sceneObj
-                    ? String(sceneObj.description ?? "")
-                    : "";
-          const referenceImages: { url: string }[] = [];
-          const refEntries =
-            sceneObj && "references" in sceneObj && Array.isArray(sceneObj.references)
-              ? (sceneObj.references as unknown[]).filter((r): r is string => typeof r === "string")
-              : [];
-          for (const ref of refEntries) {
-            const key = ref.startsWith("data.") ? ref.slice(5).trim() : ref.trim();
-            if (!key) continue;
-            const pathValue = getData(projectId, key);
-            if (typeof pathValue !== "string" || !pathValue.trim()) continue;
-            let url = pathValue.trim();
-            if (url.startsWith("file://")) {
-              try {
-                const upRes = await fetch("/api/upload-from-path", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ projectId, filePath: url }),
-                });
-                const upData = await upRes.json();
-                if (upRes.ok && typeof upData?.filePath === "string") {
-                  url = normalizePublicAssetUrl(upData.filePath) ?? upData.filePath;
-                }
-              } catch {
-                // skip this reference on upload failure
-              }
-            }
-            referenceImages.push({ url });
-          }
-          return {
-            imageUrl: null,
-            promptImage: imageGenerationPrompt || prompt,
-            promptVideo: "",
-            mode: "image" as const,
-            referenceImages,
-          };
-        })
-      );
-
-      // Persist imported panels immediately
-      const prev = loadStoryboardState(projectId);
-      saveStoryboardState(projectId, { ...prev, panels });
-
-      // 3) Generate all panels (image)
-      for (let i = 0; i < panels.length; i++) {
-        const p = panels[i];
-        const promptTrimmed = (p.promptImage ?? "").trim();
-        if (!promptTrimmed) continue;
-        const attachedImages =
-          p.referenceImages.length > 0
-            ? await Promise.all(
-                p.referenceImages.map(async (ref, j) => ({
-                  fileName: `ref-${j}.png`,
-                  base64: await fetchUrlAsBase64(ref.url),
-                }))
-              )
-            : undefined;
-
-        const imagePath = await (async () => {
-          const res = await fetch("/api/generate-panel-image", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              prompt: promptTrimmed,
-              model: prev.imageModel ?? "gemini-2.5-flash-image",
-              outputFileName: `panel-${i}`,
-              aspectRatio: prev.aspectRatio ?? "16:9",
-              attachedImages: attachedImages ?? [],
-              projectId,
-            }),
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data?.error ?? "Failed to generate image");
-          if (typeof data?.content !== "string") throw new Error("Invalid response from server");
-          return data.content as string;
-        })();
-
-        panels[i] = { ...panels[i], imageUrl: imagePath };
-        addData(projectId, `storyboard[${i}]`, imagePath);
-        saveStoryboardState(projectId, { ...loadStoryboardState(projectId), panels });
-      }
-    } catch (err) {
-      console.error(err);
-      alert(err instanceof Error ? err.message : "Storyboard run failed");
-    } finally {
-      localStorage.removeItem(storyboardRunningKey);
-      storyboardInProgressRef.current = false;
-    }
-  }, [projectId, storyboardRunningKey]);
+  const setNodePlaying = useCallback((nodeId: string, playing: boolean) => {
+    setNodePlayingIds((prev) => {
+      const next = new Set(prev);
+      if (playing) next.add(nodeId);
+      else next.delete(nodeId);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -309,22 +157,6 @@ function NodesInner({ projectId }: NodesProps) {
   }, [projectId, setEdges, setNodes]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const runningKey = `guerrilla-studio:storyboardingRunAllRunning:${projectId}`;
-    const read = () => setStoryboardRunning(localStorage.getItem(runningKey) === "1");
-    read();
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === runningKey) read();
-    };
-    window.addEventListener("storage", onStorage);
-    const poll = window.setInterval(read, 750);
-    return () => {
-      window.removeEventListener("storage", onStorage);
-      window.clearInterval(poll);
-    };
-  }, [projectId]);
-
-  useEffect(() => {
     setNodes((prev) =>
       prev.map((n) => {
         const d = n.data as unknown as BaseNodeData;
@@ -332,9 +164,7 @@ function NodesInner({ projectId }: NodesProps) {
           ...d,
           onTitleChange,
           onRenameDone,
-          isPlaying:
-            playingNodeIds.has(n.id) ||
-            (n.type === "nodeStoryboard" && storyboardRunning),
+          isPlaying: playingNodeIds.has(n.id) || nodePlayingIds.has(n.id),
           isRenaming: renamingNodeId === n.id,
           ...(n.type === "nodeText" ? { onTextChange } : {}),
         };
@@ -348,7 +178,7 @@ function NodesInner({ projectId }: NodesProps) {
     playChainFrom,
     playTextNodeOnce,
     playingNodeIds,
-    storyboardRunning,
+    nodePlayingIds,
     renamingNodeId,
     setNodes,
   ]);
@@ -468,9 +298,7 @@ function NodesInner({ projectId }: NodesProps) {
         playChain={(id) => {
           void playChainFrom(id);
         }}
-        runStoryboardAll={() => {
-          void runStoryboardAll();
-        }}
+        setNodePlaying={setNodePlaying}
       >
         <ReactFlow
           nodes={nodes}

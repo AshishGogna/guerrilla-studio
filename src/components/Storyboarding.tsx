@@ -8,6 +8,10 @@ import {
   saveStoryboardState,
   type StoryboardPanelPersisted,
 } from "@/lib/state-storage";
+import {
+  getScenesArrayFromProject,
+  resolvePanelIndexFromNumericPrompt,
+} from "@/lib/storyboardNumericPrompt";
 import JSZip from "jszip";
 import { createPortal } from "react-dom";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -517,13 +521,35 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
       searchImage(promptTrimmed.slice("search: ".length));
       return;
     }
-    const sourcePanelIndex = /^\d+$/.test(promptTrimmed) ? parseInt(promptTrimmed, 10) : -1;
-    if (
-      sourcePanelIndex >= 0 &&
-      sourcePanelIndex < currentPanels.length &&
-      currentPanels[sourcePanelIndex].imageUrl
-    ) {
-      updatePanel(panelIndex, { imageUrl: currentPanels[sourcePanelIndex].imageUrl ?? null });
+    const sourceNumeric = /^\d+$/.test(promptTrimmed) ? parseInt(promptTrimmed, 10) : -1;
+    if (sourceNumeric >= 0) {
+      const scenesArr = getScenesArrayFromProject(projectId);
+      const resolved = resolvePanelIndexFromNumericPrompt(
+        sourceNumeric,
+        currentPanels.length,
+        scenesArr
+      );
+      let srcUrl: string | null =
+        resolved >= 0 ? (currentPanels[resolved]?.imageUrl ?? null) : null;
+      if (!srcUrl && resolved >= 0) {
+        const fromData = getData(projectId, `storyboard[${resolved}]`);
+        if (typeof fromData === "string" && fromData.trim()) {
+          srcUrl = fromData.trim();
+        }
+      }
+      if (resolved >= 0 && srcUrl) {
+        updatePanel(panelIndex, {
+          imageUrl: normalizePublicAssetUrl(srcUrl) ?? srcUrl,
+        });
+        return;
+      }
+      if (resolved >= 0) {
+        alert(
+          `Referenced scene/panel "${promptTrimmed}" has no image yet. Generate that panel first.`
+        );
+        return;
+      }
+      alert(`No scene or panel matches image prompt "${promptTrimmed}".`);
       return;
     }
     console.log(

@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Handle, Position, type NodeProps } from "reactflow";
 import BaseNode, { type BaseNodeData } from "./BaseNode";
 import { useNodesContext } from "./NodesContext";
 import { getData } from "@/lib/data";
+import { executeStoryboardRunAll } from "@/lib/storyboardRunAll";
 
 const IMAGE_MODELS = ["gemini-2.5-flash-image", "gemini-3-pro-image-preview"] as const;
 type ImageModel = (typeof IMAGE_MODELS)[number];
@@ -14,7 +15,9 @@ export type NodeStoryboardData = BaseNodeData & {
 };
 
 export default function NodeStoryboard(props: NodeProps<NodeStoryboardData>) {
-  const { projectId, runStoryboardAll } = useNodesContext();
+  const { id } = props;
+  const { projectId, setNodePlaying } = useNodesContext();
+  const runLockRef = useRef(false);
   const [imageModel, setImageModel] = useState<ImageModel>(
     props.data.imageModel ?? IMAGE_MODELS[0]
   );
@@ -30,12 +33,27 @@ export default function NodeStoryboard(props: NodeProps<NodeStoryboardData>) {
     }
   }, [projectId]);
 
+  const handlePlay = useCallback(async () => {
+    if (runLockRef.current) return;
+    runLockRef.current = true;
+    setNodePlaying(id, true);
+    try {
+      await executeStoryboardRunAll(projectId);
+    } catch (err) {
+      console.error(err);
+      alert(err instanceof Error ? err.message : "Storyboard run failed");
+    } finally {
+      setNodePlaying(id, false);
+      runLockRef.current = false;
+    }
+  }, [id, projectId, setNodePlaying]);
+
   return (
     <BaseNode
       {...props}
       className="min-w-[360px] border-foreground/20"
       onPlayClick={() => {
-        runStoryboardAll();
+        void handlePlay();
       }}
     >
       <div className="text-sm text-foreground/80">{`{${scenesCount} Scenes}`}</div>
@@ -77,4 +95,3 @@ export default function NodeStoryboard(props: NodeProps<NodeStoryboardData>) {
     </BaseNode>
   );
 }
-
