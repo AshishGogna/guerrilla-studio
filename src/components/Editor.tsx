@@ -598,31 +598,47 @@ function revokeBlobSrcIfOrphaned(remainingClips: EditorClip[], src: string): voi
 }
 
 const WAVEFORM_SAMPLES = 256;
+/** Stable empty waveform for clips not yet decoded (avoids new [] each render). */
+const EMPTY_WAVEFORM: number[] = [];
 const DEFAULT_TEXT_CLIP_DURATION_SEC = 5;
 
 /** Decode audio from a media URL and return normalized waveform samples. */
 async function decodeAudioWaveform(src: string): Promise<number[]> {
-  const res = await fetch(src, { mode: "cors", cache: "no-store" });
+  // Default fetch (no forced CORS) — blob: URLs and same-origin editor saves decode more reliably.
+  const res = await fetch(src);
   if (!res.ok) throw new Error(`Waveform fetch failed: ${res.status}`);
   const buf = await res.arrayBuffer();
   if (buf.byteLength === 0) throw new Error("Empty audio");
   const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-  const audio = await ctx.decodeAudioData(buf);
+  const audio = await ctx.decodeAudioData(buf.slice(0));
   ctx.close();
-  const ch = audio.getChannelData(0);
-  if (!ch || ch.length === 0) throw new Error("No audio channel");
-  const step = Math.max(1, Math.floor(ch.length / WAVEFORM_SAMPLES));
+  const nCh = audio.numberOfChannels;
+  const len = audio.length;
+  if (len === 0 || nCh < 1) throw new Error("No audio channel");
+  let mean = 0;
+  for (let i = 0; i < len; i++) {
+    let s = 0;
+    for (let c = 0; c < nCh; c++) s += audio.getChannelData(c)[i];
+    mean += s / nCh;
+  }
+  mean /= len;
+  const step = Math.max(1, Math.floor(len / WAVEFORM_SAMPLES));
   const out: number[] = [];
   for (let i = 0; i < WAVEFORM_SAMPLES; i++) {
     const start = i * step;
     let max = 0;
-    for (let j = 0; j < step && start + j < ch.length; j++) {
-      max = Math.max(max, Math.abs(ch[start + j]));
+    for (let j = 0; j < step && start + j < len; j++) {
+      let s = 0;
+      for (let c = 0; c < nCh; c++) s += audio.getChannelData(c)[start + j];
+      s /= nCh;
+      max = Math.max(max, Math.abs(s - mean));
     }
     out.push(max);
   }
   const peak = Math.max(...out, 1e-9);
-  return out.map((v) => v / peak);
+  const meanAmp = out.reduce((a, b) => a + b, 0) / out.length;
+  const denom = Math.max(peak, meanAmp * 2.5, 1e-6);
+  return out.map((v) => Math.min(1, v / denom));
 }
 
 /** Load media metadata and return full duration in seconds (undefined on failure). */
@@ -4868,10 +4884,6 @@ function TimelineAudioBlock({
   const loadingForSrcRef = useRef<string | null>(null);
   useEffect(() => {
     if (clip.waveformData?.length && decodedForSrcRef.current === clip.src) return;
-    if (clip.waveformData?.length) {
-      decodedForSrcRef.current = clip.src;
-      return;
-    }
     if (waveformLoading && loadingForSrcRef.current === clip.src) return;
     const srcToDecode = clip.src;
     loadingForSrcRef.current = srcToDecode;
@@ -4886,7 +4898,7 @@ function TimelineAudioBlock({
       .catch(() => {
         if (cancelled) return;
         decodedForSrcRef.current = srcToDecode;
-        onWaveformLoadedRef.current(Array(WAVEFORM_SAMPLES).fill(0.1));
+        onWaveformLoadedRef.current(Array(WAVEFORM_SAMPLES).fill(0));
       })
       .finally(() => {
         if (!cancelled) setWaveformLoading(false);
@@ -4930,10 +4942,11 @@ function TimelineAudioBlock({
     };
   }, [trimDrag, fullDuration, trimStart, trimEnd, onUpdate, speed, clip.startTimeSec]);
 
-  const waveform = clip.waveformData ?? [];
+  const waveform = clip.waveformData?.length ? clip.waveformData : EMPTY_WAVEFORM;
+  const WAVEFORM_SILENT_EPS = 1e-5;
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || waveform.length === 0) return;
+    if (!canvas) return;
     const parent = canvas.parentElement;
     if (!parent) return;
     const rect = parent.getBoundingClientRect();
@@ -4946,16 +4959,29 @@ function TimelineAudioBlock({
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const centerY = ch / 2;
+    ctx.clearRect(0, 0, cw, ch);
+    const silent =
+      waveform.length === 0 ||
+      waveform.every((w) => !Number.isFinite(w) || w < WAVEFORM_SILENT_EPS);
+    if (silent) {
+      ctx.strokeStyle = "rgba(59, 130, 246, 0.45)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, centerY);
+      ctx.lineTo(cw, centerY);
+      ctx.stroke();
+      return;
+    }
     const maxBarH = centerY - 2;
     const vol = Math.max(0, Math.min(1, clip.volume ?? 1));
     const barWidth = Math.max(0.5, cw / waveform.length);
     ctx.fillStyle = "rgba(59, 130, 246, 0.7)";
     waveform.forEach((norm, i) => {
-      const barH = norm * maxBarH * vol;
+      const barH = Math.max(0, norm) * maxBarH * vol;
       const x = (i / waveform.length) * cw;
       ctx.fillRect(x, centerY - barH, barWidth, barH * 2);
     });
-  }, [waveform, wrapperWidthPx, clip.volume]);
+  }, [waveform, wrapperWidthPx, clip.volume, waveformLoading]);
 
   return (
     <div
@@ -5004,26 +5030,25 @@ function TimelineAudioBlock({
           />
         )}
         <div className="absolute inset-0 bg-foreground/10" />
-        {waveform.length === 0 ? (
-          <span className="absolute inset-0 flex items-center justify-center text-[10px] text-foreground/50">
-            {waveformLoading ? "Loading…" : "No waveform"}
-          </span>
-        ) : (
-          <div
-            className="absolute top-0 bottom-0 overflow-hidden"
-            style={{
-              left: -clipLeftPx,
-              width: wrapperWidthPx,
-              minWidth: wrapperWidthPx,
-            }}
-          >
-            <canvas
-              ref={canvasRef}
-              className="block h-full"
-              style={{ width: `${wrapperWidthPx}px`, height: "100%" }}
-            />
-          </div>
-        )}
+        <div
+          className="absolute top-0 bottom-0 overflow-hidden"
+          style={{
+            left: -clipLeftPx,
+            width: wrapperWidthPx,
+            minWidth: wrapperWidthPx,
+          }}
+        >
+          <canvas
+            ref={canvasRef}
+            className="block h-full"
+            style={{ width: `${wrapperWidthPx}px`, height: "100%" }}
+          />
+          {waveformLoading && waveform.length === 0 && (
+            <span className="absolute inset-0 flex items-center justify-center text-[10px] text-foreground/50 pointer-events-none">
+              Loading…
+            </span>
+          )}
+        </div>
         <div
           role="slider"
           aria-label="Trim start"
