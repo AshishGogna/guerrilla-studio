@@ -21,7 +21,7 @@ export default function NodeText(props: NodeProps<NodeTextData>) {
 
   return (
     <>
-      <BaseNode {...props} className="min-w-[440px] border-accent/50">
+      <BaseNode {...props} className="min-w-[440px]">
         <div className="relative">
           <textarea
             className="nodrag nowheel min-h-[184px] w-full resize-none rounded bg-transparent pr-0 text-sm text-foreground/90 outline-none"

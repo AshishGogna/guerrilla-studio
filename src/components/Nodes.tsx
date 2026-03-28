@@ -43,6 +43,59 @@ const nodeTypes = {
   nodeLabel: NodeLabel,
 };
 
+const NODES_CLIPBOARD_PREFIX = "guerrilla-studio:nodes:v1:";
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  if (target.isContentEditable || target.closest("[contenteditable='true']")) return true;
+  return false;
+}
+
+function tidyNodeForClipboard(n: Node<Record<string, unknown>>): Node<Record<string, unknown>> {
+  const base = n.data as unknown as Record<string, unknown>;
+  const data: Record<string, unknown> = { ...base };
+  delete data.onTitleChange;
+  delete data.onRenameDone;
+  delete data.isRenaming;
+  delete data.isPlaying;
+  if ("onTextChange" in data) delete data.onTextChange;
+  if ("onLabelChange" in data) delete data.onLabelChange;
+  if ("chainSyncNonce" in data) delete data.chainSyncNonce;
+  return {
+    ...n,
+    data,
+    selected: false,
+  };
+}
+
+function remapClipboardBundle(bundle: {
+  nodes: Node<Record<string, unknown>>[];
+  edges: Edge[];
+}): { nodes: Node<Record<string, unknown>>[]; edges: Edge[] } {
+  const idMap = new Map<string, string>();
+  const t = Date.now();
+  bundle.nodes.forEach((n, i) => {
+    idMap.set(n.id, `${n.type ?? "node"}-${t}-${i}-${Math.random().toString(36).slice(2, 9)}`);
+  });
+  const dx = 48;
+  const dy = 48;
+  const newNodes = bundle.nodes.map((n) => ({
+    ...n,
+    id: idMap.get(n.id)!,
+    position: { x: (n.position?.x ?? 0) + dx, y: (n.position?.y ?? 0) + dy },
+    selected: true,
+  }));
+  const newEdges = bundle.edges.map((e, i) => ({
+    ...e,
+    id: `e-${t}-${i}-${Math.random().toString(36).slice(2, 9)}`,
+    source: idMap.get(e.source)!,
+    target: idMap.get(e.target)!,
+  }));
+  return { nodes: newNodes, edges: newEdges };
+}
+
 function NodesInner({ projectId }: NodesProps) {
   const rf = useReactFlow();
   const [renamingNodeId, setRenamingNodeId] = useState<string | null>(null);
@@ -321,6 +374,8 @@ function NodesInner({ projectId }: NodesProps) {
       })
     );
   }, [
+    hydrated,
+    nodes.length,
     onLabelChange,
     onRenameDone,
     onTextChange,
@@ -360,6 +415,62 @@ function NodesInner({ projectId }: NodesProps) {
     }, 250);
     return () => clearTimeout(timeout);
   }, [edges, hydrated, nodes, projectId]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+
+    const onCopy = (e: ClipboardEvent) => {
+      if (isTypingTarget(e.target)) return;
+      const selected = nodesRef.current.filter((n) => n.selected);
+      if (selected.length === 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const ids = new Set(selected.map((n) => n.id));
+      const tidyNodes = selected.map((n) => tidyNodeForClipboard(n));
+      const tidyEdges = edgesRef.current
+        .filter((ed) => ids.has(ed.source) && ids.has(ed.target))
+        .map((ed) => ({ ...ed }));
+      const payload =
+        NODES_CLIPBOARD_PREFIX +
+        JSON.stringify({ nodes: tidyNodes, edges: tidyEdges });
+      e.clipboardData?.setData("text/plain", payload);
+    };
+
+    const onPaste = (e: ClipboardEvent) => {
+      if (isTypingTarget(e.target)) return;
+      const text = e.clipboardData?.getData("text/plain") ?? "";
+      if (!text.startsWith(NODES_CLIPBOARD_PREFIX)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      let parsed: { nodes?: unknown; edges?: unknown };
+      try {
+        parsed = JSON.parse(text.slice(NODES_CLIPBOARD_PREFIX.length)) as {
+          nodes?: unknown;
+          edges?: unknown;
+        };
+      } catch {
+        return;
+      }
+      if (!Array.isArray(parsed.nodes) || parsed.nodes.length === 0) return;
+      const rawEdges = Array.isArray(parsed.edges) ? parsed.edges : [];
+      const bundle = remapClipboardBundle({
+        nodes: parsed.nodes as Node<Record<string, unknown>>[],
+        edges: rawEdges as Edge[],
+      });
+      setNodes((prev) => {
+        const cleared = prev.map((n) => ({ ...n, selected: false }));
+        return [...cleared, ...bundle.nodes];
+      });
+      setEdges((prev) => [...prev, ...bundle.edges]);
+    };
+
+    document.addEventListener("copy", onCopy);
+    document.addEventListener("paste", onPaste);
+    return () => {
+      document.removeEventListener("copy", onCopy);
+      document.removeEventListener("paste", onPaste);
+    };
+  }, [hydrated, setEdges, setNodes]);
 
   const handleNodeContextMenu = useCallback<NodeMouseHandler>(
     (event, node) => {
@@ -508,6 +619,7 @@ function NodesInner({ projectId }: NodesProps) {
           onConnect={onConnect}
           onEdgeClick={onEdgeClick}
           deleteKeyCode={["Backspace", "Delete"]}
+          multiSelectionKeyCode={["Meta", "Control"]}
           nodeTypes={nodeTypes}
           onPaneClick={() => setMenuState(null)}
           onPaneContextMenu={handlePaneContextMenu}

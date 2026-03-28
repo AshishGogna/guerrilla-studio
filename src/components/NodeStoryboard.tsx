@@ -133,7 +133,7 @@ export default function NodeStoryboard(props: NodeProps<NodeStoryboardData>) {
   }, [fromScene, projectId, toScene]);
 
   return (
-    <BaseNode {...props} className="min-w-[360px] border-foreground/20">
+    <BaseNode {...props} className="min-w-[360px]">
       <div className="text-sm text-foreground/80">Total scenes: {scenesCount}</div>
 
       <div className="mt-3">

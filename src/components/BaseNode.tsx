@@ -17,7 +17,7 @@ type Props = NodeProps<BaseNodeData> & {
   className?: string;
 };
 
-export default function BaseNode({ id, data, children, className }: Props) {
+export default function BaseNode({ id, data, selected, children, className }: Props) {
   const { playNode, playChain } = useNodesContext();
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(data.title);
@@ -36,11 +36,17 @@ export default function BaseNode({ id, data, children, className }: Props) {
     data.onRenameDone?.();
   }, [data, id, title]);
 
+  const borderClass = data.isPlaying
+    ? "border-green-500 animate-pulse"
+    : selected
+      ? "border-2 border-white"
+      : "border-foreground/20";
+
   return (
     <div
       className={[
         "min-w-[220px] rounded-lg border bg-[#171717] px-3 py-2 text-foreground shadow-sm",
-        data.isPlaying ? "border-green-500 animate-pulse" : "border-foreground/20",
+        borderClass,
         className ?? "",
       ].join(" ")}
     >

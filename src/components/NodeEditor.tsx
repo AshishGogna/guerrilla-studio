@@ -65,7 +65,7 @@ export default function NodeEditor(props: NodeProps<NodeEditorData>) {
   );
 
   return (
-    <BaseNode {...props} className="min-w-[280px] border-foreground/20">
+    <BaseNode {...props} className="min-w-[280px]">
       <input
         ref={fileInputRef}
         type="file"
