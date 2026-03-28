@@ -1,13 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import JSZip from "jszip";
 import { Handle, Position, type NodeProps, useReactFlow } from "reactflow";
 import BaseNode, { type BaseNodeData } from "./BaseNode";
 import { useNodesContext } from "./NodesContext";
 import { getData } from "@/lib/data";
 import { getScenesArrayFromProject } from "@/lib/storyboardNumericPrompt";
-import { executeStoryboardRunAll } from "@/lib/storyboardRunAll";
 import { loadStoryboardState, saveStoryboardState } from "@/lib/state-storage";
 
 const IMAGE_MODELS = ["gemini-2.5-flash-image", "gemini-3-pro-image-preview"] as const;
@@ -69,9 +68,8 @@ async function copyTextToClipboard(text: string): Promise<void> {
 
 export default function NodeStoryboard(props: NodeProps<NodeStoryboardData>) {
   const { id, data } = props;
-  const { projectId, setNodePlaying } = useNodesContext();
+  const { projectId } = useNodesContext();
   const rf = useReactFlow();
-  const runLockRef = useRef(false);
 
   const [imageModel, setImageModel] = useState<ImageModel>(() => {
     if (data.imageModel && IMAGE_MODELS.includes(data.imageModel)) return data.imageModel;
@@ -153,21 +151,6 @@ export default function NodeStoryboard(props: NodeProps<NodeStoryboardData>) {
     [projectId]
   );
 
-  const handlePlay = useCallback(async () => {
-    if (runLockRef.current) return;
-    runLockRef.current = true;
-    setNodePlaying(id, true);
-    try {
-      await executeStoryboardRunAll(projectId);
-    } catch (err) {
-      console.error(err);
-      alert(err instanceof Error ? err.message : "Storyboard run failed");
-    } finally {
-      setNodePlaying(id, false);
-      runLockRef.current = false;
-    }
-  }, [id, projectId, setNodePlaying]);
-
   const handleDownloadAndCopy = useCallback(async () => {
     const scenes = getScenesArrayFromProject(projectId);
     const { panels } = loadStoryboardState(projectId);
@@ -237,13 +220,7 @@ export default function NodeStoryboard(props: NodeProps<NodeStoryboardData>) {
   }, [fromScene, projectId, toScene]);
 
   return (
-    <BaseNode
-      {...props}
-      className="min-w-[360px] border-foreground/20"
-      onPlayClick={() => {
-        void handlePlay();
-      }}
-    >
+    <BaseNode {...props} className="min-w-[360px] border-foreground/20">
       <div className="text-sm text-foreground/80">{`{${scenesCount} Scenes}`}</div>
 
       <div className="mt-3">

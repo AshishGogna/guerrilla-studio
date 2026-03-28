@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { NodeProps } from "reactflow";
+import { useNodesContext } from "./NodesContext";
 
 export type BaseNodeData = {
   title: string;
@@ -14,11 +15,10 @@ export type BaseNodeData = {
 type Props = NodeProps<BaseNodeData> & {
   children?: ReactNode;
   className?: string;
-  onPlayClick?: () => void;
-  onPlayChainClick?: () => void;
 };
 
-export default function BaseNode({ id, data, children, className, onPlayClick, onPlayChainClick }: Props) {
+export default function BaseNode({ id, data, children, className }: Props) {
+  const { playNode, playChain } = useNodesContext();
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(data.title);
 
@@ -65,46 +65,40 @@ export default function BaseNode({ id, data, children, className, onPlayClick, o
         // NOTE: no `nodrag` on wrapper; otherwise there is nothing draggable on short nodes.
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0 truncate text-left text-sm font-semibold">{data.title}</div>
-          {onPlayClick || onPlayChainClick ? (
-            <div className="nodrag flex items-center gap-1">
-              {onPlayClick ? (
-                <button
-                  type="button"
-                  className="rounded p-1 text-foreground/70 hover:bg-foreground/10 hover:text-foreground"
-                  title="Play"
-                  aria-label="Play"
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onPlayClick();
-                  }}
-                >
-                  <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden>
-                    <path d="M8 5v14l11-7z" />
-                  </svg>
-                </button>
-              ) : null}
-              {onPlayChainClick ? (
-                <button
-                  type="button"
-                  className="rounded p-1 text-foreground/70 hover:bg-foreground/10 hover:text-foreground"
-                  title="Play chain"
-                  aria-label="Play chain"
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onPlayChainClick();
-                  }}
-                >
-                  {/* Fast-forward / sequential play icon */}
-                  <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden>
-                    <path d="M4 6v12l8-6z" />
-                    <path d="M12 6v12l8-6z" />
-                  </svg>
-                </button>
-              ) : null}
-            </div>
-          ) : null}
+          <div className="nodrag flex items-center gap-1">
+            <button
+              type="button"
+              className="rounded p-1 text-foreground/70 hover:bg-foreground/10 hover:text-foreground"
+              title="Play"
+              aria-label="Play"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                playNode(id);
+              }}
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden>
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="rounded p-1 text-foreground/70 hover:bg-foreground/10 hover:text-foreground"
+              title="Play chain"
+              aria-label="Play chain"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                playChain(id);
+              }}
+            >
+              {/* Fast-forward / sequential play icon */}
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden>
+                <path d="M4 6v12l8-6z" />
+                <path d="M12 6v12l8-6z" />
+              </svg>
+            </button>
+          </div>
         </div>
       )}
 

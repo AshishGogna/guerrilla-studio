@@ -23,6 +23,7 @@ import { generateText } from "@/lib/ai";
 import { NodesProvider } from "./NodesContext";
 import { parseAiResponse, parsePrompt } from "@/lib/textParser";
 import NodeStoryboard, { type NodeStoryboardData } from "./NodeStoryboard";
+import { executeStoryboardRunAll } from "@/lib/storyboardRunAll";
 import { getScenesArrayFromProject } from "@/lib/storyboardNumericPrompt";
 import NodeLabel, { type NodeLabelData } from "./NodeLabel";
 
@@ -101,10 +102,19 @@ function NodesInner({ projectId }: NodesProps) {
   nodesRef.current = nodes;
   const edgesRef = useRef(edges);
   edgesRef.current = edges;
+  const storyboardRunLockRef = useRef(false);
+
+  const setNodePlaying = useCallback((nodeId: string, playing: boolean) => {
+    setNodePlayingIds((prev) => {
+      const next = new Set(prev);
+      if (playing) next.add(nodeId);
+      else next.delete(nodeId);
+      return next;
+    });
+  }, []);
 
   const playTextNodeOnce = useCallback(
     async (nodeId: string) => {
-      console.log('playTextNodeOnce AAAA:', nodeId);
       const node = nodesRef.current.find((n) => n.id === nodeId);
       if (!node || node.type !== "nodeText") return;
       const rawText = String((node.data as Record<string, unknown>)?.text ?? "");
@@ -124,34 +134,59 @@ function NodesInner({ projectId }: NodesProps) {
     [projectId]
   );
 
+  const playStoryboardNodeOnce = useCallback(
+    async (nodeId: string) => {
+      if (storyboardRunLockRef.current) return;
+      storyboardRunLockRef.current = true;
+      setNodePlaying(nodeId, true);
+      try {
+        await executeStoryboardRunAll(projectId);
+      } catch (err) {
+        console.error(err);
+        alert(err instanceof Error ? err.message : "Storyboard run failed");
+      } finally {
+        setNodePlaying(nodeId, false);
+        storyboardRunLockRef.current = false;
+      }
+    },
+    [projectId, setNodePlaying]
+  );
+
+  const playNodeOnce = useCallback(
+    async (nodeId: string) => {
+      const node = nodesRef.current.find((n) => n.id === nodeId);
+      if (!node) return;
+      if (node.type === "nodeText") {
+        await playTextNodeOnce(nodeId);
+        return;
+      }
+      if (node.type === "nodeStoryboard") {
+        await playStoryboardNodeOnce(nodeId);
+      }
+      // base, nodeLabel, etc.: no-op for single play
+    },
+    [playStoryboardNodeOnce, playTextNodeOnce]
+  );
+
   const playChainFrom = useCallback(
     async (startNodeId: string) => {
       const visited = new Set<string>();
       let current = startNodeId;
       while (current && !visited.has(current)) {
         visited.add(current);
-        await playTextNodeOnce(current);
+        await playNodeOnce(current);
 
         // Follow first outgoing edge only (simple + predictable).
         const nextEdge = edgesRef.current.find((e) => e.source === current);
         if (!nextEdge) break;
         const nextId = nextEdge.target;
         const nextNode = nodesRef.current.find((n) => n.id === nextId);
-        if (!nextNode || nextNode.type !== "nodeText") break;
+        if (!nextNode) break;
         current = nextId;
       }
     },
-    [playTextNodeOnce]
+    [playNodeOnce]
   );
-
-  const setNodePlaying = useCallback((nodeId: string, playing: boolean) => {
-    setNodePlayingIds((prev) => {
-      const next = new Set(prev);
-      if (playing) next.add(nodeId);
-      else next.delete(nodeId);
-      return next;
-    });
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -364,7 +399,7 @@ function NodesInner({ projectId }: NodesProps) {
       <NodesProvider
         projectId={projectId}
         playNode={(id) => {
-          void playTextNodeOnce(id);
+          void playNodeOnce(id);
         }}
         playChain={(id) => {
           void playChainFrom(id);
