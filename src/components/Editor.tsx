@@ -527,6 +527,26 @@ function newEditorClipId(): string {
   return `clip-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 }
 
+/** Save a file under public/editor-saves; returns `/editor-saves/...` or null. */
+async function persistEditorFileToServer(
+  projectId: string,
+  clipId: string,
+  file: File
+): Promise<string | null> {
+  try {
+    const form = new FormData();
+    form.append("file", file, file.name || `${clipId}.bin`);
+    form.append("projectId", projectId);
+    form.append("clipId", clipId);
+    const r = await fetch("/api/editor-save-blob", { method: "POST", body: form });
+    if (!r.ok) return null;
+    const data = (await r.json()) as { path?: string };
+    return typeof data.path === "string" ? data.path : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Clips to copy: selection + linked partner on another track, if any. */
 function collectClipsToDuplicate(clips: EditorClip[], selectedId: string): EditorClip[] {
   const clip = clips.find((c) => c.id === selectedId);
@@ -1175,17 +1195,17 @@ export function EditorCompositionWithProps({
   );
 }
 
-function isEditorSavePath(src: string): boolean {
-  return typeof src === "string" && src.startsWith("/editor-saves/");
-}
-
 export type EditorProps = { projectId: string };
 
 export default function Editor({ projectId }: EditorProps) {
   const [clips, setClips] = useState<EditorClip[]>(() => {
     if (typeof window === "undefined") return [];
     const raw = loadEditorState(projectId).clips as unknown as EditorClip[];
-    return raw.filter((c) => !c.src.startsWith("blob:"));
+    if (!Array.isArray(raw)) return [];
+    // blob: URLs never survive a full reload; drop them so we don’t show broken clips.
+    return raw.filter(
+      (c) => typeof c?.src === "string" && !c.src.startsWith("blob:")
+    ) as EditorClip[];
   });
   const clipsRef = useRef<EditorClip[]>(clips);
   useLayoutEffect(() => {
@@ -1264,8 +1284,6 @@ export default function Editor({ projectId }: EditorProps) {
   const playheadLineRef = useRef<HTMLDivElement>(null);
   const timelinePxPerSecRef = useRef(timelinePxPerSec);
   timelinePxPerSecRef.current = timelinePxPerSec;
-  const skipNextSaveRef = useRef(true);
-  const hasHydratedRef = useRef(false);
   const blobPersistInFlightRef = useRef(false);
   /** When true, a clips change happened while blob upload was running; flush save after it finishes. */
   const blobSaveSkippedWhileInFlightRef = useRef(false);
@@ -1337,46 +1355,10 @@ export default function Editor({ projectId }: EditorProps) {
   }, [globalZoomInput, globalSpeedInput, compWidthInput, compHeightInput, projectId]);
 
   useEffect(() => {
-    if (typeof window === "undefined" || hasHydratedRef.current) return;
-    const withPaths = clips.filter((c) => isEditorSavePath(c.src));
-    if (withPaths.length === 0) {
-      hasHydratedRef.current = true;
-      return;
-    }
-    hasHydratedRef.current = true;
-    (async () => {
-      const updated = await Promise.all(
-        clips.map(async (c): Promise<EditorClip> => {
-          if (!isEditorSavePath(c.src)) return c;
-          try {
-            const base = window.location.origin;
-            const res = await fetch(base + c.src);
-            const blob = await res.blob();
-            const blobUrl = URL.createObjectURL(blob);
-            await fetch("/api/editor-delete-save", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ path: c.src }),
-            });
-            return { ...c, src: blobUrl };
-          } catch {
-            return c;
-          }
-        })
-      );
-      skipNextSaveRef.current = true;
-      setClips(updated);
-    })();
-  }, []);
+    saveEditorState(projectId, { clips });
 
-  useEffect(() => {
-    if (skipNextSaveRef.current) {
-      skipNextSaveRef.current = false;
-      return;
-    }
     const blobClips = clips.filter((c) => c.src.startsWith("blob:"));
     if (blobClips.length === 0) {
-      saveEditorState(projectId, { clips });
       return;
     }
     if (blobPersistInFlightRef.current) {
@@ -1450,63 +1432,6 @@ export default function Editor({ projectId }: EditorProps) {
     1,
     Math.ceil(toFinite(totalDurationSec * FPS, 0))
   );
-
-  const addClip = useCallback((src: string, durationSec?: number) => {
-    const endSec = toFinite(durationSec, 10);
-    setClips((prev) => {
-      const endOfTimeline =
-        prev.length === 0
-          ? 0
-          : Math.max(
-              ...prev.map(
-                (c) =>
-                  toFinite(c.startTimeSec, 0) + clipTimelineDurationForTotal(c, globalSpeedNum)
-              )
-            );
-      const videoTrack = 0;
-      const audioTrack = 1;
-      const base = {
-        src,
-        trimStartSec: 0,
-        trimEndSec: Math.max(0, endSec),
-        durationSec: Number.isFinite(Number(durationSec)) ? durationSec : undefined,
-        startTimeSec: endOfTimeline,
-      };
-      const videoId = `clip-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-      const audioId = `clip-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-      return [
-        ...prev,
-        { ...base, id: videoId, trackIndex: videoTrack, kind: "video" as const, linkedClipId: audioId },
-        { ...base, id: audioId, trackIndex: audioTrack, kind: "audio" as const, linkedClipId: videoId },
-      ];
-    });
-    setAddUrl("");
-  }, [globalSpeedNum]);
-
-  const addAudioClip = useCallback((src: string, fileName?: string, durationSec?: number) => {
-    const endSec = toFinite(durationSec, 10);
-    setClips((prev) => {
-      const maxTrack = prev.length === 0
-        ? -1
-        : Math.max(...prev.map((c) => toFinite(c.trackIndex, 0)));
-      const newTrack = maxTrack + 1;
-      const id = `clip-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-      return [
-        ...prev,
-        {
-          id,
-          src,
-          trimStartSec: 0,
-          trimEndSec: Math.max(0, endSec),
-          durationSec: Number.isFinite(Number(durationSec)) ? durationSec : undefined,
-          startTimeSec: 0,
-          trackIndex: newTrack,
-          kind: "audio" as const,
-          ...(fileName ? { fileName } : {}),
-        },
-      ];
-    });
-  }, []);
 
   const addTextClip = useCallback(() => {
     const text = newTextInput.trim();
@@ -1603,14 +1528,52 @@ export default function Editor({ projectId }: EditorProps) {
       };
 
       recorder.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
-        playerRef.current?.setVolume(1);
-        const blob = new Blob(recordedChunksRef.current, { type: "audio/webm" });
-        if (blob.size > 0) {
-          const url = URL.createObjectURL(blob);
-          addAudioClip(url, "Voiceover");
-        }
-        setIsRecording(false);
+        void (async () => {
+          stream.getTracks().forEach((t) => t.stop());
+          playerRef.current?.setVolume(1);
+          const blob = new Blob(recordedChunksRef.current, { type: "audio/webm" });
+          if (blob.size > 0) {
+            const id = newEditorClipId();
+            const file = new File([blob], "voiceover.webm", {
+              type: blob.type || "audio/webm",
+            });
+            const temp = URL.createObjectURL(blob);
+            let dur = 10;
+            try {
+              dur = (await probeMediaDurationSec(temp, "audio")) ?? 10;
+            } finally {
+              URL.revokeObjectURL(temp);
+            }
+            const path = await persistEditorFileToServer(projectId, id, file);
+            if (path) {
+              const endSec = toFinite(dur, 10);
+              setClips((prev) => {
+                const maxTrack =
+                  prev.length === 0
+                    ? -1
+                    : Math.max(...prev.map((c) => toFinite(c.trackIndex, 0)));
+                const newTrack = maxTrack + 1;
+                return [
+                  ...prev,
+                  {
+                    id,
+                    src: path,
+                    trimStartSec: 0,
+                    trimEndSec: Math.max(0, endSec),
+                    durationSec: Number.isFinite(dur) ? dur : undefined,
+                    startTimeSec: 0,
+                    trackIndex: newTrack,
+                    kind: "audio" as const,
+                    fileName: "Voiceover",
+                  },
+                ];
+              });
+            } else {
+              alert("Could not save recording to the project.");
+            }
+          }
+          setIsRecording(false);
+        })();
       };
 
       playerRef.current?.seekTo(0);
@@ -1635,7 +1598,7 @@ export default function Editor({ projectId }: EditorProps) {
     } catch (err) {
       alert("Could not access microphone: " + (err instanceof Error ? err.message : String(err)));
     }
-  }, [addAudioClip, stopRecording]);
+  }, [projectId, stopRecording]);
 
   const transcribeClip = useCallback(async (clipId: string, clipHint?: EditorClip) => {
     const clip = clipHint ?? clips.find((c) => c.id === clipId);
@@ -2188,17 +2151,100 @@ export default function Editor({ projectId }: EditorProps) {
   const uploadClipsFromFiles = useCallback(
     async (files: File[]) => {
       for (const file of files) {
-        const url = URL.createObjectURL(file);
+        const tempUrl = URL.createObjectURL(file);
+        let durationSec = 10;
+        try {
+          durationSec =
+            (await probeMediaDurationSec(
+              tempUrl,
+              isAudioFile(file) ? "audio" : "video"
+            )) ?? 10;
+        } finally {
+          URL.revokeObjectURL(tempUrl);
+        }
+        const endSec = toFinite(durationSec, 10);
+
         if (isAudioFile(file)) {
-          const durationSec = await probeMediaDurationSec(url, "audio");
-          addAudioClip(url, file.name, durationSec);
+          const id = newEditorClipId();
+          const path = await persistEditorFileToServer(projectId, id, file);
+          if (!path) {
+            alert(
+              `Could not save “${file.name}” to the project (upload failed). Check network or file size.`
+            );
+            continue;
+          }
+          setClips((prev) => {
+            const maxTrack =
+              prev.length === 0
+                ? -1
+                : Math.max(...prev.map((c) => toFinite(c.trackIndex, 0)));
+            const newTrack = maxTrack + 1;
+            return [
+              ...prev,
+              {
+                id,
+                src: path,
+                trimStartSec: 0,
+                trimEndSec: Math.max(0, endSec),
+                durationSec: Number.isFinite(durationSec) ? durationSec : undefined,
+                startTimeSec: 0,
+                trackIndex: newTrack,
+                kind: "audio" as const,
+                fileName: file.name,
+              },
+            ];
+          });
         } else {
-          const durationSec = await probeMediaDurationSec(url, "video");
-          addClip(url, durationSec);
+          const videoId = newEditorClipId();
+          const audioId = newEditorClipId();
+          const path = await persistEditorFileToServer(projectId, videoId, file);
+          if (!path) {
+            alert(
+              `Could not save “${file.name}” to the project (upload failed). Check network or file size.`
+            );
+            continue;
+          }
+          setClips((prev) => {
+            const endOfTimeline =
+              prev.length === 0
+                ? 0
+                : Math.max(
+                    ...prev.map(
+                      (c) =>
+                        toFinite(c.startTimeSec, 0) +
+                        clipTimelineDurationForTotal(c, globalSpeedNum)
+                    )
+                  );
+            const base = {
+              src: path,
+              trimStartSec: 0,
+              trimEndSec: Math.max(0, endSec),
+              durationSec: Number.isFinite(durationSec) ? durationSec : undefined,
+              startTimeSec: endOfTimeline,
+              fileName: file.name,
+            };
+            return [
+              ...prev,
+              {
+                ...base,
+                id: videoId,
+                trackIndex: 0,
+                kind: "video" as const,
+                linkedClipId: audioId,
+              },
+              {
+                ...base,
+                id: audioId,
+                trackIndex: 1,
+                kind: "audio" as const,
+                linkedClipId: videoId,
+              },
+            ];
+          });
         }
       }
     },
-    [addClip, addAudioClip]
+    [projectId, globalSpeedNum]
   );
 
   const handleUploadClips = useCallback(

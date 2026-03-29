@@ -48,7 +48,7 @@ export function getStoryboardLastSceneIndex(projectId: string): number {
 
 /**
  * Copy video prompts in range to clipboard and download panel images as zip.
- * Same behavior as the Storyboard node "Download & Copy" button.
+ * The zip includes `videoGenerationPrompts.txt` with the same prompt text (Storyboard node "Download & Copy").
  */
 export async function runStoryboardDownloadAndCopy(
   projectId: string,
@@ -100,6 +100,9 @@ export async function runStoryboardDownloadAndCopy(
     zipCount += 1;
   }
   if (zipCount > 0) {
+    const promptsForZip =
+      nonEmptyPrompts.length > 0 ? nonEmptyPrompts.join("\n\n") : "";
+    folder?.file("videoGenerationPrompts.txt", promptsForZip);
     const blob = await zip.generateAsync({ type: "blob" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
