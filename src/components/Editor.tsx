@@ -1602,23 +1602,70 @@ export default function Editor({ projectId }: EditorProps) {
 
   const transcribeClip = useCallback(async (clipId: string, clipHint?: EditorClip) => {
     const clip = clipHint ?? clips.find((c) => c.id === clipId);
-    if (!clip) return;
+    if (!clip) {
+      console.warn("[Transcribe] transcribeClip: no clip for id", clipId);
+      return;
+    }
     setClipContextMenu(null);
+    const log = (...args: unknown[]) => console.log("[Transcribe]", ...args);
+    const tAll = performance.now();
     try {
+      log(
+        `clip ${clip.id} start`,
+        { kind: clip.kind, src: clip.src.slice(0, 80), fileName: clip.fileName ?? "(none)" }
+      );
+      log(`clip ${clip.id} fetching media…`);
+      const tFetch = performance.now();
       const res = await fetch(clip.src);
+      if (!res.ok) {
+        throw new Error(`Failed to fetch clip media: ${res.status} ${res.statusText}`);
+      }
       const blob = await res.blob();
+      log(
+        `clip ${clip.id} media ready in ${Math.round(performance.now() - tFetch)}ms`,
+        { bytes: blob.size, type: blob.type || "(unknown)" }
+      );
       const formData = new FormData();
       formData.append("audio", blob, clip.fileName ?? "clip.webm");
+      log(`clip ${clip.id} POST /api/whisper-clip (Whisper can take several minutes for long audio)…`);
+      const tPost = performance.now();
       const response = await fetch("/api/whisper-clip", {
         method: "POST",
         body: formData,
       });
-      const data = await response.json();
-      console.log("Transcription result:", data);
+      const data = (await response.json()) as Record<string, unknown> & {
+        segments?: unknown;
+        error?: string;
+      };
+      log(
+        `clip ${clip.id} API responded in ${Math.round(performance.now() - tPost)}ms`,
+        { ok: response.ok, status: response.status }
+      );
+      if (!response.ok) {
+        console.error("[Transcribe] API error body:", data);
+        alert(
+          `Transcription failed (${response.status}): ${typeof data.error === "string" ? data.error : JSON.stringify(data)}`
+        );
+        return;
+      }
 
       type Seg = { start: number; end: number; text: string; words?: { start: number; end: number; word?: string; text?: string }[] };
-      const segments: Seg[] = data.segments ?? [];
-      if (segments.length === 0) return;
+      const segments: Seg[] = (data.segments as Seg[]) ?? [];
+      if (segments.length === 0) {
+        console.warn(
+          "[Transcribe] clip",
+          clip.id,
+          "returned 0 segments. Response keys:",
+          Object.keys(data),
+          "sample:",
+          data
+        );
+        alert(
+          "Transcription returned no segments. Check the browser console ([Transcribe] logs) and the terminal running `next dev` for Whisper errors."
+        );
+        return;
+      }
+      log(`clip ${clip.id} got ${segments.length} segment(s), applying to timeline…`);
 
       const clipOffset = toFinite(clip.startTimeSec, 0);
 
@@ -1707,8 +1754,14 @@ export default function Editor({ projectId }: EditorProps) {
         const subtitleClips = removeSubtitleOverlaps(segments.map((seg, i) => segmentToSubClip(seg, i, 0)));
         return [...subtitleClips, ...shifted];
       });
+      console.log(
+        "[Transcribe] clip",
+        clip.id,
+        "finished OK in",
+        `${Math.round(performance.now() - tAll)}ms total`
+      );
     } catch (err) {
-      console.error("Transcription failed:", err);
+      console.error("[Transcribe] clip", clipId, "failed:", err);
       alert("Transcription failed: " + (err instanceof Error ? err.message : String(err)));
     }
   }, [clips]);
@@ -1728,12 +1781,32 @@ export default function Editor({ projectId }: EditorProps) {
       : source.filter(
           (c) => (c.kind === "audio" || c.kind === "combined") && !c.disabled
         );
-    if (audioClips.length === 0) return;
+    if (audioClips.length === 0) {
+      console.warn("[Transcribe] transcribeAll: no audio/combined clips to transcribe");
+      return;
+    }
+    const t0 = performance.now();
+    console.log(
+      "[Transcribe] transcribeAll: starting",
+      audioClips.length,
+      "clip(s). Open DevTools → Console to watch progress. Long files = several minutes each (Whisper medium).",
+      audioClips.map((c) => ({ id: c.id, kind: c.kind, src: c.src.slice(0, 60) }))
+    );
     setIsTranscribingAll(true);
     try {
+      let i = 0;
       for (const clip of audioClips) {
+        i += 1;
+        console.log(
+          `[Transcribe] transcribeAll: (${i}/${audioClips.length}) clip ${clip.id} (${clip.kind})…`
+        );
         await transcribeClip(clip.id, clip);
+        console.log(`[Transcribe] transcribeAll: (${i}/${audioClips.length}) clip ${clip.id} step done`);
       }
+      console.log(
+        "[Transcribe] transcribeAll: all done in",
+        `${Math.round(performance.now() - t0)}ms`
+      );
     } finally {
       setIsTranscribingAll(false);
     }
