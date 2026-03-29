@@ -482,6 +482,8 @@ export interface EditorClip {
   text?: string;
   /** Word-level timing for karaoke highlight: seconds relative to this clip’s Sequence (0 = clip start). */
   words?: { start: number; end: number; text: string }[];
+  /** Per-subtitle styling when `kind === "subtitle"`; merged on top of global Transcribe settings. */
+  subtitleStyle?: Partial<SubtitleStyle>;
   /** Font family for text clips. */
   fontFamily?: string;
   /** Font size in px for text clips. */
@@ -709,6 +711,21 @@ export type SubtitleStyle = {
   /** When true, only the active karaoke word is visible (no other words). */
   showHighlightedWordOnly?: boolean;
 };
+
+/** Merge global Transcribe settings with optional per-subtitle-clip overrides. */
+function mergeSubtitleStyleGlobalAndClip(
+  global: SubtitleStyle,
+  clipPatch?: Partial<SubtitleStyle> | undefined
+): SubtitleStyle {
+  if (!clipPatch) return global;
+  const out = { ...global };
+  (Object.entries(clipPatch) as [keyof SubtitleStyle, SubtitleStyle[keyof SubtitleStyle] | undefined][]).forEach(
+    ([k, v]) => {
+      if (v !== undefined) (out as Record<string, unknown>)[k as string] = v;
+    }
+  );
+  return out;
+}
 
 /** Renders subtitle text with optional word-level highlight (yellow) at current time. */
 function SubtitleBlock({
@@ -1163,8 +1180,12 @@ export function EditorCompositionWithProps({
             const subStart = toFinite(sub.startTimeSec, 0);
             const fromFrame = Math.round(subStart * safeFps);
             const durationInFrames = Math.max(1, Math.round((subStart + durSec) * safeFps) - fromFrame);
-            const posX = subtitleStyle?.positionX ?? compW / 2;
-            const posY = subtitleStyle?.positionY ?? Math.round(compH * 0.3);
+            const merged =
+              subtitleStyle != null
+                ? mergeSubtitleStyleGlobalAndClip(subtitleStyle, sub.subtitleStyle)
+                : undefined;
+            const posX = merged?.positionX ?? compW / 2;
+            const posY = merged?.positionY ?? Math.round(compH * 0.3);
             return (
               <Sequence
                 key={sub.id}
@@ -1184,7 +1205,7 @@ export function EditorCompositionWithProps({
                     alignItems: "center" as const,
                   }}
                 >
-                  <SubtitleBlock sub={sub} subtitleStyle={subtitleStyle} />
+                  <SubtitleBlock sub={sub} subtitleStyle={merged} />
                 </AbsoluteFill>
               </Sequence>
             );
@@ -3032,6 +3053,92 @@ export default function Editor({ projectId }: EditorProps) {
   const selectedTextClipId =
     selectedClip?.kind === "text" && selectedClipId ? selectedClipId : null;
 
+  const globalSubtitleStyleObj: SubtitleStyle = useMemo(
+    () => ({
+      textSize: subtitleTextSize,
+      textColor: subtitleTextColor,
+      backgroundColor: subtitleBgColor,
+      borderColor: subtitleBorderColor,
+      highlightTextColor: subtitleHighlightTextColor,
+      highlightBgColor: subtitleHighlightBgColor,
+      showHighlightedWordOnly: subtitleShowHighlightedWordOnly,
+      width: subtitleWidth,
+      positionX: subtitlePositionX,
+      positionY: subtitlePositionY,
+    }),
+    [
+      subtitleTextSize,
+      subtitleTextColor,
+      subtitleBgColor,
+      subtitleBorderColor,
+      subtitleHighlightTextColor,
+      subtitleHighlightBgColor,
+      subtitleShowHighlightedWordOnly,
+      subtitleWidth,
+      subtitlePositionX,
+      subtitlePositionY,
+    ]
+  );
+
+  /** Values shown in Transcribe panel: global defaults, or merged with selected subtitle overrides. */
+  const transcribePanelStyle = useMemo((): SubtitleStyle => {
+    if (selectedClip?.kind === "subtitle") {
+      return mergeSubtitleStyleGlobalAndClip(globalSubtitleStyleObj, selectedClip.subtitleStyle);
+    }
+    return globalSubtitleStyleObj;
+  }, [selectedClip, globalSubtitleStyleObj]);
+
+  const setSubtitleStyleField = useCallback(
+    <K extends keyof SubtitleStyle>(key: K, value: SubtitleStyle[K]) => {
+      const sel = clips.find((c) => c.id === selectedClipId);
+      if (selectedClipId && sel?.kind === "subtitle") {
+        setClips((prev) =>
+          prev.map((c) =>
+            c.id === selectedClipId
+              ? { ...c, subtitleStyle: { ...(c.subtitleStyle ?? {}), [key]: value } }
+              : c
+          )
+        );
+        return;
+      }
+      switch (key) {
+        case "textSize":
+          setSubtitleTextSize(value as number);
+          break;
+        case "textColor":
+          setSubtitleTextColor(value as string);
+          break;
+        case "backgroundColor":
+          setSubtitleBgColor(value as string);
+          break;
+        case "borderColor":
+          setSubtitleBorderColor(value as string);
+          break;
+        case "highlightTextColor":
+          setSubtitleHighlightTextColor(value as string);
+          break;
+        case "highlightBgColor":
+          setSubtitleHighlightBgColor(value as string);
+          break;
+        case "showHighlightedWordOnly":
+          setSubtitleShowHighlightedWordOnly(Boolean(value));
+          break;
+        case "width":
+          setSubtitleWidth(value as number);
+          break;
+        case "positionX":
+          setSubtitlePositionX(value as number);
+          break;
+        case "positionY":
+          setSubtitlePositionY(value as number);
+          break;
+        default:
+          break;
+      }
+    },
+    [selectedClipId, clips]
+  );
+
   useEffect(() => {
     if (selectedClip?.kind !== "text") return;
     setTextFontFamily(selectedClip.fontFamily ?? "sans-serif");
@@ -3264,18 +3371,7 @@ export default function Editor({ projectId }: EditorProps) {
               ref={playerRef}
               clips={clips}
               durationInFrames={durationInFrames}
-              subtitleStyle={{
-                textSize: subtitleTextSize,
-                textColor: subtitleTextColor,
-                backgroundColor: subtitleBgColor,
-                borderColor: subtitleBorderColor,
-                highlightTextColor: subtitleHighlightTextColor,
-                highlightBgColor: subtitleHighlightBgColor,
-                showHighlightedWordOnly: subtitleShowHighlightedWordOnly,
-                width: subtitleWidth,
-                positionX: subtitlePositionX,
-                positionY: subtitlePositionY,
-              }}
+              subtitleStyle={globalSubtitleStyleObj}
               zoom={(() => {
                 const z = parseFloat(globalZoomInput);
                 return Number.isFinite(z) && z > 0 ? z : 1;
@@ -3378,15 +3474,25 @@ export default function Editor({ projectId }: EditorProps) {
             </button>
             {transcribeOpen && (
               <div className="flex flex-col gap-3 px-3 pb-3">
+                {selectedClip?.kind === "subtitle" ? (
+                  <p className="text-[10px] leading-snug text-foreground/55">
+                    Subtitle clip selected — these settings apply only to this clip. Select nothing or another
+                    clip to edit defaults for all subtitles.
+                  </p>
+                ) : (
+                  <p className="text-[10px] leading-snug text-foreground/55">
+                    Defaults for all subtitle clips. Select a subtitle block on the timeline to override one clip.
+                  </p>
+                )}
                 <label className="flex flex-col gap-1">
                   <span className="text-xs text-foreground/50">Font size</span>
                   <input
                     type="text"
                     inputMode="numeric"
-                    value={subtitleTextSize}
+                    value={transcribePanelStyle.textSize}
                     onChange={(e) => {
                       const n = parseInt(e.target.value, 10);
-                      setSubtitleTextSize(Number.isNaN(n) ? 0 : n);
+                      setSubtitleStyleField("textSize", Number.isNaN(n) ? 0 : n);
                     }}
                     className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
                     placeholder="e.g. 24"
@@ -3400,8 +3506,8 @@ export default function Editor({ projectId }: EditorProps) {
                     onClick={() => setColorPickerOpen((v) => (v === "text" ? null : "text"))}
                     className="flex items-center gap-2 rounded border border-foreground/20 bg-foreground/5 px-2 py-1.5 text-sm hover:bg-foreground/10"
                   >
-                    <span className="w-5 h-5 rounded border border-foreground/30 shrink-0" style={{ backgroundColor: subtitleTextColor }} />
-                    <span className="font-mono text-xs">{subtitleTextColor}</span>
+                    <span className="w-5 h-5 rounded border border-foreground/30 shrink-0" style={{ backgroundColor: transcribePanelStyle.textColor }} />
+                    <span className="font-mono text-xs">{transcribePanelStyle.textColor}</span>
                   </button>
                 </label>
                 <label className="flex flex-col gap-1">
@@ -3412,7 +3518,7 @@ export default function Editor({ projectId }: EditorProps) {
                     onClick={() => setColorPickerOpen((v) => (v === "bg" ? null : "bg"))}
                     className="flex items-center gap-2 rounded border border-foreground/20 bg-foreground/5 px-2 py-1.5 text-sm hover:bg-foreground/10"
                   >
-                    {subtitleBgColor === TRANSPARENT_VALUE ? (
+                    {transcribePanelStyle.backgroundColor === TRANSPARENT_VALUE ? (
                       <>
                         <span
                           className="w-5 h-5 rounded border border-foreground/30 shrink-0"
@@ -3426,8 +3532,8 @@ export default function Editor({ projectId }: EditorProps) {
                       </>
                     ) : (
                       <>
-                        <span className="w-5 h-5 rounded border border-foreground/30 shrink-0" style={{ backgroundColor: subtitleBgColor }} />
-                        <span className="font-mono text-xs">{subtitleBgColor}</span>
+                        <span className="w-5 h-5 rounded border border-foreground/30 shrink-0" style={{ backgroundColor: transcribePanelStyle.backgroundColor }} />
+                        <span className="font-mono text-xs">{transcribePanelStyle.backgroundColor}</span>
                       </>
                     )}
                   </button>
@@ -3440,8 +3546,8 @@ export default function Editor({ projectId }: EditorProps) {
                     onClick={() => setColorPickerOpen((v) => (v === "border" ? null : "border"))}
                     className="flex items-center gap-2 rounded border border-foreground/20 bg-foreground/5 px-2 py-1.5 text-sm hover:bg-foreground/10"
                   >
-                    <span className="w-5 h-5 rounded border border-foreground/30 shrink-0" style={{ backgroundColor: subtitleBorderColor }} />
-                    <span className="font-mono text-xs">{subtitleBorderColor}</span>
+                    <span className="w-5 h-5 rounded border border-foreground/30 shrink-0" style={{ backgroundColor: transcribePanelStyle.borderColor }} />
+                    <span className="font-mono text-xs">{transcribePanelStyle.borderColor}</span>
                   </button>
                 </label>
                 <label className="flex flex-col gap-1">
@@ -3452,8 +3558,8 @@ export default function Editor({ projectId }: EditorProps) {
                     onClick={() => setColorPickerOpen((v) => (v === "highlightText" ? null : "highlightText"))}
                     className="flex items-center gap-2 rounded border border-foreground/20 bg-foreground/5 px-2 py-1.5 text-sm hover:bg-foreground/10"
                   >
-                    <span className="w-5 h-5 rounded border border-foreground/30 shrink-0" style={{ backgroundColor: subtitleHighlightTextColor }} />
-                    <span className="font-mono text-xs">{subtitleHighlightTextColor}</span>
+                    <span className="w-5 h-5 rounded border border-foreground/30 shrink-0" style={{ backgroundColor: transcribePanelStyle.highlightTextColor }} />
+                    <span className="font-mono text-xs">{transcribePanelStyle.highlightTextColor}</span>
                   </button>
                 </label>
                 <label className="flex flex-col gap-1">
@@ -3464,7 +3570,7 @@ export default function Editor({ projectId }: EditorProps) {
                     onClick={() => setColorPickerOpen((v) => (v === "highlightBg" ? null : "highlightBg"))}
                     className="flex items-center gap-2 rounded border border-foreground/20 bg-foreground/5 px-2 py-1.5 text-sm hover:bg-foreground/10"
                   >
-                    {subtitleHighlightBgColor === TRANSPARENT_VALUE ? (
+                    {transcribePanelStyle.highlightBgColor === TRANSPARENT_VALUE ? (
                       <>
                         <span
                           className="w-5 h-5 rounded border border-foreground/30 shrink-0"
@@ -3478,8 +3584,8 @@ export default function Editor({ projectId }: EditorProps) {
                       </>
                     ) : (
                       <>
-                        <span className="w-5 h-5 rounded border border-foreground/30 shrink-0" style={{ backgroundColor: subtitleHighlightBgColor }} />
-                        <span className="font-mono text-xs">{subtitleHighlightBgColor}</span>
+                        <span className="w-5 h-5 rounded border border-foreground/30 shrink-0" style={{ backgroundColor: transcribePanelStyle.highlightBgColor }} />
+                        <span className="font-mono text-xs">{transcribePanelStyle.highlightBgColor}</span>
                       </>
                     )}
                   </button>
@@ -3487,8 +3593,8 @@ export default function Editor({ projectId }: EditorProps) {
                 <label className="flex cursor-pointer items-center gap-2">
                   <input
                     type="checkbox"
-                    checked={subtitleShowHighlightedWordOnly}
-                    onChange={(e) => setSubtitleShowHighlightedWordOnly(e.target.checked)}
+                    checked={transcribePanelStyle.showHighlightedWordOnly === true}
+                    onChange={(e) => setSubtitleStyleField("showHighlightedWordOnly", e.target.checked)}
                     className="rounded border-foreground/30"
                   />
                   <span className="text-xs text-foreground/80">Show highlighted word only</span>
@@ -3498,10 +3604,10 @@ export default function Editor({ projectId }: EditorProps) {
                   <input
                     type="text"
                     inputMode="numeric"
-                    value={subtitleWidth}
+                    value={transcribePanelStyle.width}
                     onChange={(e) => {
                       const n = parseInt(e.target.value, 10);
-                      setSubtitleWidth(Number.isNaN(n) ? 0 : n);
+                      setSubtitleStyleField("width", Number.isNaN(n) ? 0 : n);
                     }}
                     className="w-full rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
                     placeholder="e.g. 800"
@@ -3513,11 +3619,11 @@ export default function Editor({ projectId }: EditorProps) {
                     <input
                       type="text"
                       inputMode="numeric"
-                      value={subtitlePositionX}
+                      value={transcribePanelStyle.positionX}
                       onChange={(e) => {
                         const n = parseInt(e.target.value, 10);
-                        if (!Number.isNaN(n)) setSubtitlePositionX(Math.max(0, n));
-                        else if (e.target.value === "") setSubtitlePositionX(0);
+                        if (!Number.isNaN(n)) setSubtitleStyleField("positionX", Math.max(0, n));
+                        else if (e.target.value === "") setSubtitleStyleField("positionX", 0);
                       }}
                       className="flex-1 rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
                       placeholder="X"
@@ -3525,11 +3631,11 @@ export default function Editor({ projectId }: EditorProps) {
                     <input
                       type="text"
                       inputMode="numeric"
-                      value={subtitlePositionY}
+                      value={transcribePanelStyle.positionY}
                       onChange={(e) => {
                         const n = parseInt(e.target.value, 10);
-                        if (!Number.isNaN(n)) setSubtitlePositionY(Math.max(0, n));
-                        else if (e.target.value === "") setSubtitlePositionY(0);
+                        if (!Number.isNaN(n)) setSubtitleStyleField("positionY", Math.max(0, n));
+                        else if (e.target.value === "") setSubtitleStyleField("positionY", 0);
                       }}
                       className="flex-1 rounded border border-foreground/20 bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-accent"
                       placeholder="Y"
@@ -3575,37 +3681,37 @@ export default function Editor({ projectId }: EditorProps) {
                 )}
                 <ColorPickerPopover
                   isOpen={colorPickerOpen === "text"}
-                  value={subtitleTextColor}
-                  onChange={setSubtitleTextColor}
+                  value={transcribePanelStyle.textColor}
+                  onChange={(v) => setSubtitleStyleField("textColor", v)}
                   onClose={() => setColorPickerOpen(null)}
                   anchorRef={textColorAnchorRef}
                 />
                 <ColorPickerPopover
                   isOpen={colorPickerOpen === "bg"}
-                  value={subtitleBgColor}
-                  onChange={setSubtitleBgColor}
+                  value={transcribePanelStyle.backgroundColor}
+                  onChange={(v) => setSubtitleStyleField("backgroundColor", v)}
                   onClose={() => setColorPickerOpen(null)}
                   anchorRef={bgColorAnchorRef}
                   allowTransparent
                 />
                 <ColorPickerPopover
                   isOpen={colorPickerOpen === "border"}
-                  value={subtitleBorderColor}
-                  onChange={setSubtitleBorderColor}
+                  value={transcribePanelStyle.borderColor}
+                  onChange={(v) => setSubtitleStyleField("borderColor", v)}
                   onClose={() => setColorPickerOpen(null)}
                   anchorRef={borderColorAnchorRef}
                 />
                 <ColorPickerPopover
                   isOpen={colorPickerOpen === "highlightText"}
-                  value={subtitleHighlightTextColor}
-                  onChange={setSubtitleHighlightTextColor}
+                  value={transcribePanelStyle.highlightTextColor}
+                  onChange={(v) => setSubtitleStyleField("highlightTextColor", v)}
                   onClose={() => setColorPickerOpen(null)}
                   anchorRef={highlightTextColorAnchorRef}
                 />
                 <ColorPickerPopover
                   isOpen={colorPickerOpen === "highlightBg"}
-                  value={subtitleHighlightBgColor}
-                  onChange={setSubtitleHighlightBgColor}
+                  value={transcribePanelStyle.highlightBgColor}
+                  onChange={(v) => setSubtitleStyleField("highlightBgColor", v)}
                   onClose={() => setColorPickerOpen(null)}
                   anchorRef={highlightBgColorAnchorRef}
                   allowTransparent
