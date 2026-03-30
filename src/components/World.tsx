@@ -12,6 +12,46 @@ function valueToString(v: unknown): string {
   return JSON.stringify(v);
 }
 
+function CopyIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+      <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+    </svg>
+  );
+}
+
+async function copyToClipboard(text: string) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+  } catch (e) {
+    console.error(e);
+    alert("Could not copy to clipboard");
+  }
+}
+
 export default function World({ projectId }: WorldProps) {
   const [items, setItems] = useState<{ key: string; value: string }[]>([]);
   const [generatingObjectRefs, setGeneratingObjectRefs] = useState(false);
@@ -142,13 +182,24 @@ export default function World({ projectId }: WorldProps) {
               value={item.key}
               onChange={(e) => updateKey(index, e.target.value)}
             />
-            <input
-              type="text"
-              className="min-w-0 flex-1 rounded border border-foreground/10 bg-transparent px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-foreground/20"
-              placeholder="Value"
-              value={item.value}
-              onChange={(e) => updateValue(index, e.target.value)}
-            />
+            <div className="flex min-w-0 flex-1 items-stretch gap-1">
+              <input
+                type="text"
+                className="min-w-0 flex-1 rounded border border-foreground/10 bg-transparent px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-foreground/20"
+                placeholder="Value"
+                value={item.value}
+                onChange={(e) => updateValue(index, e.target.value)}
+              />
+              <button
+                type="button"
+                className="shrink-0 rounded border border-foreground/10 px-2 py-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                title="Copy value"
+                aria-label="Copy value"
+                onClick={() => void copyToClipboard(item.value)}
+              >
+                <CopyIcon />
+              </button>
+            </div>
             <button
               type="button"
               className="shrink-0 rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
