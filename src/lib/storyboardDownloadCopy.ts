@@ -43,6 +43,19 @@ function buildMetaTxt(projectId: string): string {
   return `youtubeTitle\n${youtubeTitle}\n\nyoutubeDescription\n${youtubeDescription}\n`;
 }
 
+function buildStoryTxt(projectId: string): string {
+  const parts: string[] = [];
+  const speech = getData(projectId, "speech");
+  if (speech !== undefined && speech !== null) {
+    parts.push(`speech\n${dataValueToMetaString(speech)}`);
+  }
+  const story = getData(projectId, "story");
+  if (story !== undefined && story !== null) {
+    parts.push(`story\n${dataValueToMetaString(story)}`);
+  }
+  return parts.length > 0 ? `${parts.join("\n\n")}\n` : "";
+}
+
 /** Last valid scene index (0-based) for range UI and download. */
 export function getStoryboardLastSceneIndex(projectId: string): number {
   const scenes = getScenesArrayFromProject(projectId);
@@ -52,7 +65,7 @@ export function getStoryboardLastSceneIndex(projectId: string): number {
 
 /**
  * Download panel images in range as a zip.
- * The zip includes `videoGenerationPrompts.txt`, `meta.txt` (youtubeTitle / youtubeDescription from project data), and panel images.
+ * The zip includes `videoGenerationPrompts.txt`, `meta.txt`, `story.txt` (speech / story from project data when present), and panel images.
  */
 export async function runStoryboardDownloadAndCopy(
   projectId: string,
@@ -106,6 +119,7 @@ export async function runStoryboardDownloadAndCopy(
       nonEmptyPrompts.length > 0 ? nonEmptyPrompts.join("\n\n") : "";
     folder?.file("videoGenerationPrompts.txt", promptsForZip);
     folder?.file("meta.txt", buildMetaTxt(projectId));
+    folder?.file("story.txt", buildStoryTxt(projectId));
     const blob = await zip.generateAsync({ type: "blob" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
