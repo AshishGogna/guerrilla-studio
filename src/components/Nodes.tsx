@@ -23,6 +23,12 @@ import { generateText } from "@/lib/ai";
 import { NodesProvider } from "./NodesContext";
 import { parseAiResponse, parsePrompt } from "@/lib/textParser";
 import NodeStoryboard, { type NodeStoryboardData } from "./NodeStoryboard";
+import NodeReferences, { type NodeReferencesData } from "./NodeReferences";
+import { generateObjectReferences } from "@/lib/generateObjectReferences";
+import {
+  NODE_IMAGE_MODELS,
+  type NodeImageModel,
+} from "@/lib/nodeImageModels";
 import { executeStoryboardRunAll } from "@/lib/storyboardRunAll";
 import {
   getStoryboardLastSceneIndex,
@@ -39,6 +45,7 @@ const nodeTypes = {
   base: BaseNode,
   nodeText: NodeText,
   nodeStoryboard: NodeStoryboard,
+  nodeReferences: NodeReferences,
   nodeEditor: NodeEditor,
   nodeLabel: NodeLabel,
 };
@@ -218,6 +225,33 @@ function NodesInner({ projectId }: NodesProps) {
     [projectId]
   );
 
+  const playReferencesNodeOnce = useCallback(
+    async (nodeId: string) => {
+      const node = nodesRef.current.find((n) => n.id === nodeId);
+      if (!node || node.type !== "nodeReferences") return;
+      const d = (node.data ?? {}) as NodeReferencesData;
+      const aspectRatio = ["1:1", "9:16", "16:9"].includes(String(d.aspectRatio))
+        ? String(d.aspectRatio)
+        : "1:1";
+      const imageModel: NodeImageModel = NODE_IMAGE_MODELS.includes(
+        d.imageModel as NodeImageModel
+      )
+        ? (d.imageModel as NodeImageModel)
+        : NODE_IMAGE_MODELS[0];
+
+      setNodePlaying(nodeId, true);
+      try {
+        await generateObjectReferences(projectId, { aspectRatio, imageModel });
+      } catch (err) {
+        console.error(err);
+        alert(err instanceof Error ? err.message : "Generate object references failed");
+      } finally {
+        setNodePlaying(nodeId, false);
+      }
+    },
+    [projectId, setNodePlaying]
+  );
+
   const playStoryboardNodeOnce = useCallback(
     async (nodeId: string, fromChain: boolean) => {
       if (storyboardRunLockRef.current) return;
@@ -295,12 +329,16 @@ function NodesInner({ projectId }: NodesProps) {
         await playStoryboardNodeOnce(nodeId, fromChain);
         return;
       }
+      if (node.type === "nodeReferences") {
+        await playReferencesNodeOnce(nodeId);
+        return;
+      }
       if (node.type === "nodeEditor") {
         await playEditorNodeOnce(nodeId);
       }
       // base, nodeLabel, etc.: no-op for single play
     },
-    [playEditorNodeOnce, playStoryboardNodeOnce, playTextNodeOnce]
+    [playEditorNodeOnce, playReferencesNodeOnce, playStoryboardNodeOnce, playTextNodeOnce]
   );
 
   const playChainFrom = useCallback(
@@ -523,11 +561,13 @@ function NodesInner({ projectId }: NodesProps) {
             ? "Base Node"
             : type === "nodeStoryboard"
               ? "Storyboard"
-              : type === "nodeEditor"
-                ? "Editor"
-                : type === "nodeLabel"
-                  ? "Label"
-                  : "NodeText",
+              : type === "nodeReferences"
+                ? "References"
+                : type === "nodeEditor"
+                  ? "Editor"
+                  : type === "nodeLabel"
+                    ? "Label"
+                    : "NodeText",
         onTitleChange,
       };
       const data =
@@ -543,7 +583,13 @@ function NodesInner({ projectId }: NodesProps) {
                   Math.max(0, getScenesArrayFromProject(projectId).length - 1)
                 ),
               } satisfies NodeStoryboardData)
-            : type === "nodeEditor"
+            : type === "nodeReferences"
+              ? ({
+                  ...baseData,
+                  imageModel: "gemini-2.5-flash-image",
+                  aspectRatio: "1:1",
+                } satisfies NodeReferencesData)
+              : type === "nodeEditor"
               ? ({
                   ...baseData,
                   cutSilences: false,
@@ -665,6 +711,7 @@ function NodesInner({ projectId }: NodesProps) {
             { id: "base", label: "Base" },
             { id: "nodeText", label: "Text" },
             { id: "nodeStoryboard", label: "Storyboard" },
+            { id: "nodeReferences", label: "References" },
             { id: "nodeEditor", label: "Editor" },
             { id: "nodeLabel", label: "Label" },
           ]}

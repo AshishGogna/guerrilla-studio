@@ -6,6 +6,7 @@ export type CanvasNodeTypeId =
   | "base"
   | "nodeText"
   | "nodeStoryboard"
+  | "nodeReferences"
   | "nodeEditor"
   | "nodeLabel";
 

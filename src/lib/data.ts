@@ -34,10 +34,20 @@ function saveToStorage(projectId: string): void {
   }
 }
 
+export const REFERENCES_DATA_CHANGED_EVENT = "guerrilla-studio:references-changed";
+
+function notifyReferencesChanged(projectId: string): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(REFERENCES_DATA_CHANGED_EVENT, { detail: { projectId } })
+  );
+}
+
 export function addData(projectId: string, key: string, value: unknown): void {
   if (loadedProjectId !== projectId) loadFromStorage(projectId);
   store[key] = value;
   saveToStorage(projectId);
+  if (key === "references") notifyReferencesChanged(projectId);
 }
 
 export function getData(projectId: string, key: string): unknown {
@@ -49,6 +59,7 @@ export function removeData(projectId: string, key: string): void {
   if (loadedProjectId !== projectId) loadFromStorage(projectId);
   delete store[key];
   saveToStorage(projectId);
+  if (key === "references") notifyReferencesChanged(projectId);
 }
 
 export function removeAll(projectId: string): void {

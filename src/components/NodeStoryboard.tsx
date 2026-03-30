@@ -8,9 +8,10 @@ import { getData } from "@/lib/data";
 import { getScenesArrayFromProject } from "@/lib/storyboardNumericPrompt";
 import { runStoryboardDownloadAndCopy } from "@/lib/storyboardDownloadCopy";
 import { loadStoryboardState, saveStoryboardState } from "@/lib/state-storage";
-
-const IMAGE_MODELS = ["gemini-2.5-flash-image", "gemini-3-pro-image-preview"] as const;
-type ImageModel = (typeof IMAGE_MODELS)[number];
+import {
+  NODE_IMAGE_MODELS as IMAGE_MODELS,
+  type NodeImageModel as ImageModel,
+} from "@/lib/nodeImageModels";
 
 const ASPECT_RATIOS = ["9:16", "16:9", "1:1"] as const;
 type AspectRatio = (typeof ASPECT_RATIOS)[number];

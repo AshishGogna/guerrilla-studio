@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { generateImage } from "@/lib/ai";
-import { addData, getAll, getData, removeData } from "@/lib/data";
+import { addData, getAll, removeData } from "@/lib/data";
+import { generateObjectReferences } from "@/lib/generateObjectReferences";
 
 export type WorldProps = { projectId: string };
 
@@ -108,46 +108,12 @@ export default function World({ projectId }: WorldProps) {
   };
 
   const handleGenerateObjectReferences = async () => {
-    let raw = getData(projectId, "references");
-    if (!Array.isArray(raw)) {
-      raw = JSON.parse(String(raw ?? "null")) as unknown;
-      if (!Array.isArray(raw)) {
-        alert('No object references found. Save a list under data.objectReferences first.');
-        return;
-      }
-    }
-    const refs = raw as unknown[];
-    const parsed = refs
-      .map((r) => (r && typeof r === "object" ? (r as Record<string, unknown>) : null))
-      .filter(Boolean)
-      .map((r) => ({
-        id: typeof r!.id === "string" ? r!.id : "",
-        imageGenerationPrompt:
-          typeof r!.imageGenerationPrompt === "string" ? r!.imageGenerationPrompt : "",
-      }))
-      .filter((r) => r.id.trim() && r.imageGenerationPrompt.trim());
-
-    if (parsed.length === 0) {
-      alert('objectReferences is empty or invalid. Expected items like { id, imageGenerationPrompt }.');
-      return;
-    }
-
-    //gemini-2.5-flash-image
-    //gemini-3-pro-image-preview
     setGeneratingObjectRefs(true);
     try {
-      for (const obj of parsed) {
-        const fileName = `object-${obj.id}`;
-        const imagePath = await generateImage(
-          obj.imageGenerationPrompt,
-          projectId,
-          fileName,
-          "1:1",
-          undefined,
-          "gemini-2.5-flash-image"
-        );
-        addData(projectId, obj.id, imagePath);
-      }
+      await generateObjectReferences(projectId, {
+        aspectRatio: "1:1",
+        imageModel: "gemini-2.5-flash-image",
+      });
       refreshItems();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to generate object references");
