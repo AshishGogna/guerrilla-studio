@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import { getData } from "@/lib/data";
 import { getScenesArrayFromProject } from "@/lib/storyboardNumericPrompt";
 import { loadStoryboardState } from "@/lib/state-storage";
 
@@ -24,19 +25,22 @@ function extractVideoPromptFromScene(scene: unknown): string {
   return "";
 }
 
-async function copyTextToClipboard(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
+function dataValueToMetaString(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "string") return v;
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return String(v);
   }
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.style.position = "fixed";
-  textarea.style.opacity = "0";
-  document.body.appendChild(textarea);
-  textarea.select();
-  document.execCommand("copy");
-  document.body.removeChild(textarea);
+}
+
+function buildMetaTxt(projectId: string): string {
+  const youtubeTitle = dataValueToMetaString(getData(projectId, "youtubeTitle"));
+  const youtubeDescription = dataValueToMetaString(
+    getData(projectId, "youtubeDescription")
+  );
+  return `youtubeTitle\n${youtubeTitle}\n\nyoutubeDescription\n${youtubeDescription}\n`;
 }
 
 /** Last valid scene index (0-based) for range UI and download. */
@@ -47,8 +51,8 @@ export function getStoryboardLastSceneIndex(projectId: string): number {
 }
 
 /**
- * Copy video prompts in range to clipboard and download panel images as zip.
- * The zip includes `videoGenerationPrompts.txt` with the same prompt text (Storyboard node "Download & Copy").
+ * Download panel images in range as a zip.
+ * The zip includes `videoGenerationPrompts.txt`, `meta.txt` (youtubeTitle / youtubeDescription from project data), and panel images.
  */
 export async function runStoryboardDownloadAndCopy(
   projectId: string,
@@ -81,8 +85,6 @@ export async function runStoryboardDownloadAndCopy(
   const nonEmptyPrompts = promptParts.filter((p) => p.length > 0);
   if (nonEmptyPrompts.length === 0) {
     notes.push("No video generation prompts in this range.");
-  } else {
-    await copyTextToClipboard(nonEmptyPrompts.join("\n\n"));
   }
 
   const zip = new JSZip();
@@ -103,6 +105,7 @@ export async function runStoryboardDownloadAndCopy(
     const promptsForZip =
       nonEmptyPrompts.length > 0 ? nonEmptyPrompts.join("\n\n") : "";
     folder?.file("videoGenerationPrompts.txt", promptsForZip);
+    folder?.file("meta.txt", buildMetaTxt(projectId));
     const blob = await zip.generateAsync({ type: "blob" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);

@@ -267,9 +267,8 @@ function NodesInner({ projectId }: NodesProps) {
               await runStoryboardDownloadAndCopy(projectId, 0, lastAfter);
             } catch (copyErr) {
               console.error(copyErr);
-              alert(copyErr instanceof Error ? copyErr.message : "Download & copy failed");
+              alert(copyErr instanceof Error ? copyErr.message : "Download failed");
             }
-            window.open("https://grok.com/imagine", "_blank", "noopener,noreferrer");
           }
         }
       } catch (err) {

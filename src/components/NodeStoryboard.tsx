@@ -126,7 +126,7 @@ export default function NodeStoryboard(props: NodeProps<NodeStoryboardData>) {
     try {
       await runStoryboardDownloadAndCopy(projectId, from, to);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Download & copy failed");
+      alert(err instanceof Error ? err.message : "Download failed");
     } finally {
       setDownloadBusy(false);
     }
@@ -214,7 +214,7 @@ export default function NodeStoryboard(props: NodeProps<NodeStoryboardData>) {
           className="nodrag w-full rounded border border-foreground/20 bg-foreground/10 px-2 py-1.5 text-sm hover:bg-foreground/20 disabled:opacity-50"
           onClick={() => void handleDownloadAndCopy()}
         >
-          {downloadBusy ? "Working…" : "Download & Copy"}
+          {downloadBusy ? "Working…" : "Download"}
         </button>
       </div>
 
