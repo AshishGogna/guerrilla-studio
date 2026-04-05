@@ -190,6 +190,35 @@ function NodesInner({ projectId }: NodesProps) {
         const userPrompt = parsePrompt(projectId, rawText);
         const output = await generateText(userPrompt, "", "gpt-5.4");
         parseAiResponse(projectId, output);
+        setNodes((prev) =>
+          prev.map((n) =>
+            n.id === nodeId && n.type === "nodeText"
+              ? {
+                  ...n,
+                  data: {
+                    ...(n.data as Record<string, unknown>),
+                    lastAiOutput: output,
+                  },
+                }
+              : n
+          )
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setNodes((prev) =>
+          prev.map((n) =>
+            n.id === nodeId && n.type === "nodeText"
+              ? {
+                  ...n,
+                  data: {
+                    ...(n.data as Record<string, unknown>),
+                    lastAiOutput: `Error: ${msg}`,
+                  },
+                }
+              : n
+          )
+        );
+        console.error(err);
       } finally {
         setPlayingNodeIds((prev) => {
           const next = new Set(prev);
@@ -198,7 +227,7 @@ function NodesInner({ projectId }: NodesProps) {
         });
       }
     },
-    [projectId]
+    [projectId, setNodes]
   );
 
   const playEditorNodeOnce = useCallback(

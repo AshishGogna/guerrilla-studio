@@ -4,9 +4,12 @@ import { useEffect, useState } from "react";
 import { Handle, Position, type Node, type NodeProps, useReactFlow } from "reactflow";
 import BaseNode, { type BaseNodeData } from "./BaseNode";
 import FullScreenTextModal from "./FullScreenTextModal";
+import { useNodesContext } from "./NodesContext";
 
 export type NodeTextData = BaseNodeData & {
   text: string;
+  /** Raw model output from the last successful (or failed) Play on this node. */
+  lastAiOutput?: string;
   onTextChange?: (nodeId: string, text: string) => void;
 };
 
@@ -14,6 +17,7 @@ export default function NodeText(props: NodeProps<NodeTextData>) {
   const [openFullScreen, setOpenFullScreen] = useState(false);
   const [draftText, setDraftText] = useState(props.data.text ?? "");
   const rf = useReactFlow();
+  const { playNode, playChain } = useNodesContext();
 
   useEffect(() => {
     setDraftText(props.data.text ?? "");
@@ -67,6 +71,7 @@ export default function NodeText(props: NodeProps<NodeTextData>) {
       <FullScreenTextModal
         open={openFullScreen}
         text={draftText}
+        outputText={props.data.lastAiOutput ?? ""}
         onChange={(value) => {
           setDraftText(value);
           rf.setNodes((prev) =>
@@ -78,6 +83,17 @@ export default function NodeText(props: NodeProps<NodeTextData>) {
           );
           props.data.onTextChange?.(props.id, value);
         }}
+        onOutputChange={(value) => {
+          rf.setNodes((prev) =>
+            prev.map((n: Node<Record<string, unknown>>) =>
+              n.id === props.id
+                ? { ...n, data: { ...(n.data as Record<string, unknown>), lastAiOutput: value } }
+                : n
+            )
+          );
+        }}
+        onPlay={() => playNode(props.id)}
+        onPlayChain={() => playChain(props.id)}
         onClose={() => setOpenFullScreen(false)}
       />
     </>
