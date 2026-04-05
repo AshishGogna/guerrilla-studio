@@ -1151,7 +1151,7 @@ export function EditorCompositionWithProps({
         );
       })}
       {textClips.length > 0 && (
-        <AbsoluteFill style={{ pointerEvents: "none", position: "relative", width: compW, height: compH }}>
+        <AbsoluteFill style={{ pointerEvents: "none" }}>
           {textClips.map((clip) => {
             const trimStart = toFinite(clip.trimStartSec, 0);
             const trimEnd = toFinite(clip.trimEndSec, 5);
@@ -1174,7 +1174,7 @@ export function EditorCompositionWithProps({
         </AbsoluteFill>
       )}
       {subtitleClips.length > 0 && (
-        <AbsoluteFill style={{ pointerEvents: "none", position: "relative", width: compW, height: compH }}>
+        <AbsoluteFill style={{ pointerEvents: "none" }}>
           {subtitleClips.map((sub) => {
             const durSec = Math.max(0, toFinite(sub.trimEndSec, 0) - toFinite(sub.trimStartSec, 0));
             const subStart = toFinite(sub.startTimeSec, 0);
