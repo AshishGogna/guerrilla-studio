@@ -1,6 +1,7 @@
 /** Image models used by Storyboard, References nodes, etc. */
 export const NODE_IMAGE_MODELS = [
   "gemini-2.5-flash-image",
+  "gemini-3.1-flash-image-preview",
   "gemini-3-pro-image-preview",
 ] as const;
 

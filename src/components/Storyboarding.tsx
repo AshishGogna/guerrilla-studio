@@ -33,7 +33,11 @@ function normalizePublicAssetUrl(url: string | null): string | null {
   return `/${url}`;
 }
 
-const IMAGE_MODELS = ["gemini-2.5-flash-image", "gemini-3-pro-image-preview"] as const;
+const IMAGE_MODELS = [
+  "gemini-2.5-flash-image",
+  "gemini-3.1-flash-image-preview",
+  "gemini-3-pro-image-preview",
+] as const;
 const ASPECT_RATIOS = ["1:1", "16:9", "9:16"] as const;
 const SCALES = ["1x", "2x"] as const;
 

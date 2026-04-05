@@ -4,19 +4,23 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 /**
- * Keep AI output in local state while the modal is open so parent `setNodes` re-renders
- * don't reset the textarea selection (caret jumping to end on Backspace).
+ * Local output while modal is open avoids caret jumps on every parent `setNodes`.
+ * `outputRevision` bumps only when Play (or error) assigns a new `lastAiOutput` so we
+ * re-sync from the server without tying to arbitrary prop churn.
  */
-function useOutputWhileOpen(open: boolean, outputText: string) {
+function useSyncedOutputWhileOpen(
+  open: boolean,
+  outputText: string,
+  outputRevision: number
+) {
   const [localOutput, setLocalOutput] = useState(outputText);
   const outputTextRef = useRef(outputText);
   outputTextRef.current = outputText;
 
   useEffect(() => {
-    if (open) {
-      setLocalOutput(outputTextRef.current);
-    }
-  }, [open]);
+    if (!open) return;
+    setLocalOutput(outputTextRef.current);
+  }, [open, outputRevision]);
 
   return [localOutput, setLocalOutput] as const;
 }
@@ -25,6 +29,10 @@ type FullScreenTextModalProps = {
   open: boolean;
   text: string;
   outputText: string;
+  /** Bumps when this node's AI output is replaced by Play (see NodeTextData.aiOutputRevision). */
+  outputRevision: number;
+  /** True while this text node's Play / generate is in flight (`data.isPlaying`). */
+  isAiLoading?: boolean;
   onChange: (value: string) => void;
   onOutputChange: (value: string) => void;
   onPlay: () => void;
@@ -36,6 +44,8 @@ export default function FullScreenTextModal({
   open,
   text,
   outputText,
+  outputRevision,
+  isAiLoading = false,
   onChange,
   onOutputChange,
   onPlay,
@@ -44,7 +54,11 @@ export default function FullScreenTextModal({
 }: FullScreenTextModalProps) {
   const [mounted, setMounted] = useState(false);
   const backdropPointerDownRef = useRef(false);
-  const [localOutput, setLocalOutput] = useOutputWhileOpen(open, outputText);
+  const [localOutput, setLocalOutput] = useSyncedOutputWhileOpen(
+    open,
+    outputText,
+    outputRevision
+  );
 
   useEffect(() => {
     setMounted(true);
@@ -83,7 +97,8 @@ export default function FullScreenTextModal({
             <div className="pointer-events-none absolute bottom-2 right-2 flex gap-1">
               <button
                 type="button"
-                className="pointer-events-auto rounded p-1 text-foreground/70 hover:bg-foreground/10 hover:text-foreground"
+                disabled={isAiLoading}
+                className="pointer-events-auto rounded p-1 text-foreground/70 hover:bg-foreground/10 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
                 title="Play"
                 aria-label="Play"
                 onMouseDown={(e) => e.stopPropagation()}
@@ -98,7 +113,8 @@ export default function FullScreenTextModal({
               </button>
               <button
                 type="button"
-                className="pointer-events-auto rounded p-1 text-foreground/70 hover:bg-foreground/10 hover:text-foreground"
+                disabled={isAiLoading}
+                className="pointer-events-auto rounded p-1 text-foreground/70 hover:bg-foreground/10 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
                 title="Play chain"
                 aria-label="Play chain"
                 onMouseDown={(e) => e.stopPropagation()}
@@ -114,16 +130,32 @@ export default function FullScreenTextModal({
               </button>
             </div>
           </div>
-          <textarea
-            className="min-h-0 min-w-0 flex-1 resize-none rounded border border-foreground/10 bg-foreground/[0.04] p-2 text-sm text-foreground/90 outline-none"
-            value={localOutput}
-            onChange={(e) => {
-              const v = e.target.value;
-              setLocalOutput(v);
-              onOutputChange(v);
-            }}
-            placeholder="AI output (editable; saved on change)…"
-          />
+          <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+            {isAiLoading ? (
+              <div
+                className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 rounded border border-foreground/10 bg-foreground/[0.04] px-4"
+                aria-busy
+                aria-live="polite"
+              >
+                <div
+                  className="h-9 w-9 shrink-0 animate-spin rounded-full border-2 border-foreground/25 border-t-foreground/70"
+                  role="status"
+                />
+                <p className="text-center text-sm text-foreground/60">Generating response…</p>
+              </div>
+            ) : (
+              <textarea
+                className="min-h-0 min-w-0 flex-1 resize-none rounded border border-foreground/10 bg-foreground/[0.04] p-2 text-sm text-foreground/90 outline-none"
+                value={localOutput}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setLocalOutput(v);
+                  onOutputChange(v);
+                }}
+                placeholder="AI output (editable; saved on change)…"
+              />
+            )}
+          </div>
         </div>
       </div>
     </div>,

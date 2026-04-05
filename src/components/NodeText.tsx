@@ -10,6 +10,8 @@ export type NodeTextData = BaseNodeData & {
   text: string;
   /** Raw model output from the last successful (or failed) Play on this node. */
   lastAiOutput?: string;
+  /** Incremented when Play writes a new `lastAiOutput` so fullscreen can refresh without breaking caret while typing. */
+  aiOutputRevision?: number;
   onTextChange?: (nodeId: string, text: string) => void;
 };
 
@@ -72,6 +74,8 @@ export default function NodeText(props: NodeProps<NodeTextData>) {
         open={openFullScreen}
         text={draftText}
         outputText={props.data.lastAiOutput ?? ""}
+        outputRevision={props.data.aiOutputRevision ?? 0}
+        isAiLoading={props.data.isPlaying === true}
         onChange={(value) => {
           setDraftText(value);
           rf.setNodes((prev) =>

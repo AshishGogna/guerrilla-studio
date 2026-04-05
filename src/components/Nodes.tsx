@@ -193,13 +193,19 @@ function NodesInner({ projectId }: NodesProps) {
         setNodes((prev) =>
           prev.map((n) =>
             n.id === nodeId && n.type === "nodeText"
-              ? {
-                  ...n,
-                  data: {
-                    ...(n.data as Record<string, unknown>),
-                    lastAiOutput: output,
-                  },
-                }
+              ? (() => {
+                  const d = n.data as Record<string, unknown>;
+                  const prevRev = Number(d.aiOutputRevision);
+                  const aiOutputRevision = Number.isFinite(prevRev) ? prevRev + 1 : 1;
+                  return {
+                    ...n,
+                    data: {
+                      ...d,
+                      lastAiOutput: output,
+                      aiOutputRevision,
+                    },
+                  };
+                })()
               : n
           )
         );
@@ -208,13 +214,19 @@ function NodesInner({ projectId }: NodesProps) {
         setNodes((prev) =>
           prev.map((n) =>
             n.id === nodeId && n.type === "nodeText"
-              ? {
-                  ...n,
-                  data: {
-                    ...(n.data as Record<string, unknown>),
-                    lastAiOutput: `Error: ${msg}`,
-                  },
-                }
+              ? (() => {
+                  const d = n.data as Record<string, unknown>;
+                  const prevRev = Number(d.aiOutputRevision);
+                  const aiOutputRevision = Number.isFinite(prevRev) ? prevRev + 1 : 1;
+                  return {
+                    ...n,
+                    data: {
+                      ...d,
+                      lastAiOutput: `Error: ${msg}`,
+                      aiOutputRevision,
+                    },
+                  };
+                })()
               : n
           )
         );
