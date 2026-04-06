@@ -685,6 +685,22 @@ function NodesInner({ projectId }: NodesProps) {
     setMenuState(null);
   }, [menuState, setNodes]);
 
+  /** Nodrag controls don't trigger RF selection; keep `selected` in sync for the white border. */
+  const selectNode = useCallback(
+    (nodeId: string, e?: React.MouseEvent) => {
+      const additive = Boolean(e?.metaKey || e?.ctrlKey);
+      setNodes((nds) =>
+        nds.map((n) => {
+          if (additive) {
+            return n.id === nodeId ? { ...n, selected: true } : n;
+          }
+          return { ...n, selected: n.id === nodeId };
+        })
+      );
+    },
+    [setNodes]
+  );
+
   return (
     <div className="w-full" style={{ height: "calc(100vh - 120px)", minHeight: 520 }}>
       <NodesProvider
@@ -696,6 +712,7 @@ function NodesInner({ projectId }: NodesProps) {
           void playChainFrom(id);
         }}
         setNodePlaying={setNodePlaying}
+        selectNode={selectNode}
       >
         <ReactFlow
           nodes={nodes}

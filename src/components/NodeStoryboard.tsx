@@ -34,7 +34,7 @@ function defaultToSceneIndex(projectId: string): string {
 
 export default function NodeStoryboard(props: NodeProps<NodeStoryboardData>) {
   const { id, data } = props;
-  const { projectId } = useNodesContext();
+  const { projectId, selectNode } = useNodesContext();
   const rf = useReactFlow();
 
   const [imageModel, setImageModel] = useState<ImageModel>(() => {
@@ -141,6 +141,10 @@ export default function NodeStoryboard(props: NodeProps<NodeStoryboardData>) {
         <label className="mb-1 block text-xs text-foreground/60">Aspect ratio</label>
         <select
           value={aspectRatio}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            selectNode(id, e);
+          }}
           onChange={(e) => {
             const v = e.target.value as AspectRatio;
             setAspectRatio(v);
@@ -161,6 +165,10 @@ export default function NodeStoryboard(props: NodeProps<NodeStoryboardData>) {
         <label className="mb-1 block text-xs text-foreground/60">Image model</label>
         <select
           value={imageModel}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            selectNode(id, e);
+          }}
           onChange={(e) => {
             const v = e.target.value as ImageModel;
             setImageModel(v);
@@ -184,6 +192,10 @@ export default function NodeStoryboard(props: NodeProps<NodeStoryboardData>) {
             type="text"
             inputMode="numeric"
             value={fromScene}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              selectNode(id, e);
+            }}
             onChange={(e) => {
               const v = e.target.value;
               setFromScene(v);
@@ -198,6 +210,10 @@ export default function NodeStoryboard(props: NodeProps<NodeStoryboardData>) {
             type="text"
             inputMode="numeric"
             value={toScene}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              selectNode(id, e);
+            }}
             onChange={(e) => {
               const v = e.target.value;
               setToScene(v);
@@ -213,6 +229,10 @@ export default function NodeStoryboard(props: NodeProps<NodeStoryboardData>) {
           type="button"
           disabled={downloadBusy}
           className="nodrag w-full rounded border border-foreground/20 bg-foreground/10 px-2 py-1.5 text-sm hover:bg-foreground/20 disabled:opacity-50"
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            selectNode(id, e);
+          }}
           onClick={() => void handleDownloadAndCopy()}
         >
           {downloadBusy ? "Working…" : "Download"}

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import type { NodeProps } from "reactflow";
+import { useNodesContext } from "./NodesContext";
 
 const DEFAULT_W = 160;
 const DEFAULT_H = 44;
@@ -22,6 +23,7 @@ export type NodeLabelData = {
 };
 
 export default function NodeLabel({ id, data, selected }: NodeProps<NodeLabelData>) {
+  const { selectNode } = useNodesContext();
   const label = data.label ?? "Label";
   const baseWidth = typeof data.width === "number" && data.width > 0 ? data.width : DEFAULT_W;
   const height = typeof data.height === "number" && data.height > 0 ? data.height : DEFAULT_H;
@@ -67,6 +69,7 @@ export default function NodeLabel({ id, data, selected }: NodeProps<NodeLabelDat
       }}
       onDoubleClick={(e) => {
         e.stopPropagation();
+        selectNode(id, e);
         setEditing(true);
       }}
     >
@@ -76,7 +79,10 @@ export default function NodeLabel({ id, data, selected }: NodeProps<NodeLabelDat
           className="nodrag nowheel h-full min-h-[28px] w-full resize-none bg-transparent text-inherit outline-none placeholder:text-foreground/40"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          onMouseDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            selectNode(id, e);
+          }}
           onPointerDown={(e) => e.stopPropagation()}
           onBlur={commitLabel}
           onKeyDown={(e) => {

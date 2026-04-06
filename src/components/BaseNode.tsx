@@ -18,7 +18,7 @@ type Props = NodeProps<BaseNodeData> & {
 };
 
 export default function BaseNode({ id, data, selected, children, className }: Props) {
-  const { playNode, playChain } = useNodesContext();
+  const { playNode, playChain, selectNode } = useNodesContext();
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(data.title);
 
@@ -77,7 +77,10 @@ export default function BaseNode({ id, data, selected, children, className }: Pr
               className="rounded p-1 text-foreground/70 hover:bg-foreground/10 hover:text-foreground"
               title="Play"
               aria-label="Play"
-              onMouseDown={(e) => e.stopPropagation()}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                selectNode(id, e);
+              }}
               onClick={(e) => {
                 e.stopPropagation();
                 playNode(id);
@@ -92,7 +95,10 @@ export default function BaseNode({ id, data, selected, children, className }: Pr
               className="rounded p-1 text-foreground/70 hover:bg-foreground/10 hover:text-foreground"
               title="Play chain"
               aria-label="Play chain"
-              onMouseDown={(e) => e.stopPropagation()}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                selectNode(id, e);
+              }}
               onClick={(e) => {
                 e.stopPropagation();
                 playChain(id);

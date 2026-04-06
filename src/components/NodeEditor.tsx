@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Handle, Position, type NodeProps, useReactFlow } from "reactflow";
 import BaseNode, { type BaseNodeData } from "./BaseNode";
+import { useNodesContext } from "./NodesContext";
 import { registerEditorNodeSelectedFiles } from "@/lib/editorNodeFolderSource";
 
 export type NodeEditorData = BaseNodeData & {
@@ -23,6 +24,7 @@ function summarizeFiles(files: File[]): string {
 export default function NodeEditor(props: NodeProps<NodeEditorData>) {
   const { id, data } = props;
   const rf = useReactFlow();
+  const { selectNode } = useNodesContext();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [cutSilences, setCutSilences] = useState(() => data.cutSilences ?? false);
@@ -81,7 +83,10 @@ export default function NodeEditor(props: NodeProps<NodeEditorData>) {
           <button
             type="button"
             className="nodrag w-full rounded border border-foreground/20 bg-foreground/5 px-2 py-1.5 text-left text-foreground/90 hover:bg-foreground/10"
-            onMouseDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              selectNode(id, e);
+            }}
             onClick={() => fileInputRef.current?.click()}
           >
             {displayLabel || "Choose video/audio files…"}
@@ -91,7 +96,13 @@ export default function NodeEditor(props: NodeProps<NodeEditorData>) {
           </p>
         </div>
 
-        <label className="nodrag flex cursor-pointer items-center gap-2 text-foreground/90">
+        <label
+          className="nodrag flex cursor-pointer items-center gap-2 text-foreground/90"
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            selectNode(id, e);
+          }}
+        >
           <input
             type="checkbox"
             checked={cutSilences}
@@ -105,7 +116,13 @@ export default function NodeEditor(props: NodeProps<NodeEditorData>) {
           <span>Cut silences</span>
         </label>
 
-        <label className="nodrag flex cursor-pointer items-center gap-2 text-foreground/90">
+        <label
+          className="nodrag flex cursor-pointer items-center gap-2 text-foreground/90"
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            selectNode(id, e);
+          }}
+        >
           <input
             type="checkbox"
             checked={transcribe}

@@ -32,7 +32,7 @@ function getReferencesCount(projectId: string): number {
 
 export default function NodeReferences(props: NodeProps<NodeReferencesData>) {
   const { id, data } = props;
-  const { projectId } = useNodesContext();
+  const { projectId, selectNode } = useNodesContext();
   const rf = useReactFlow();
 
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(() => {
@@ -93,6 +93,10 @@ export default function NodeReferences(props: NodeProps<NodeReferencesData>) {
         <label className="mb-1 block text-xs text-foreground/60">Aspect ratio</label>
         <select
           value={aspectRatio}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            selectNode(id, e);
+          }}
           onChange={(e) => {
             const v = e.target.value as AspectRatio;
             setAspectRatio(v);
@@ -112,6 +116,10 @@ export default function NodeReferences(props: NodeProps<NodeReferencesData>) {
         <label className="mb-1 block text-xs text-foreground/60">Image model</label>
         <select
           value={imageModel}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            selectNode(id, e);
+          }}
           onChange={(e) => {
             const v = e.target.value as NodeImageModel;
             setImageModel(v);

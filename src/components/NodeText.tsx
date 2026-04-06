@@ -19,7 +19,7 @@ export default function NodeText(props: NodeProps<NodeTextData>) {
   const [openFullScreen, setOpenFullScreen] = useState(false);
   const [draftText, setDraftText] = useState(props.data.text ?? "");
   const rf = useReactFlow();
-  const { playNode, playChain } = useNodesContext();
+  const { playNode, playChain, selectNode } = useNodesContext();
 
   useEffect(() => {
     setDraftText(props.data.text ?? "");
@@ -46,14 +46,20 @@ export default function NodeText(props: NodeProps<NodeTextData>) {
               );
               props.data.onTextChange?.(props.id, next);
             }}
-            onMouseDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              selectNode(props.id, e);
+            }}
           />
           <button
             type="button"
             className="nodrag absolute bottom-2 right-2 rounded bg-transparent p-1 text-foreground/80"
             title="Open fullscreen"
             aria-label="Open fullscreen text editor"
-            onMouseDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              selectNode(props.id, e);
+            }}
             onClick={(e) => {
               e.stopPropagation();
               setOpenFullScreen(true);
@@ -71,6 +77,7 @@ export default function NodeText(props: NodeProps<NodeTextData>) {
         <Handle type="source" position={Position.Right} />
       </BaseNode>
       <FullScreenTextModal
+        nodeId={props.id}
         open={openFullScreen}
         text={draftText}
         outputText={props.data.lastAiOutput ?? ""}

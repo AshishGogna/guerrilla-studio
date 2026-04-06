@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useNodesContext } from "./NodesContext";
 
 /**
  * Local output while modal is open avoids caret jumps on every parent `setNodes`.
@@ -26,6 +27,7 @@ function useSyncedOutputWhileOpen(
 }
 
 type FullScreenTextModalProps = {
+  nodeId: string;
   open: boolean;
   text: string;
   outputText: string;
@@ -41,6 +43,7 @@ type FullScreenTextModalProps = {
 };
 
 export default function FullScreenTextModal({
+  nodeId,
   open,
   text,
   outputText,
@@ -52,6 +55,7 @@ export default function FullScreenTextModal({
   onPlayChain,
   onClose,
 }: FullScreenTextModalProps) {
+  const { selectNode } = useNodesContext();
   const [mounted, setMounted] = useState(false);
   const backdropPointerDownRef = useRef(false);
   const [localOutput, setLocalOutput] = useSyncedOutputWhileOpen(
@@ -91,6 +95,10 @@ export default function FullScreenTextModal({
             <textarea
               className="min-h-0 w-full flex-1 resize-none rounded bg-transparent p-2 text-sm text-foreground outline-none"
               value={text}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                selectNode(nodeId, e);
+              }}
               onChange={(e) => onChange(e.target.value)}
               placeholder="Prompt / instructions…"
             />
@@ -101,7 +109,10 @@ export default function FullScreenTextModal({
                 className="pointer-events-auto rounded p-1 text-foreground/70 hover:bg-foreground/10 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
                 title="Play"
                 aria-label="Play"
-                onMouseDown={(e) => e.stopPropagation()}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  selectNode(nodeId, e);
+                }}
                 onClick={(e) => {
                   e.stopPropagation();
                   onPlay();
@@ -117,7 +128,10 @@ export default function FullScreenTextModal({
                 className="pointer-events-auto rounded p-1 text-foreground/70 hover:bg-foreground/10 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
                 title="Play chain"
                 aria-label="Play chain"
-                onMouseDown={(e) => e.stopPropagation()}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  selectNode(nodeId, e);
+                }}
                 onClick={(e) => {
                   e.stopPropagation();
                   onPlayChain();
@@ -147,6 +161,10 @@ export default function FullScreenTextModal({
               <textarea
                 className="min-h-0 min-w-0 flex-1 resize-none rounded border border-foreground/10 bg-foreground/[0.04] p-2 text-sm text-foreground/90 outline-none"
                 value={localOutput}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  selectNode(nodeId, e);
+                }}
                 onChange={(e) => {
                   const v = e.target.value;
                   setLocalOutput(v);
