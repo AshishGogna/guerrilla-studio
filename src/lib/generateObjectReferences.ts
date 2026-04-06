@@ -16,15 +16,18 @@ export async function generateObjectReferences(
 ): Promise<void> {
   let raw: unknown = getData(projectId, "references");
   if (!Array.isArray(raw)) {
-    try {
-      raw = JSON.parse(String(raw ?? "null")) as unknown;
-    } catch {
-      raw = null;
-    }
+    raw = JSON.parse(String(raw ?? "null"));
     if (!Array.isArray(raw)) {
-      throw new Error(
-        "No object references found. Save an array under the key `references` in project data (items with id + imageGenerationPrompt)."
-      );
+      try {
+        raw = JSON.parse(String(raw ?? "null")) as unknown;
+      } catch {
+        raw = null;
+      }
+      if (!Array.isArray(raw)) {
+        throw new Error(
+          "No object references found. Save an array under the key `references` in project data (items with id + imageGenerationPrompt)."
+        );
+      }
     }
   }
 

@@ -18,6 +18,39 @@ export function parsePrompt(projectId: string, prompt: string): string {
   });
 }
 
+/**
+ * Copies the prompt with `${key}` placeholders resolved via project data (same as Play uses).
+ */
+export async function copyResolvedPromptToClipboard(
+  projectId: string,
+  rawPrompt: string
+): Promise<void> {
+  const text = parsePrompt(projectId, rawPrompt);
+  try {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+  } catch {
+    // fall through to execCommand
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+  } catch (e) {
+    console.error(e);
+    alert(
+      e instanceof Error ? e.message : "Could not copy to clipboard"
+    );
+  }
+}
+
 function parseFirstJsonObject(text: string): Record<string, unknown> | null {
   const trimmed = text.trim();
   if (!trimmed) return null;

@@ -2,7 +2,28 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { NodeProps } from "reactflow";
+import { copyResolvedPromptToClipboard } from "@/lib/textParser";
 import { useNodesContext } from "./NodesContext";
+
+function CopyIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+      <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+    </svg>
+  );
+}
 
 export type BaseNodeData = {
   title: string;
@@ -17,8 +38,8 @@ type Props = NodeProps<BaseNodeData> & {
   className?: string;
 };
 
-export default function BaseNode({ id, data, selected, children, className }: Props) {
-  const { playNode, playChain, selectNode } = useNodesContext();
+export default function BaseNode({ id, data, selected, children, className, type }: Props) {
+  const { playNode, playChain, selectNode, projectId } = useNodesContext();
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(data.title);
 
@@ -72,6 +93,25 @@ export default function BaseNode({ id, data, selected, children, className }: Pr
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0 truncate text-left text-sm font-semibold">{data.title}</div>
           <div className="nodrag flex items-center gap-1">
+            {type === "nodeText" ? (
+              <button
+                type="button"
+                className="rounded p-1 text-foreground/70 hover:bg-foreground/10 hover:text-foreground"
+                title="Copy resolved prompt (${…} replaced from project data)"
+                aria-label="Copy resolved prompt"
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  selectNode(id, e);
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const raw = String((data as { text?: string }).text ?? "");
+                  void copyResolvedPromptToClipboard(projectId, raw);
+                }}
+              >
+                <CopyIcon />
+              </button>
+            ) : null}
             <button
               type="button"
               className="rounded p-1 text-foreground/70 hover:bg-foreground/10 hover:text-foreground"
