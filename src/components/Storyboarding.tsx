@@ -596,8 +596,35 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
   }
 
   async function handleGenerateAll() {
-    const currentPanels = panelsRef.current;
-    for (let i = 0; i < currentPanels.length; i++) {
+    for (let i = 0; i < panelsRef.current.length; i++) {
+      const panel = panelsRef.current[i];
+      const fromState =
+        panel?.imageUrl != null &&
+        typeof panel.imageUrl === "string" &&
+        panel.imageUrl.trim() !== "";
+      const fromDataRaw = getData(projectId, `storyboard[${i}]`);
+      const fromDataStr = typeof fromDataRaw === "string" ? fromDataRaw : "";
+      const fromData = fromDataStr.trim() !== "";
+      if (fromState || fromData) {
+        const resolvedUrl = fromState
+          ? String(panel!.imageUrl).trim()
+          : (normalizePublicAssetUrl(fromDataStr.trim()) ?? fromDataStr.trim());
+        if (!resolvedUrl) {
+          await handleGenerateImage(i);
+          await new Promise((r) => setTimeout(r, 2000));
+          continue;
+        }
+        if (!fromState && fromData) {
+          updatePanel(i, { imageUrl: resolvedUrl });
+        } else {
+          addData(projectId, `storyboard[${i}]`, resolvedUrl);
+        }
+        console.log("[Storyboarding] generate all skip (already has image)", {
+          projectId,
+          panelIndex: i,
+        });
+        continue;
+      }
       await handleGenerateImage(i);
       await new Promise((r) => setTimeout(r, 2000));
     }

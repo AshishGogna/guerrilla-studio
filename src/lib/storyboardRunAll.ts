@@ -38,13 +38,38 @@ async function fetchUrlAsBase64(url: string): Promise<string> {
   });
 }
 
+/** Panel index → image path from persisted storyboard (before a reset). */
+function captureExistingStoryboardImagesByIndex(
+  projectId: string,
+  all: Record<string, unknown>
+): Map<number, string> {
+  const byIndex = new Map<number, string>();
+  const persisted = loadStoryboardState(projectId);
+  persisted.panels.forEach((panel, i) => {
+    const u = panel.imageUrl;
+    if (typeof u === "string" && u.trim()) byIndex.set(i, u.trim());
+  });
+  for (const key of Object.keys(all)) {
+    const m = key.match(/^storyboard\[(\d+)\]$/);
+    if (!m) continue;
+    const idx = parseInt(m[1], 10);
+    const val = all[key];
+    if (typeof val === "string" && val.trim() && !byIndex.has(idx)) {
+      byIndex.set(idx, val.trim());
+    }
+  }
+  return byIndex;
+}
+
 /**
  * Clears storyboard data keys, imports panels from data.scenes (with referenceImages),
  * then generates each panel image and persists state + data.storyboard[i].
  */
 export async function executeStoryboardRunAll(projectId: string): Promise<void> {
-  // 1) Clear storyboard data keys
   const all = getAll(projectId);
+  const previousImagesByIndex = captureExistingStoryboardImagesByIndex(projectId, all);
+
+  // 1) Clear storyboard data keys
   Object.keys(all)
     .filter((k) => k.startsWith("storyboard"))
     .forEach((k) => removeData(projectId, k));
@@ -116,6 +141,14 @@ export async function executeStoryboardRunAll(projectId: string): Promise<void> 
     })
   );
 
+  for (let i = 0; i < panels.length; i++) {
+    const kept = previousImagesByIndex.get(i);
+    if (kept) {
+      const normalized = normalizePublicAssetUrl(kept) ?? kept;
+      panels[i] = { ...panels[i], imageUrl: normalized };
+    }
+  }
+
   const prev = loadStoryboardState(projectId);
   saveStoryboardState(projectId, { ...prev, panels });
 
@@ -123,6 +156,14 @@ export async function executeStoryboardRunAll(projectId: string): Promise<void> 
     const p = panels[i];
     const promptTrimmed = (p.promptImage ?? "").trim();
     if (!promptTrimmed) continue;
+
+    const existingPath =
+      typeof p.imageUrl === "string" && p.imageUrl.trim() ? p.imageUrl.trim() : "";
+    if (existingPath) {
+      addData(projectId, `storyboard[${i}]`, existingPath);
+      saveStoryboardState(projectId, { ...loadStoryboardState(projectId), panels });
+      continue;
+    }
 
     // Digits-only prompt = reuse that scene/panel's image (Storyboarding behavior). Never send "3" to Gemini.
     if (/^\d+$/.test(promptTrimmed)) {
