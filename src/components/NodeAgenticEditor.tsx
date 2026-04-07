@@ -23,9 +23,11 @@ function fileToStoredPath(file: File): string {
 
 export type NodeAgenticEditorData = BaseNodeData & {
   prompt: string;
+  sessionId?: string;
   /** Key/value rows; value is newline-separated paths (not shown inline — use file button). */
   fileEntries?: AgenticEditorFileEntry[];
   onPromptChange?: (nodeId: string, prompt: string) => void;
+  onSessionIdChange?: (nodeId: string, sessionId: string) => void;
   onFileEntriesChange?: (nodeId: string, entries: AgenticEditorFileEntry[]) => void;
 };
 
@@ -47,6 +49,7 @@ export default function NodeAgenticEditor(props: NodeProps<NodeAgenticEditorData
   const [openFullScreen, setOpenFullScreen] = useState(false);
   const [fileInputMounted, setFileInputMounted] = useState(false);
   const [draft, setDraft] = useState(props.data.prompt ?? "");
+  const [sessionIdDraft, setSessionIdDraft] = useState(props.data.sessionId ?? "");
   const { selectNode, projectId, playNode, playChain } = useNodesContext();
   const fileInputRef = useRef<HTMLInputElement>(null);
   /** Synchronous row index for the file dialog — state updates may not be committed before `click()`. */
@@ -66,6 +69,10 @@ export default function NodeAgenticEditor(props: NodeProps<NodeAgenticEditorData
   useEffect(() => {
     setDraft(props.data.prompt ?? "");
   }, [props.data.prompt]);
+
+  useEffect(() => {
+    setSessionIdDraft(props.data.sessionId ?? "");
+  }, [props.data.sessionId]);
 
   useEffect(() => {
     setFileInputMounted(true);
@@ -92,6 +99,11 @@ export default function NodeAgenticEditor(props: NodeProps<NodeAgenticEditorData
   function applyPrompt(next: string) {
     setDraft(next);
     props.data.onPromptChange?.(props.id, next);
+  }
+
+  function applySessionId(next: string) {
+    setSessionIdDraft(next);
+    props.data.onSessionIdChange?.(props.id, next);
   }
 
   const patchFileEntries = useCallback(
@@ -242,6 +254,18 @@ export default function NodeAgenticEditor(props: NodeProps<NodeAgenticEditorData
             </svg>
           </button>
         </div>
+
+        <label className="mb-1 block text-xs font-medium text-foreground/60">Session id</label>
+        <input
+          className="nodrag mb-4 w-full rounded border border-foreground/15 bg-foreground/[0.04] px-2 py-2 text-sm text-foreground/90 outline-none focus:border-foreground/30"
+          placeholder="abcdef"
+          value={sessionIdDraft}
+          onChange={(e) => applySessionId(e.target.value)}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            selectNode(props.id, e);
+          }}
+        />
 
         <div className="space-y-2">
           <div className="flex items-center gap-2">

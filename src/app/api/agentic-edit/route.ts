@@ -25,7 +25,7 @@ function runGuerrillaEdit(editorRoot: string, sessionId: string, prompt: string)
     const npm = process.platform === "win32" ? "npm.cmd" : "npm";
     const child = spawn(
       npm,
-      ["run", "guerrilla:edit", "--", sessionId, prompt, "--output=video"],
+      ["run", "guerrilla:edit", "--", sessionId, prompt],
       {
         cwd: editorRoot,
         stdio: ["ignore", "inherit", "inherit"],
@@ -52,8 +52,8 @@ function runGuerrillaEdit(editorRoot: string, sessionId: string, prompt: string)
 }
 
 /**
- * POST { prompt: string }
- * Runs `npm run guerrilla:edit -- <6-letter-session-id> <prompt>` in guerrilla-ai-video-editor.
+ * POST { prompt: string, sessionId?: string }
+ * Runs `npm run guerrilla:edit -- <sessionId> <prompt>` in guerrilla-ai-video-editor.
  */
 export async function POST(req: Request) {
   let body: unknown;
@@ -63,6 +63,10 @@ export async function POST(req: Request) {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
+  const sessionIdRaw =
+    typeof (body as { sessionId?: unknown })?.sessionId === "string"
+      ? (body as { sessionId: string }).sessionId.trim()
+      : "";
   const prompt =
     typeof (body as { prompt?: unknown })?.prompt === "string"
       ? (body as { prompt: string }).prompt.trim()
@@ -73,7 +77,7 @@ export async function POST(req: Request) {
   }
 
   const editorRoot = resolveEditorRoot();
-  const sessionId = randomSessionId();
+  const sessionId = sessionIdRaw || randomSessionId();
 
   try {
     await runGuerrillaEdit(editorRoot, sessionId, prompt);

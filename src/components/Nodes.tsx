@@ -56,6 +56,13 @@ const nodeTypes = {
 
 const NODES_CLIPBOARD_PREFIX = "guerrilla-studio:nodes:v1:";
 
+function randomSixLetters(): string {
+  const chars = "abcdefghijklmnopqrstuvwxyz";
+  let s = "";
+  for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)]!;
+  return s;
+}
+
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   const tag = target.tagName;
@@ -73,6 +80,7 @@ function tidyNodeForClipboard(n: Node<Record<string, unknown>>): Node<Record<str
   delete data.isPlaying;
   if ("onTextChange" in data) delete data.onTextChange;
   if ("onPromptChange" in data) delete data.onPromptChange;
+  if ("onSessionIdChange" in data) delete data.onSessionIdChange;
   if ("onFileEntriesChange" in data) delete data.onFileEntriesChange;
   if ("onLabelChange" in data) delete data.onLabelChange;
   if ("chainSyncNonce" in data) delete data.chainSyncNonce;
@@ -152,6 +160,22 @@ function NodesInner({ projectId }: NodesProps) {
               data: {
                 ...((n.data as unknown as NodeAgenticEditorData) ?? {}),
                 prompt,
+              },
+            }
+          : n
+      )
+    );
+  }, []);
+
+  const onSessionIdChange = useCallback((nodeId: string, sessionId: string) => {
+    setNodes((prev) =>
+      prev.map((n) =>
+        n.id === nodeId
+          ? {
+              ...n,
+              data: {
+                ...((n.data as unknown as NodeAgenticEditorData) ?? {}),
+                sessionId,
               },
             }
           : n
@@ -341,13 +365,25 @@ function NodesInner({ projectId }: NodesProps) {
         alert("Add a prompt on the Agentic Editor node before playing.");
         return;
       }
+      const sessionIdRaw = String(d.sessionId ?? "").trim();
+      const sessionId = sessionIdRaw || randomSixLetters();
+      if (!sessionIdRaw) {
+        // Persist the generated session id so subsequent plays reuse it.
+        setNodes((prev) =>
+          prev.map((n) =>
+            n.id === nodeId
+              ? { ...n, data: { ...(n.data as Record<string, unknown>), sessionId } }
+              : n
+          )
+        );
+      }
       const resolvedPrompt = parsePrompt(projectId, raw);
       setNodePlaying(nodeId, true);
       try {
         const res = await fetch("/api/agentic-edit", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt: resolvedPrompt }),
+          body: JSON.stringify({ prompt: resolvedPrompt, sessionId }),
         });
         const data = (await res.json().catch(() => ({}))) as { error?: string; sessionId?: string };
         if (!res.ok) {
@@ -532,7 +568,9 @@ function NodesInner({ projectId }: NodesProps) {
           isPlaying: playingNodeIds.has(n.id) || nodePlayingIds.has(n.id),
           isRenaming: renamingNodeId === n.id,
           ...(n.type === "nodeText" ? { onTextChange } : {}),
-          ...(n.type === "nodeAgenticEditor" ? { onPromptChange, onFileEntriesChange } : {}),
+          ...(n.type === "nodeAgenticEditor"
+            ? { onPromptChange, onSessionIdChange, onFileEntriesChange }
+            : {}),
         };
         return { ...n, data: next as unknown as Record<string, unknown> };
       })
@@ -544,6 +582,7 @@ function NodesInner({ projectId }: NodesProps) {
     onRenameDone,
     onTextChange,
     onPromptChange,
+    onSessionIdChange,
     onFileEntriesChange,
     onTitleChange,
     playChainFrom,
@@ -565,6 +604,7 @@ function NodesInner({ projectId }: NodesProps) {
       delete data.isPlaying;
       if ("onTextChange" in data) delete data.onTextChange;
       if ("onPromptChange" in data) delete data.onPromptChange;
+      if ("onSessionIdChange" in data) delete data.onSessionIdChange;
       if ("onFileEntriesChange" in data) delete data.onFileEntriesChange;
       if ("onLabelChange" in data) delete data.onLabelChange;
       if ("chainSyncNonce" in data) delete data.chainSyncNonce;
@@ -732,8 +772,10 @@ function NodesInner({ projectId }: NodesProps) {
                 ? ({
                     ...baseData,
                     prompt: "",
+                    sessionId: randomSixLetters(),
                     fileEntries: [],
                     onPromptChange,
+                    onSessionIdChange,
                     onFileEntriesChange,
                   } satisfies NodeAgenticEditorData)
                 : type === "nodeLabel"
