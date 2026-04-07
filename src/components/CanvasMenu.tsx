@@ -8,6 +8,7 @@ export type CanvasNodeTypeId =
   | "nodeStoryboard"
   | "nodeReferences"
   | "nodeEditor"
+  | "nodeAgenticEditor"
   | "nodeLabel";
 
 type CanvasMenuProps = {

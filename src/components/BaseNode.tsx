@@ -112,44 +112,48 @@ export default function BaseNode({ id, data, selected, children, className, type
                 <CopyIcon />
               </button>
             ) : null}
-            <button
-              type="button"
-              className="rounded p-1 text-foreground/70 hover:bg-foreground/10 hover:text-foreground"
-              title="Play"
-              aria-label="Play"
-              onMouseDown={(e) => {
-                e.stopPropagation();
-                selectNode(id, e);
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                playNode(id);
-              }}
-            >
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden>
-                <path d="M8 5v14l11-7z" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              className="rounded p-1 text-foreground/70 hover:bg-foreground/10 hover:text-foreground"
-              title="Play chain"
-              aria-label="Play chain"
-              onMouseDown={(e) => {
-                e.stopPropagation();
-                selectNode(id, e);
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                playChain(id);
-              }}
-            >
-              {/* Fast-forward / sequential play icon */}
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden>
-                <path d="M4 6v12l8-6z" />
-                <path d="M12 6v12l8-6z" />
-              </svg>
-            </button>
+            {type === "nodeAgenticEditor" ? null : (
+              <>
+                <button
+                  type="button"
+                  className="rounded p-1 text-foreground/70 hover:bg-foreground/10 hover:text-foreground"
+                  title="Play"
+                  aria-label="Play"
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    selectNode(id, e);
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    playNode(id);
+                  }}
+                >
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden>
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className="rounded p-1 text-foreground/70 hover:bg-foreground/10 hover:text-foreground"
+                  title="Play chain"
+                  aria-label="Play chain"
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    selectNode(id, e);
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    playChain(id);
+                  }}
+                >
+                  {/* Fast-forward / sequential play icon */}
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden>
+                    <path d="M4 6v12l8-6z" />
+                    <path d="M12 6v12l8-6z" />
+                  </svg>
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}

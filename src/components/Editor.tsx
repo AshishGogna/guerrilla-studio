@@ -1219,15 +1219,10 @@ export function EditorCompositionWithProps({
 export type EditorProps = { projectId: string };
 
 export default function Editor({ projectId }: EditorProps) {
-  const [clips, setClips] = useState<EditorClip[]>(() => {
-    if (typeof window === "undefined") return [];
-    const raw = loadEditorState(projectId).clips as unknown as EditorClip[];
-    if (!Array.isArray(raw)) return [];
-    // blob: URLs never survive a full reload; drop them so we don’t show broken clips.
-    return raw.filter(
-      (c) => typeof c?.src === "string" && !c.src.startsWith("blob:")
-    ) as EditorClip[];
-  });
+  /** Must match server first paint (`[]`) — load from storage after mount to avoid hydration mismatch. */
+  const [clips, setClips] = useState<EditorClip[]>([]);
+  /** When false, skip persisting clips (prevents saving `[]` over storage before load). */
+  const [clipsHydrated, setClipsHydrated] = useState(false);
   const clipsRef = useRef<EditorClip[]>(clips);
   useLayoutEffect(() => {
     clipsRef.current = clips;
@@ -1312,6 +1307,20 @@ export default function Editor({ projectId }: EditorProps) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    setClipsHydrated(false);
+    setClips([]);
+    const raw = loadEditorState(projectId).clips as unknown as EditorClip[];
+    const next: EditorClip[] = Array.isArray(raw)
+      ? (raw.filter(
+          (c) => typeof c?.src === "string" && !c.src.startsWith("blob:")
+        ) as EditorClip[])
+      : [];
+    setClips(next);
+    setClipsHydrated(true);
+  }, [projectId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
     const s = loadEditorSubtitleSettings(projectId);
     setSubtitleTextSize(s.textSize);
     setSubtitleTextColor(s.textColor);
@@ -1376,6 +1385,7 @@ export default function Editor({ projectId }: EditorProps) {
   }, [globalZoomInput, globalSpeedInput, compWidthInput, compHeightInput, projectId]);
 
   useEffect(() => {
+    if (!clipsHydrated) return;
     saveEditorState(projectId, { clips });
 
     const blobClips = clips.filter((c) => c.src.startsWith("blob:"));
@@ -1434,7 +1444,7 @@ export default function Editor({ projectId }: EditorProps) {
         });
       }
     });
-  }, [clips, projectId]);
+  }, [clips, projectId, clipsHydrated]);
 
   const globalSpeedNum = useMemo(() => {
     const g = parseFloat(globalSpeedInput);

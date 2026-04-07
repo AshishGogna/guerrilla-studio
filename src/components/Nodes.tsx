@@ -37,6 +37,8 @@ import {
 import { getScenesArrayFromProject } from "@/lib/storyboardNumericPrompt";
 import NodeLabel, { type NodeLabelData } from "./NodeLabel";
 import NodeEditor, { type NodeEditorData } from "./NodeEditor";
+import NodeAgenticEditor, { type NodeAgenticEditorData } from "./NodeAgenticEditor";
+import { type AgenticEditorFileEntry } from "@/lib/agenticEditorDataSync";
 import { requestEditorNodePlay } from "@/lib/editorNodePlayEvent";
 
 export type NodesProps = { projectId: string };
@@ -47,6 +49,7 @@ const nodeTypes = {
   nodeStoryboard: NodeStoryboard,
   nodeReferences: NodeReferences,
   nodeEditor: NodeEditor,
+  nodeAgenticEditor: NodeAgenticEditor,
   nodeLabel: NodeLabel,
 };
 
@@ -68,6 +71,8 @@ function tidyNodeForClipboard(n: Node<Record<string, unknown>>): Node<Record<str
   delete data.isRenaming;
   delete data.isPlaying;
   if ("onTextChange" in data) delete data.onTextChange;
+  if ("onPromptChange" in data) delete data.onPromptChange;
+  if ("onFileEntriesChange" in data) delete data.onFileEntriesChange;
   if ("onLabelChange" in data) delete data.onLabelChange;
   if ("chainSyncNonce" in data) delete data.chainSyncNonce;
   return {
@@ -131,6 +136,38 @@ function NodesInner({ projectId }: NodesProps) {
           ? {
               ...n,
               data: { ...((n.data as unknown as NodeTextData) ?? {}), text, onTextChange },
+            }
+          : n
+      )
+    );
+  }, []);
+
+  const onPromptChange = useCallback((nodeId: string, prompt: string) => {
+    setNodes((prev) =>
+      prev.map((n) =>
+        n.id === nodeId
+          ? {
+              ...n,
+              data: {
+                ...((n.data as unknown as NodeAgenticEditorData) ?? {}),
+                prompt,
+              },
+            }
+          : n
+      )
+    );
+  }, []);
+
+  const onFileEntriesChange = useCallback((nodeId: string, fileEntries: AgenticEditorFileEntry[]) => {
+    setNodes((prev) =>
+      prev.map((n) =>
+        n.id === nodeId
+          ? {
+              ...n,
+              data: {
+                ...((n.data as unknown as NodeAgenticEditorData) ?? {}),
+                fileEntries,
+              },
             }
           : n
       )
@@ -376,8 +413,9 @@ function NodesInner({ projectId }: NodesProps) {
       }
       if (node.type === "nodeEditor") {
         await playEditorNodeOnce(nodeId);
+        return;
       }
-      // base, nodeLabel, etc.: no-op for single play
+      // nodeAgenticEditor, base, nodeLabel, etc.: no-op for single play
     },
     [playEditorNodeOnce, playReferencesNodeOnce, playStoryboardNodeOnce, playTextNodeOnce]
   );
@@ -447,6 +485,7 @@ function NodesInner({ projectId }: NodesProps) {
           isPlaying: playingNodeIds.has(n.id) || nodePlayingIds.has(n.id),
           isRenaming: renamingNodeId === n.id,
           ...(n.type === "nodeText" ? { onTextChange } : {}),
+          ...(n.type === "nodeAgenticEditor" ? { onPromptChange, onFileEntriesChange } : {}),
         };
         return { ...n, data: next as unknown as Record<string, unknown> };
       })
@@ -457,6 +496,8 @@ function NodesInner({ projectId }: NodesProps) {
     onLabelChange,
     onRenameDone,
     onTextChange,
+    onPromptChange,
+    onFileEntriesChange,
     onTitleChange,
     playChainFrom,
     playTextNodeOnce,
@@ -476,6 +517,8 @@ function NodesInner({ projectId }: NodesProps) {
       delete data.isRenaming;
       delete data.isPlaying;
       if ("onTextChange" in data) delete data.onTextChange;
+      if ("onPromptChange" in data) delete data.onPromptChange;
+      if ("onFileEntriesChange" in data) delete data.onFileEntriesChange;
       if ("onLabelChange" in data) delete data.onLabelChange;
       if ("chainSyncNonce" in data) delete data.chainSyncNonce;
       return { ...n, data };
@@ -606,9 +649,11 @@ function NodesInner({ projectId }: NodesProps) {
                 ? "References"
                 : type === "nodeEditor"
                   ? "Editor"
-                  : type === "nodeLabel"
-                    ? "Label"
-                    : "NodeText",
+                  : type === "nodeAgenticEditor"
+                    ? "Agentic Editor"
+                    : type === "nodeLabel"
+                      ? "Label"
+                      : "NodeText",
         onTitleChange,
       };
       const data =
@@ -636,15 +681,23 @@ function NodesInner({ projectId }: NodesProps) {
                   cutSilences: false,
                   transcribe: false,
                 } satisfies NodeEditorData)
-              : type === "nodeLabel"
+              : type === "nodeAgenticEditor"
                 ? ({
-                    label: "Label",
-                    width: 168,
-                    height: 48,
-                    fontSizePx: 14,
-                    onLabelChange,
-                  } satisfies NodeLabelData)
-                : baseData;
+                    ...baseData,
+                    prompt: "",
+                    fileEntries: [],
+                    onPromptChange,
+                    onFileEntriesChange,
+                  } satisfies NodeAgenticEditorData)
+                : type === "nodeLabel"
+                  ? ({
+                      label: "Label",
+                      width: 168,
+                      height: 48,
+                      fontSizePx: 14,
+                      onLabelChange,
+                    } satisfies NodeLabelData)
+                  : baseData;
       setNodes((prev) => [
         ...prev,
         {
@@ -656,7 +709,16 @@ function NodesInner({ projectId }: NodesProps) {
       ]);
       setCanvasMenu(null);
     },
-    [canvasMenu, onLabelChange, onTextChange, onTitleChange, projectId, setNodes]
+    [
+      canvasMenu,
+      onFileEntriesChange,
+      onLabelChange,
+      onPromptChange,
+      onTextChange,
+      onTitleChange,
+      projectId,
+      setNodes,
+    ]
   );
 
   const onConnect = useCallback(
@@ -771,6 +833,7 @@ function NodesInner({ projectId }: NodesProps) {
             { id: "nodeStoryboard", label: "Storyboard" },
             { id: "nodeReferences", label: "References" },
             { id: "nodeEditor", label: "Editor" },
+            { id: "nodeAgenticEditor", label: "Agentic Editor" },
             { id: "nodeLabel", label: "Label" },
           ]}
           onAddNodeType={addNodeOfType}
