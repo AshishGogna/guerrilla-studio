@@ -47,7 +47,7 @@ export default function NodeAgenticEditor(props: NodeProps<NodeAgenticEditorData
   const [openFullScreen, setOpenFullScreen] = useState(false);
   const [fileInputMounted, setFileInputMounted] = useState(false);
   const [draft, setDraft] = useState(props.data.prompt ?? "");
-  const { selectNode, projectId } = useNodesContext();
+  const { selectNode, projectId, playNode, playChain } = useNodesContext();
   const fileInputRef = useRef<HTMLInputElement>(null);
   /** Synchronous row index for the file dialog — state updates may not be committed before `click()`. */
   const filePickRowIndexRef = useRef<number | null>(null);
@@ -127,7 +127,7 @@ export default function NodeAgenticEditor(props: NodeProps<NodeAgenticEditorData
   );
 
   const onFileInputChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
       const input = e.target;
       // `input.files` is a live FileList — clearing `value` empties it. Snapshot first.
       const list = input.files?.length ? Array.from(input.files) : [];
@@ -142,22 +142,46 @@ export default function NodeAgenticEditor(props: NodeProps<NodeAgenticEditorData
         });
         return;
       }
-      const storedPaths = list.map(fileToStoredPath);
-      const fromPicker = joinFilePathsForStorage(...storedPaths);
+
+      // Prefer absolute local paths when available (e.g. Electron: File.path).
+      const fileObjs = list as (File & { path?: string })[];
+      const hasAllAbsPaths = fileObjs.every((f) => typeof f.path === "string" && f.path.trim());
+      let absPaths: string[] = [];
+      if (hasAllAbsPaths) {
+        absPaths = fileObjs.map((f) => String(f.path).trim());
+      } else {
+        try {
+          const form = new FormData();
+          form.set("projectId", projectId);
+          list.forEach((f) => form.append("files", f));
+          const res = await fetch("/api/agentic-editor-upload", { method: "POST", body: form });
+          const data = (await res.json().catch(() => null)) as { absPaths?: unknown; error?: string } | null;
+          if (!res.ok) throw new Error(data?.error ?? "Upload failed");
+          absPaths = Array.isArray(data?.absPaths)
+            ? (data!.absPaths.filter((p): p is string => typeof p === "string" && Boolean(p.trim())) as string[])
+            : [];
+        } catch (err) {
+          console.error(err);
+          alert(err instanceof Error ? err.message : "Failed to upload files for absolute paths");
+          return;
+        }
+      }
+
+      const fromPicker = joinFilePathsForStorage(...absPaths);
       console.log("[AgenticEditor] files selected", {
         nodeId: props.id,
         projectId,
         rowIndex: idx,
         count: list.length,
         names: list.map((f) => f.name),
-        storedPaths,
+        absPaths,
         fromPickerPreview:
           fromPicker.length > 200 ? `${fromPicker.slice(0, 200)}…` : fromPicker,
       });
+
       patchFileEntries((rows) =>
         rows.map((r, i) => {
           if (i !== idx) return r;
-          // Replace row value with this selection only (multiple files in one dialog stay newline-separated).
           return { ...r, paths: fromPicker };
         })
       );
@@ -312,14 +336,15 @@ export default function NodeAgenticEditor(props: NodeProps<NodeAgenticEditorData
         nodeId={props.id}
         open={openFullScreen}
         promptOnly
+        promptOnlyShowPlay
         text={draft}
         outputText=""
         outputRevision={0}
-        isAiLoading={false}
+        isAiLoading={props.data.isPlaying === true}
         onChange={(value) => applyPrompt(value)}
         onOutputChange={() => {}}
-        onPlay={() => {}}
-        onPlayChain={() => {}}
+        onPlay={() => playNode(props.id)}
+        onPlayChain={() => playChain(props.id)}
         onClose={() => setOpenFullScreen(false)}
       />
       {fileInputMounted && typeof document !== "undefined"

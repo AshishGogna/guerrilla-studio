@@ -55,6 +55,8 @@ type FullScreenTextModalProps = {
    * Single full-width prompt editor only (e.g. Agentic Editor). Hides AI output pane and Play controls.
    */
   promptOnly?: boolean;
+  /** When `promptOnly`, still show Play / Play chain (e.g. Agentic Editor → agentic-edit API). */
+  promptOnlyShowPlay?: boolean;
   outputText: string;
   /** Bumps when this node's AI output is replaced by Play (see NodeTextData.aiOutputRevision). */
   outputRevision: number;
@@ -72,6 +74,7 @@ export default function FullScreenTextModal({
   open,
   text,
   promptOnly = false,
+  promptOnlyShowPlay = false,
   outputText,
   outputRevision,
   isAiLoading = false,
@@ -148,7 +151,7 @@ export default function FullScreenTextModal({
               >
                 <CopyIcon />
               </button>
-              {promptOnly ? null : (
+              {!promptOnly || promptOnlyShowPlay ? (
                 <>
                   <button
                     type="button"
@@ -190,7 +193,7 @@ export default function FullScreenTextModal({
                     </svg>
                   </button>
                 </>
-              )}
+              ) : null}
             </div>
           </div>
           {promptOnly ? null : (

@@ -330,6 +330,39 @@ function NodesInner({ projectId }: NodesProps) {
     [projectId, setNodePlaying]
   );
 
+  const playAgenticEditorNodeOnce = useCallback(
+    async (nodeId: string) => {
+      const node = nodesRef.current.find((n) => n.id === nodeId);
+      if (!node || node.type !== "nodeAgenticEditor") return;
+      const d = (node.data ?? {}) as NodeAgenticEditorData;
+      const raw = String(d.prompt ?? "").trim();
+      if (!raw) {
+        alert("Add a prompt on the Agentic Editor node before playing.");
+        return;
+      }
+      const resolvedPrompt = parsePrompt(projectId, raw);
+      setNodePlaying(nodeId, true);
+      try {
+        const res = await fetch("/api/agentic-edit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: resolvedPrompt }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { error?: string; sessionId?: string };
+        if (!res.ok) {
+          throw new Error(data?.error ?? "Agentic edit failed");
+        }
+        console.log("[Nodes] agentic-edit completed", { sessionId: data.sessionId });
+      } catch (err) {
+        console.error(err);
+        alert(err instanceof Error ? err.message : "Agentic edit failed");
+      } finally {
+        setNodePlaying(nodeId, false);
+      }
+    },
+    [projectId, setNodePlaying]
+  );
+
   const playStoryboardNodeOnce = useCallback(
     async (nodeId: string, fromChain: boolean) => {
       if (storyboardRunLockRef.current) return;
@@ -415,9 +448,19 @@ function NodesInner({ projectId }: NodesProps) {
         await playEditorNodeOnce(nodeId);
         return;
       }
-      // nodeAgenticEditor, base, nodeLabel, etc.: no-op for single play
+      if (node.type === "nodeAgenticEditor") {
+        await playAgenticEditorNodeOnce(nodeId);
+        return;
+      }
+      // base, nodeLabel, etc.: no-op for single play
     },
-    [playEditorNodeOnce, playReferencesNodeOnce, playStoryboardNodeOnce, playTextNodeOnce]
+    [
+      playAgenticEditorNodeOnce,
+      playEditorNodeOnce,
+      playReferencesNodeOnce,
+      playStoryboardNodeOnce,
+      playTextNodeOnce,
+    ]
   );
 
   const playChainFrom = useCallback(
