@@ -35,6 +35,7 @@ import {
   runStoryboardDownloadAndCopy,
 } from "@/lib/storyboardDownloadCopy";
 import { getScenesArrayFromProject } from "@/lib/storyboardNumericPrompt";
+import { clearStoryboardAll } from "@/lib/storyboardClearAll";
 import NodeLabel, { type NodeLabelData } from "./NodeLabel";
 import NodeEditor, { type NodeEditorData } from "./NodeEditor";
 import NodeAgenticEditor, { type NodeAgenticEditorData } from "./NodeAgenticEditor";
@@ -369,6 +370,9 @@ function NodesInner({ projectId }: NodesProps) {
       storyboardRunLockRef.current = true;
       setNodePlaying(nodeId, true);
       try {
+        // Clear all first (same behavior as Storyboarding "Clear" button).
+        clearStoryboardAll(projectId);
+
         if (fromChain) {
           const last = getStoryboardLastSceneIndex(projectId);
           const nonce = Date.now();

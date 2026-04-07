@@ -25,7 +25,7 @@ function runGuerrillaEdit(editorRoot: string, sessionId: string, prompt: string)
     const npm = process.platform === "win32" ? "npm.cmd" : "npm";
     const child = spawn(
       npm,
-      ["run", "guerrilla:edit", "--", sessionId, prompt],
+      ["run", "guerrilla:edit", "--", sessionId, prompt, "--output=video"],
       {
         cwd: editorRoot,
         stdio: ["ignore", "inherit", "inherit"],

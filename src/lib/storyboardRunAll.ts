@@ -10,6 +10,7 @@ import {
   saveStoryboardState,
   type StoryboardPanelPersisted,
 } from "@/lib/state-storage";
+import { notifyStoryboardStateChanged } from "@/lib/storyboardStateEvent";
 
 /** Same as Storyboarding: public paths must be root-absolute for fetch. */
 function normalizePublicAssetUrl(url: string | null): string | null {
@@ -65,9 +66,15 @@ function captureExistingStoryboardImagesByIndex(
  * Clears storyboard data keys, imports panels from data.scenes (with referenceImages),
  * then generates each panel image and persists state + data.storyboard[i].
  */
-export async function executeStoryboardRunAll(projectId: string): Promise<void> {
+export async function executeStoryboardRunAll(
+  projectId: string,
+  opts?: { preserveExistingImages?: boolean }
+): Promise<void> {
+  const preserveExistingImages = opts?.preserveExistingImages !== false;
   const all = getAll(projectId);
-  const previousImagesByIndex = captureExistingStoryboardImagesByIndex(projectId, all);
+  const previousImagesByIndex = preserveExistingImages
+    ? captureExistingStoryboardImagesByIndex(projectId, all)
+    : new Map<number, string>();
 
   // 1) Clear storyboard data keys
   Object.keys(all)
@@ -141,11 +148,13 @@ export async function executeStoryboardRunAll(projectId: string): Promise<void> 
     })
   );
 
-  for (let i = 0; i < panels.length; i++) {
-    const kept = previousImagesByIndex.get(i);
-    if (kept) {
-      const normalized = normalizePublicAssetUrl(kept) ?? kept;
-      panels[i] = { ...panels[i], imageUrl: normalized };
+  if (preserveExistingImages) {
+    for (let i = 0; i < panels.length; i++) {
+      const kept = previousImagesByIndex.get(i);
+      if (kept) {
+        const normalized = normalizePublicAssetUrl(kept) ?? kept;
+        panels[i] = { ...panels[i], imageUrl: normalized };
+      }
     }
   }
 
@@ -157,12 +166,14 @@ export async function executeStoryboardRunAll(projectId: string): Promise<void> 
     const promptTrimmed = (p.promptImage ?? "").trim();
     if (!promptTrimmed) continue;
 
-    const existingPath =
-      typeof p.imageUrl === "string" && p.imageUrl.trim() ? p.imageUrl.trim() : "";
-    if (existingPath) {
-      addData(projectId, `storyboard[${i}]`, existingPath);
-      saveStoryboardState(projectId, { ...loadStoryboardState(projectId), panels });
-      continue;
+    if (preserveExistingImages) {
+      const existingPath =
+        typeof p.imageUrl === "string" && p.imageUrl.trim() ? p.imageUrl.trim() : "";
+      if (existingPath) {
+        addData(projectId, `storyboard[${i}]`, existingPath);
+        saveStoryboardState(projectId, { ...loadStoryboardState(projectId), panels });
+        continue;
+      }
     }
 
     // Digits-only prompt = reuse that scene/panel's image (Storyboarding behavior). Never send "3" to Gemini.
@@ -225,4 +236,6 @@ export async function executeStoryboardRunAll(projectId: string): Promise<void> 
     addData(projectId, `storyboard[${i}]`, imagePath);
     saveStoryboardState(projectId, { ...loadStoryboardState(projectId), panels });
   }
+
+  notifyStoryboardStateChanged(projectId);
 }

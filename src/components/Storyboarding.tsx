@@ -15,6 +15,8 @@ import {
 import JSZip from "jszip";
 import { createPortal } from "react-dom";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { clearStoryboardAll } from "@/lib/storyboardClearAll";
+import { STORYBOARD_STATE_CHANGED_EVENT } from "@/lib/storyboardStateEvent";
 
 const MIN_TEXTAREA_HEIGHT = 44;
 
@@ -144,6 +146,33 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
   const textareaRefs = useRef<(HTMLTextAreaElement | null)[]>([]);
   const panelsRef = useRef(panels);
   panelsRef.current = panels;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    // Ensure we always pick up the latest state when this tab is opened/mounted.
+    const saved = loadStoryboardState(projectId);
+    setPanels(saved.panels?.length ? saved.panels.map(persistedToPanel) : [{ ...defaultPanel }]);
+    setImageModel(saved.imageModel ?? IMAGE_MODELS[0]);
+    setAspectRatio(saved.aspectRatio ?? "16:9");
+    setScale(saved.scale ?? "1x");
+  }, [projectId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onChanged = (e: Event) => {
+      const detail = (e as CustomEvent<{ projectId?: string }>).detail;
+      if (!detail || detail.projectId !== projectId) return;
+      const saved = loadStoryboardState(projectId);
+      setPanels(saved.panels?.length ? saved.panels.map(persistedToPanel) : [{ ...defaultPanel }]);
+      setImageModel(saved.imageModel ?? IMAGE_MODELS[0]);
+      setAspectRatio(saved.aspectRatio ?? "16:9");
+      setScale(saved.scale ?? "1x");
+    };
+    window.addEventListener(STORYBOARD_STATE_CHANGED_EVENT, onChanged as EventListener);
+    return () => {
+      window.removeEventListener(STORYBOARD_STATE_CHANGED_EVENT, onChanged as EventListener);
+    };
+  }, [projectId]);
 
   useEffect(() => {
     textareaRefs.current.forEach(resizeTextarea);
@@ -756,10 +785,7 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
           onClick={() => {
             if (panels.length === 0) return;
             if (typeof window !== "undefined" && !window.confirm("Remove all storyboard panels?")) return;
-            const all = getAll(projectId);
-            Object.keys(all)
-              .filter((k) => k.startsWith("storyboard"))
-              .forEach((k) => removeData(projectId, k));
+            clearStoryboardAll(projectId);
             setPanels([]);
           }}
           className="rounded border border-foreground/20 bg-transparent px-3 py-1.5 text-sm hover:bg-foreground/10"
