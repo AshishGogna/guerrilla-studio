@@ -20,12 +20,17 @@ function resolveEditorRoot(): string {
   return path.resolve(process.cwd(), "..", "guerrilla-ai-video-editor");
 }
 
-function runGuerrillaEdit(editorRoot: string, sessionId: string, prompt: string): Promise<void> {
+function runGuerrillaEdit(
+  editorRoot: string,
+  sessionId: string,
+  prompt: string,
+  output: "fcpxml" | "video"
+): Promise<void> {
   return new Promise((resolve, reject) => {
     const npm = process.platform === "win32" ? "npm.cmd" : "npm";
     const child = spawn(
       npm,
-      ["run", "guerrilla:edit", "--", sessionId, prompt],
+      ["run", "guerrilla:edit", "--", sessionId, `--output=${output}`, prompt],
       {
         cwd: editorRoot,
         stdio: ["ignore", "inherit", "inherit"],
@@ -52,7 +57,7 @@ function runGuerrillaEdit(editorRoot: string, sessionId: string, prompt: string)
 }
 
 /**
- * POST { prompt: string, sessionId?: string }
+ * POST { prompt: string, sessionId?: string, outputType?: "fcpxml" | "video" }
  * Runs `npm run guerrilla:edit -- <sessionId> <prompt>` in guerrilla-ai-video-editor.
  */
 export async function POST(req: Request) {
@@ -67,6 +72,12 @@ export async function POST(req: Request) {
     typeof (body as { sessionId?: unknown })?.sessionId === "string"
       ? (body as { sessionId: string }).sessionId.trim()
       : "";
+  const outputTypeRaw =
+    typeof (body as { outputType?: unknown })?.outputType === "string"
+      ? (body as { outputType: string }).outputType.trim()
+      : "";
+  const outputType: "fcpxml" | "video" =
+    outputTypeRaw === "fcpxml" || outputTypeRaw === "video" ? outputTypeRaw : "video";
   const prompt =
     typeof (body as { prompt?: unknown })?.prompt === "string"
       ? (body as { prompt: string }).prompt.trim()
@@ -80,7 +91,7 @@ export async function POST(req: Request) {
   const sessionId = sessionIdRaw || randomSessionId();
 
   try {
-    await runGuerrillaEdit(editorRoot, sessionId, prompt);
+    await runGuerrillaEdit(editorRoot, sessionId, prompt, outputType);
   } catch (err) {
     console.error("[agentic-edit]", err);
     return Response.json(
@@ -89,5 +100,5 @@ export async function POST(req: Request) {
     );
   }
 
-  return Response.json({ ok: true, sessionId, editorRoot });
+  return Response.json({ ok: true, sessionId, editorRoot, outputType });
 }

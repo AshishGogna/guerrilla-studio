@@ -81,6 +81,7 @@ function tidyNodeForClipboard(n: Node<Record<string, unknown>>): Node<Record<str
   if ("onTextChange" in data) delete data.onTextChange;
   if ("onPromptChange" in data) delete data.onPromptChange;
   if ("onSessionIdChange" in data) delete data.onSessionIdChange;
+  if ("onOutputTypeChange" in data) delete data.onOutputTypeChange;
   if ("onFileEntriesChange" in data) delete data.onFileEntriesChange;
   if ("onLabelChange" in data) delete data.onLabelChange;
   if ("chainSyncNonce" in data) delete data.chainSyncNonce;
@@ -182,6 +183,25 @@ function NodesInner({ projectId }: NodesProps) {
       )
     );
   }, []);
+
+  const onOutputTypeChange = useCallback(
+    (nodeId: string, outputType: "fcpxml" | "video") => {
+      setNodes((prev) =>
+        prev.map((n) =>
+          n.id === nodeId
+            ? {
+                ...n,
+                data: {
+                  ...((n.data as unknown as NodeAgenticEditorData) ?? {}),
+                  outputType,
+                },
+              }
+            : n
+        )
+      );
+    },
+    []
+  );
 
   const onFileEntriesChange = useCallback((nodeId: string, fileEntries: AgenticEditorFileEntry[]) => {
     setNodes((prev) =>
@@ -367,6 +387,7 @@ function NodesInner({ projectId }: NodesProps) {
       }
       const sessionIdRaw = String(d.sessionId ?? "").trim();
       const sessionId = sessionIdRaw || randomSixLetters();
+      const outputType: "fcpxml" | "video" = d.outputType === "fcpxml" ? "fcpxml" : "video";
       if (!sessionIdRaw) {
         // Persist the generated session id so subsequent plays reuse it.
         setNodes((prev) =>
@@ -383,7 +404,7 @@ function NodesInner({ projectId }: NodesProps) {
         const res = await fetch("/api/agentic-edit", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt: resolvedPrompt, sessionId }),
+          body: JSON.stringify({ prompt: resolvedPrompt, sessionId, outputType }),
         });
         const data = (await res.json().catch(() => ({}))) as { error?: string; sessionId?: string };
         if (!res.ok) {
@@ -569,7 +590,7 @@ function NodesInner({ projectId }: NodesProps) {
           isRenaming: renamingNodeId === n.id,
           ...(n.type === "nodeText" ? { onTextChange } : {}),
           ...(n.type === "nodeAgenticEditor"
-            ? { onPromptChange, onSessionIdChange, onFileEntriesChange }
+            ? { onPromptChange, onSessionIdChange, onOutputTypeChange, onFileEntriesChange }
             : {}),
         };
         return { ...n, data: next as unknown as Record<string, unknown> };
@@ -583,6 +604,7 @@ function NodesInner({ projectId }: NodesProps) {
     onTextChange,
     onPromptChange,
     onSessionIdChange,
+    onOutputTypeChange,
     onFileEntriesChange,
     onTitleChange,
     playChainFrom,
@@ -605,6 +627,7 @@ function NodesInner({ projectId }: NodesProps) {
       if ("onTextChange" in data) delete data.onTextChange;
       if ("onPromptChange" in data) delete data.onPromptChange;
       if ("onSessionIdChange" in data) delete data.onSessionIdChange;
+      if ("onOutputTypeChange" in data) delete data.onOutputTypeChange;
       if ("onFileEntriesChange" in data) delete data.onFileEntriesChange;
       if ("onLabelChange" in data) delete data.onLabelChange;
       if ("chainSyncNonce" in data) delete data.chainSyncNonce;
@@ -773,9 +796,11 @@ function NodesInner({ projectId }: NodesProps) {
                     ...baseData,
                     prompt: "",
                     sessionId: randomSixLetters(),
+                    outputType: "video",
                     fileEntries: [],
                     onPromptChange,
                     onSessionIdChange,
+                    onOutputTypeChange,
                     onFileEntriesChange,
                   } satisfies NodeAgenticEditorData)
                 : type === "nodeLabel"

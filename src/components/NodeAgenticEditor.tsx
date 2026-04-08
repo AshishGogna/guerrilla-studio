@@ -24,10 +24,12 @@ function fileToStoredPath(file: File): string {
 export type NodeAgenticEditorData = BaseNodeData & {
   prompt: string;
   sessionId?: string;
+  outputType?: "fcpxml" | "video";
   /** Key/value rows; value is newline-separated paths (not shown inline — use file button). */
   fileEntries?: AgenticEditorFileEntry[];
   onPromptChange?: (nodeId: string, prompt: string) => void;
   onSessionIdChange?: (nodeId: string, sessionId: string) => void;
+  onOutputTypeChange?: (nodeId: string, outputType: "fcpxml" | "video") => void;
   onFileEntriesChange?: (nodeId: string, entries: AgenticEditorFileEntry[]) => void;
 };
 
@@ -50,6 +52,9 @@ export default function NodeAgenticEditor(props: NodeProps<NodeAgenticEditorData
   const [fileInputMounted, setFileInputMounted] = useState(false);
   const [draft, setDraft] = useState(props.data.prompt ?? "");
   const [sessionIdDraft, setSessionIdDraft] = useState(props.data.sessionId ?? "");
+  const [outputType, setOutputType] = useState<"fcpxml" | "video">(
+    props.data.outputType === "fcpxml" ? "fcpxml" : "video"
+  );
   const { selectNode, projectId, playNode, playChain } = useNodesContext();
   const fileInputRef = useRef<HTMLInputElement>(null);
   /** Synchronous row index for the file dialog — state updates may not be committed before `click()`. */
@@ -73,6 +78,10 @@ export default function NodeAgenticEditor(props: NodeProps<NodeAgenticEditorData
   useEffect(() => {
     setSessionIdDraft(props.data.sessionId ?? "");
   }, [props.data.sessionId]);
+
+  useEffect(() => {
+    setOutputType(props.data.outputType === "fcpxml" ? "fcpxml" : "video");
+  }, [props.data.outputType]);
 
   useEffect(() => {
     setFileInputMounted(true);
@@ -104,6 +113,11 @@ export default function NodeAgenticEditor(props: NodeProps<NodeAgenticEditorData
   function applySessionId(next: string) {
     setSessionIdDraft(next);
     props.data.onSessionIdChange?.(props.id, next);
+  }
+
+  function applyOutputType(next: "fcpxml" | "video") {
+    setOutputType(next);
+    props.data.onOutputTypeChange?.(props.id, next);
   }
 
   const patchFileEntries = useCallback(
@@ -266,6 +280,20 @@ export default function NodeAgenticEditor(props: NodeProps<NodeAgenticEditorData
             selectNode(props.id, e);
           }}
         />
+
+        <label className="mb-1 block text-xs font-medium text-foreground/60">Output type</label>
+        <select
+          className="nodrag mb-4 w-full rounded border border-foreground/15 bg-foreground/[0.04] px-2 py-2 text-sm text-foreground/90 outline-none focus:border-foreground/30"
+          value={outputType}
+          onChange={(e) => applyOutputType(e.target.value === "fcpxml" ? "fcpxml" : "video")}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            selectNode(props.id, e);
+          }}
+        >
+          <option value="fcpxml">fcpxml</option>
+          <option value="video">video</option>
+        </select>
 
         <div className="space-y-2">
           <div className="flex items-center gap-2">
