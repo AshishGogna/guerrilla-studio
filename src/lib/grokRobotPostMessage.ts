@@ -68,3 +68,23 @@ export function postGrokStartRobot(message: GrokStartRobotMessage): void {
   if (typeof window === "undefined") return;
   window.postMessage(message, "*");
 }
+
+/** Expected MP4 location pattern from the Grok extension (macOS). */
+export const GROK_VIDEO_DOWNLOADS_DIR = "/Users/gogna/Downloads";
+
+/**
+ * Newline-separated absolute paths:
+ * `/Users/gogna/Downloads/{sessionId}-1.mp4` … `{sessionId}-{imageCount}.mp4`
+ */
+export function buildGrokVideoPathsForSession(sessionId: string, imageCount: number): string {
+  const sid = sessionId.trim();
+  if (!sid || imageCount < 1) return "";
+  const lines: string[] = [];
+  for (let i = 1; i <= imageCount; i++) {
+    lines.push(`${GROK_VIDEO_DOWNLOADS_DIR}/${sid}-${i}.mp4`);
+  }
+  return lines.join("\n");
+}
+
+/** Extension only needs to send `{ type: "GROK_QUEUE_FINISHED" }`; app uses the Grok node’s data. */
+export type GrokQueueFinishedMessage = { type: "GROK_QUEUE_FINISHED" };

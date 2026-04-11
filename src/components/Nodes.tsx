@@ -41,8 +41,10 @@ import NodeEditor, { type NodeEditorData } from "./NodeEditor";
 import NodeAgenticEditor, { type NodeAgenticEditorData } from "./NodeAgenticEditor";
 import NodeGrokAutomation, { type NodeGrokAutomationData } from "./NodeGrokAutomation";
 import { type AgenticEditorFileEntry } from "@/lib/agenticEditorDataSync";
+import { addData } from "@/lib/data";
 import {
   buildGrokStartRobotMessage,
+  buildGrokVideoPathsForSession,
   grokStoredPathsToList,
   postGrokStartRobot,
 } from "@/lib/grokRobotPostMessage";
@@ -294,6 +296,50 @@ function NodesInner({ projectId }: NodesProps) {
   const edgesRef = useRef(edges);
   edgesRef.current = edges;
   const storyboardRunLockRef = useRef(false);
+
+  /** Chrome extension → page: queue done; `videoPaths` from current Grok node inputs (independent of Play). */
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      const d = event.data;
+      if (d == null || typeof d !== "object" || Array.isArray(d)) return;
+      if ((d as { type?: unknown }).type !== "GROK_QUEUE_FINISHED") return;
+
+      const isReadyGrok = (n: Node<Record<string, unknown>>) => {
+        if (n.type !== "nodeGrokAutomation") return false;
+        const dt = (n.data ?? {}) as NodeGrokAutomationData;
+        const list = grokStoredPathsToList(dt.imagePaths ?? "");
+        return list.length >= 1 && String(dt.sessionId ?? "").trim() !== "";
+      };
+
+      const grokNodes = nodesRef.current.filter((n) => n.type === "nodeGrokAutomation");
+      const grok =
+        grokNodes.find((n) => n.selected && isReadyGrok(n)) ?? grokNodes.find((n) => isReadyGrok(n));
+
+      if (!grok) {
+        console.warn(
+          "[Nodes] GROK_QUEUE_FINISHED: no Grok Automation node with at least one image and a session id"
+        );
+        return;
+      }
+
+      const dNode = (grok.data ?? {}) as NodeGrokAutomationData;
+      const imageCount = grokStoredPathsToList(dNode.imagePaths ?? "").length;
+      const sessionId = String(dNode.sessionId ?? "").trim();
+
+      const videoPaths = buildGrokVideoPathsForSession(sessionId, imageCount);
+      if (videoPaths) {
+        addData(projectId, "videoPaths", videoPaths);
+        console.log("[Nodes] GROK_QUEUE_FINISHED → videoPaths saved", {
+          projectId,
+          lines: imageCount,
+          sessionId,
+        });
+      }
+    };
+
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [projectId]);
 
   const setNodePlaying = useCallback((nodeId: string, playing: boolean) => {
     setNodePlayingIds((prev) => {
