@@ -328,8 +328,8 @@ function NodesInner({ projectId }: NodesProps) {
 
       const videoPaths = buildGrokVideoPathsForSession(sessionId, imageCount);
       if (videoPaths) {
-        addData(projectId, "videoPaths", videoPaths);
-        console.log("[Nodes] GROK_QUEUE_FINISHED → videoPaths saved", {
+        addData(projectId, "videoPathsAuto", videoPaths);
+        console.log("[Nodes] GROK_QUEUE_FINISHED → videoPathsAuto saved", {
           projectId,
           lines: imageCount,
           sessionId,
