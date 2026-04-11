@@ -42,10 +42,10 @@ import NodeAgenticEditor, { type NodeAgenticEditorData } from "./NodeAgenticEdit
 import NodeGrokAutomation, { type NodeGrokAutomationData } from "./NodeGrokAutomation";
 import { type AgenticEditorFileEntry } from "@/lib/agenticEditorDataSync";
 import { addData } from "@/lib/data";
+import { collectGrokAutomationFromStoryboard } from "@/lib/grokStoryboardSource";
 import {
   buildGrokStartRobotMessage,
   buildGrokVideoPathsForSession,
-  grokStoredPathsToList,
   postGrokStartRobot,
 } from "@/lib/grokRobotPostMessage";
 import { requestEditorNodePlay } from "@/lib/editorNodePlayEvent";
@@ -304,11 +304,11 @@ function NodesInner({ projectId }: NodesProps) {
       if (d == null || typeof d !== "object" || Array.isArray(d)) return;
       if ((d as { type?: unknown }).type !== "GROK_QUEUE_FINISHED") return;
 
+      const storyPaths = collectGrokAutomationFromStoryboard(projectId).paths;
       const isReadyGrok = (n: Node<Record<string, unknown>>) => {
         if (n.type !== "nodeGrokAutomation") return false;
         const dt = (n.data ?? {}) as NodeGrokAutomationData;
-        const list = grokStoredPathsToList(dt.imagePaths ?? "");
-        return list.length >= 1 && String(dt.sessionId ?? "").trim() !== "";
+        return storyPaths.length >= 1 && String(dt.sessionId ?? "").trim() !== "";
       };
 
       const grokNodes = nodesRef.current.filter((n) => n.type === "nodeGrokAutomation");
@@ -323,7 +323,7 @@ function NodesInner({ projectId }: NodesProps) {
       }
 
       const dNode = (grok.data ?? {}) as NodeGrokAutomationData;
-      const imageCount = grokStoredPathsToList(dNode.imagePaths ?? "").length;
+      const imageCount = collectGrokAutomationFromStoryboard(projectId).paths.length;
       const sessionId = String(dNode.sessionId ?? "").trim();
 
       const videoPaths = buildGrokVideoPathsForSession(sessionId, imageCount);
@@ -514,9 +514,10 @@ function NodesInner({ projectId }: NodesProps) {
       const node = nodesRef.current.find((n) => n.id === nodeId);
       if (!node || node.type !== "nodeGrokAutomation") return;
       const d = (node.data ?? {}) as NodeGrokAutomationData;
-      const paths = grokStoredPathsToList(d.imagePaths ?? "");
+      const collected = collectGrokAutomationFromStoryboard(projectId);
+      const paths = collected.paths;
       if (paths.length === 0) {
-        alert("Add at least one image (Choose files…) before playing.");
+        alert("No storyboard panel images yet. Generate panel images in Storyboarding first.");
         return;
       }
 
@@ -562,7 +563,7 @@ function NodesInner({ projectId }: NodesProps) {
           resolution: d.resolution,
           upscale: d.upscale !== false,
           sessionId,
-          prompts: String(d.prompts ?? ""),
+          promptLines: collected.promptLines,
           dataUrls,
           openNewTab: true,
         });

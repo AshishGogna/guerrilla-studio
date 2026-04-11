@@ -16,7 +16,11 @@ import JSZip from "jszip";
 import { createPortal } from "react-dom";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { clearStoryboardAll } from "@/lib/storyboardClearAll";
-import { STORYBOARD_STATE_CHANGED_EVENT } from "@/lib/storyboardStateEvent";
+import {
+  STORYBOARD_STATE_CHANGED_EVENT,
+  notifyStoryboardStateChanged,
+} from "@/lib/storyboardStateEvent";
+import { getCopyVideoGenPromptsForGrokClipboardText } from "@/lib/grokStoryboardSource";
 
 const MIN_TEXTAREA_HEIGHT = 44;
 
@@ -160,8 +164,9 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onChanged = (e: Event) => {
-      const detail = (e as CustomEvent<{ projectId?: string }>).detail;
+      const detail = (e as CustomEvent<{ projectId?: string; refreshStoryboardUi?: boolean }>).detail;
       if (!detail || detail.projectId !== projectId) return;
+      if (detail.refreshStoryboardUi === false) return;
       const saved = loadStoryboardState(projectId);
       setPanels(saved.panels?.length ? saved.panels.map(persistedToPanel) : [{ ...defaultPanel }]);
       setImageModel(saved.imageModel ?? IMAGE_MODELS[0]);
@@ -185,6 +190,11 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
       scale,
       panels: panels.map(panelToPersisted),
     });
+    const t = window.setTimeout(
+      () => notifyStoryboardStateChanged(projectId, { refreshStoryboardUi: false }),
+      200
+    );
+    return () => window.clearTimeout(t);
   }, [projectId, panels, imageModel, aspectRatio, scale]);
 
   function updatePanel(index: number, updates: Partial<PanelItem>) {
@@ -805,44 +815,21 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
           onClick={async () => {
             let raw = getData(projectId, "scenes");
             if (!Array.isArray(raw)) {
-              raw = JSON.parse(String(raw ?? "null")) as unknown;
+              try {
+                raw = JSON.parse(String(raw ?? "null")) as unknown;
+              } catch {
+                raw = null;
+              }
               if (!Array.isArray(raw)) {
                 alert("No scenes found. Save a list as data.scenes first.");
                 return;
               }
             }
-            const prompts = raw
-              .map((scene) => {
-                if (typeof scene === "string") return scene;
-                const obj =
-                  scene && typeof scene === "object"
-                    ? (scene as Record<string, unknown>)
-                    : null;
-                if (!obj) return "";
-                if ("videoGenerationPrompt" in obj) {
-                  return String(
-                    (obj as { videoGenerationPrompt?: unknown }).videoGenerationPrompt ??
-                      ""
-                  );
-                }
-                if ("video_prompt" in obj) {
-                  return String((obj as { video_prompt?: unknown }).video_prompt ?? "");
-                }
-                if ("videoPrompt" in obj) {
-                  return String((obj as { videoPrompt?: unknown }).videoPrompt ?? "");
-                }
-                if ("promptVideo" in obj) {
-                  return String((obj as { promptVideo?: unknown }).promptVideo ?? "");
-                }
-                return "";
-              })
-              .map((s) => s.trim())
-              .filter((s) => s.length > 0);
-            if (prompts.length === 0) {
+            const text = getCopyVideoGenPromptsForGrokClipboardText(projectId);
+            if (!text.trim()) {
               alert("No video generation prompts found in data.scenes.");
               return;
             }
-            const text = prompts.join("\n\n");
             try {
               if (navigator.clipboard && "writeText" in navigator.clipboard) {
                 await navigator.clipboard.writeText(text);

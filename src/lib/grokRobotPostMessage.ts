@@ -23,8 +23,15 @@ export function grokStoredPathsToList(imagePaths: string): string[] {
     .filter(Boolean);
 }
 
-/** One array entry per line (including trailing empty lines if present). */
+/**
+ * Split stored prompts: storyboard sync uses `\n\n` between entries; legacy uses single newlines.
+ */
 export function grokPromptsToLines(prompts: string): string[] {
+  const t = prompts.trim();
+  if (!t) return [];
+  if (/\n{2,}/.test(prompts)) {
+    return prompts.split(/\n{2,}/).map((s) => s.replace(/\r\n/g, "\n"));
+  }
   return prompts.split(/\r?\n/);
 }
 
@@ -34,7 +41,10 @@ export function buildGrokStartRobotMessage(params: {
   resolution?: string;
   upscale: boolean;
   sessionId: string;
-  prompts: string;
+  /** Use with `dataUrls` when prompts are already split (e.g. storyboard). */
+  promptLines?: string[];
+  /** Ignored when `promptLines` is provided. */
+  prompts?: string;
   dataUrls: string[];
   openNewTab?: boolean;
 }): GrokStartRobotMessage {
@@ -43,7 +53,9 @@ export function buildGrokStartRobotMessage(params: {
     params.duration === "10s" || params.duration === "10" ? "10" : "6";
   const resolution =
     params.resolution === "480p" || params.resolution === "480" ? "480" : "720";
-  const lines = grokPromptsToLines(params.prompts);
+  const lines =
+    params.promptLines ??
+    grokPromptsToLines(params.prompts ?? "");
   const queue = params.dataUrls.map((imageDataURL, i) => ({
     prompt: (lines[i] ?? "").trim(),
     imageDataURL,
