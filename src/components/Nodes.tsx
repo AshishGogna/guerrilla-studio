@@ -39,6 +39,7 @@ import { clearStoryboardAll } from "@/lib/storyboardClearAll";
 import NodeLabel, { type NodeLabelData } from "./NodeLabel";
 import NodeEditor, { type NodeEditorData } from "./NodeEditor";
 import NodeAgenticEditor, { type NodeAgenticEditorData } from "./NodeAgenticEditor";
+import NodeGrokAutomation, { type NodeGrokAutomationData } from "./NodeGrokAutomation";
 import { type AgenticEditorFileEntry } from "@/lib/agenticEditorDataSync";
 import { requestEditorNodePlay } from "@/lib/editorNodePlayEvent";
 
@@ -51,6 +52,7 @@ const nodeTypes = {
   nodeReferences: NodeReferences,
   nodeEditor: NodeEditor,
   nodeAgenticEditor: NodeAgenticEditor,
+  nodeGrokAutomation: NodeGrokAutomation,
   nodeLabel: NodeLabel,
 };
 
@@ -83,6 +85,7 @@ function tidyNodeForClipboard(n: Node<Record<string, unknown>>): Node<Record<str
   if ("onSessionIdChange" in data) delete data.onSessionIdChange;
   if ("onOutputTypeChange" in data) delete data.onOutputTypeChange;
   if ("onFileEntriesChange" in data) delete data.onFileEntriesChange;
+  if ("onGrokAutomationChange" in data) delete data.onGrokAutomationChange;
   if ("onLabelChange" in data) delete data.onLabelChange;
   if ("chainSyncNonce" in data) delete data.chainSyncNonce;
   return {
@@ -218,6 +221,40 @@ function NodesInner({ projectId }: NodesProps) {
       )
     );
   }, []);
+
+  const onGrokAutomationChange = useCallback(
+    (
+      nodeId: string,
+      patch: Partial<
+        Pick<
+          NodeGrokAutomationData,
+          | "aspectRatio"
+          | "duration"
+          | "resolution"
+          | "mode"
+          | "upscale"
+          | "imagePaths"
+          | "prompts"
+          | "sessionId"
+        >
+      >
+    ) => {
+      setNodes((prev) =>
+        prev.map((n) =>
+          n.id === nodeId && n.type === "nodeGrokAutomation"
+            ? {
+                ...n,
+                data: {
+                  ...((n.data as unknown as NodeGrokAutomationData) ?? {}),
+                  ...patch,
+                },
+              }
+            : n
+        )
+      );
+    },
+    []
+  );
 
   const onLabelChange = useCallback((nodeId: string, label: string) => {
     setNodes((prev) =>
@@ -592,6 +629,7 @@ function NodesInner({ projectId }: NodesProps) {
           ...(n.type === "nodeAgenticEditor"
             ? { onPromptChange, onSessionIdChange, onOutputTypeChange, onFileEntriesChange }
             : {}),
+          ...(n.type === "nodeGrokAutomation" ? { onGrokAutomationChange } : {}),
         };
         return { ...n, data: next as unknown as Record<string, unknown> };
       })
@@ -606,6 +644,7 @@ function NodesInner({ projectId }: NodesProps) {
     onSessionIdChange,
     onOutputTypeChange,
     onFileEntriesChange,
+    onGrokAutomationChange,
     onTitleChange,
     playChainFrom,
     playTextNodeOnce,
@@ -629,6 +668,7 @@ function NodesInner({ projectId }: NodesProps) {
       if ("onSessionIdChange" in data) delete data.onSessionIdChange;
       if ("onOutputTypeChange" in data) delete data.onOutputTypeChange;
       if ("onFileEntriesChange" in data) delete data.onFileEntriesChange;
+      if ("onGrokAutomationChange" in data) delete data.onGrokAutomationChange;
       if ("onLabelChange" in data) delete data.onLabelChange;
       if ("chainSyncNonce" in data) delete data.chainSyncNonce;
       return { ...n, data };
@@ -761,9 +801,11 @@ function NodesInner({ projectId }: NodesProps) {
                   ? "Editor"
                   : type === "nodeAgenticEditor"
                     ? "Agentic Editor"
-                    : type === "nodeLabel"
-                      ? "Label"
-                      : "NodeText",
+                    : type === "nodeGrokAutomation"
+                      ? "Grok Automation"
+                      : type === "nodeLabel"
+                        ? "Label"
+                        : "NodeText",
         onTitleChange,
       };
       const data =
@@ -803,6 +845,19 @@ function NodesInner({ projectId }: NodesProps) {
                     onOutputTypeChange,
                     onFileEntriesChange,
                   } satisfies NodeAgenticEditorData)
+                : type === "nodeGrokAutomation"
+                  ? ({
+                      ...baseData,
+                      aspectRatio: "16:9",
+                      duration: "6s",
+                      resolution: "720p",
+                      mode: "Frame to Video",
+                      upscale: true,
+                      imagePaths: "",
+                      prompts: "",
+                      sessionId: randomSixLetters(),
+                      onGrokAutomationChange,
+                    } satisfies NodeGrokAutomationData)
                 : type === "nodeLabel"
                   ? ({
                       label: "Label",
@@ -826,6 +881,7 @@ function NodesInner({ projectId }: NodesProps) {
     [
       canvasMenu,
       onFileEntriesChange,
+      onGrokAutomationChange,
       onLabelChange,
       onPromptChange,
       onTextChange,
@@ -948,6 +1004,7 @@ function NodesInner({ projectId }: NodesProps) {
             { id: "nodeReferences", label: "References" },
             { id: "nodeEditor", label: "Editor" },
             { id: "nodeAgenticEditor", label: "Agentic Editor" },
+            { id: "nodeGrokAutomation", label: "Grok Automation" },
             { id: "nodeLabel", label: "Label" },
           ]}
           onAddNodeType={addNodeOfType}

@@ -9,6 +9,7 @@ export type CanvasNodeTypeId =
   | "nodeReferences"
   | "nodeEditor"
   | "nodeAgenticEditor"
+  | "nodeGrokAutomation"
   | "nodeLabel";
 
 type CanvasMenuProps = {
