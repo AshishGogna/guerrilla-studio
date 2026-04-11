@@ -41,6 +41,11 @@ import NodeEditor, { type NodeEditorData } from "./NodeEditor";
 import NodeAgenticEditor, { type NodeAgenticEditorData } from "./NodeAgenticEditor";
 import NodeGrokAutomation, { type NodeGrokAutomationData } from "./NodeGrokAutomation";
 import { type AgenticEditorFileEntry } from "@/lib/agenticEditorDataSync";
+import {
+  buildGrokStartRobotMessage,
+  grokStoredPathsToList,
+  postGrokStartRobot,
+} from "@/lib/grokRobotPostMessage";
 import { requestEditorNodePlay } from "@/lib/editorNodePlayEvent";
 
 export type NodesProps = { projectId: string };
@@ -458,6 +463,78 @@ function NodesInner({ projectId }: NodesProps) {
     [projectId, setNodePlaying]
   );
 
+  const playGrokAutomationNodeOnce = useCallback(
+    async (nodeId: string) => {
+      const node = nodesRef.current.find((n) => n.id === nodeId);
+      if (!node || node.type !== "nodeGrokAutomation") return;
+      const d = (node.data ?? {}) as NodeGrokAutomationData;
+      const paths = grokStoredPathsToList(d.imagePaths ?? "");
+      if (paths.length === 0) {
+        alert("Add at least one image (Choose files…) before playing.");
+        return;
+      }
+
+      const sessionIdRaw = String(d.sessionId ?? "").trim();
+      const sessionId = sessionIdRaw || randomSixLetters();
+      if (!sessionIdRaw) {
+        setNodes((prev) =>
+          prev.map((n) =>
+            n.id === nodeId
+              ? {
+                  ...n,
+                  data: { ...(n.data as Record<string, unknown>), sessionId },
+                }
+              : n
+          )
+        );
+      }
+
+      setNodePlaying(nodeId, true);
+      try {
+        const res = await fetch("/api/grok-automation-read-images", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectId, paths }),
+        });
+        const json = (await res.json().catch(() => ({}))) as {
+          dataUrls?: unknown;
+          error?: string;
+        };
+        if (!res.ok) {
+          throw new Error(json?.error ?? "Failed to load images for Grok");
+        }
+        const dataUrls = Array.isArray(json.dataUrls)
+          ? json.dataUrls.filter((u): u is string => typeof u === "string" && u.startsWith("data:"))
+          : [];
+        if (dataUrls.length !== paths.length) {
+          throw new Error("Server returned an unexpected number of images");
+        }
+
+        const message = buildGrokStartRobotMessage({
+          aspectRatio: d.aspectRatio,
+          duration: d.duration,
+          resolution: d.resolution,
+          upscale: d.upscale !== false,
+          sessionId,
+          prompts: String(d.prompts ?? ""),
+          dataUrls,
+          openNewTab: true,
+        });
+        postGrokStartRobot(message);
+        console.log("[Nodes] GROK_START_ROBOT posted", {
+          sessionId,
+          queueLength: message.queue.length,
+        });
+      } catch (err) {
+        console.error(err);
+        alert(err instanceof Error ? err.message : "Grok automation play failed");
+      } finally {
+        setNodePlaying(nodeId, false);
+      }
+    },
+    [projectId, setNodePlaying, setNodes]
+  );
+
   const playStoryboardNodeOnce = useCallback(
     async (nodeId: string, fromChain: boolean) => {
       if (storyboardRunLockRef.current) return;
@@ -550,11 +627,16 @@ function NodesInner({ projectId }: NodesProps) {
         await playAgenticEditorNodeOnce(nodeId);
         return;
       }
+      if (node.type === "nodeGrokAutomation") {
+        await playGrokAutomationNodeOnce(nodeId);
+        return;
+      }
       // base, nodeLabel, etc.: no-op for single play
     },
     [
       playAgenticEditorNodeOnce,
       playEditorNodeOnce,
+      playGrokAutomationNodeOnce,
       playReferencesNodeOnce,
       playStoryboardNodeOnce,
       playTextNodeOnce,
