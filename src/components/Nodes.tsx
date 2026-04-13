@@ -297,12 +297,21 @@ function NodesInner({ projectId }: NodesProps) {
   edgesRef.current = edges;
   const storyboardRunLockRef = useRef(false);
 
+  /** Resolves when extension posts `GROK_QUEUE_FINISHED` so Grok play / play-chain stay blocked until then. */
+  const grokQueuePlayWaitRef = useRef<{ resolve: () => void; nodeId: string } | null>(null);
+
   /** Chrome extension → page: queue done; `videoPaths` from current Grok node inputs (independent of Play). */
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       const d = event.data;
       if (d == null || typeof d !== "object" || Array.isArray(d)) return;
       if ((d as { type?: unknown }).type !== "GROK_QUEUE_FINISHED") return;
+
+      const pending = grokQueuePlayWaitRef.current;
+      if (pending) {
+        grokQueuePlayWaitRef.current = null;
+        pending.resolve();
+      }
 
       const storyPaths = collectGrokAutomationFromStoryboard(projectId).paths;
       const isReadyGrok = (n: Node<Record<string, unknown>>) => {
@@ -567,10 +576,19 @@ function NodesInner({ projectId }: NodesProps) {
           dataUrls,
           openNewTab: true,
         });
+
+        if (grokQueuePlayWaitRef.current) {
+          grokQueuePlayWaitRef.current.resolve();
+          grokQueuePlayWaitRef.current = null;
+        }
         postGrokStartRobot(message);
         console.log("[Nodes] GROK_START_ROBOT posted", {
           sessionId,
           queueLength: message.queue.length,
+        });
+
+        await new Promise<void>((resolve) => {
+          grokQueuePlayWaitRef.current = { resolve, nodeId };
         });
       } catch (err) {
         console.error(err);
@@ -588,8 +606,14 @@ function NodesInner({ projectId }: NodesProps) {
       storyboardRunLockRef.current = true;
       setNodePlaying(nodeId, true);
       try {
-        // Clear all first (same behavior as Storyboarding "Clear" button).
-        clearStoryboardAll(projectId);
+        const sbNode = nodesRef.current.find((n) => n.id === nodeId && n.type === "nodeStoryboard");
+        const skipClearing =
+          sbNode &&
+          (sbNode.data as NodeStoryboardData).skipClearing === true;
+        if (!skipClearing) {
+          // Clear all first (same behavior as Storyboarding "Clear" button).
+          clearStoryboardAll(projectId);
+        }
 
         if (fromChain) {
           const last = getStoryboardLastSceneIndex(projectId);
@@ -949,6 +973,7 @@ function NodesInner({ projectId }: NodesProps) {
                 toScene: String(
                   Math.max(0, getScenesArrayFromProject(projectId).length - 1)
                 ),
+                skipClearing: false,
               } satisfies NodeStoryboardData)
             : type === "nodeReferences"
               ? ({

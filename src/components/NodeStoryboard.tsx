@@ -22,6 +22,8 @@ export type NodeStoryboardData = BaseNodeData & {
   aspectRatio?: string;
   fromScene?: string;
   toScene?: string;
+  /** When true, Play / play chain skips `clearStoryboardAll` before running panels. */
+  skipClearing?: boolean;
   /** Bumped by canvas when chain-play presets range — refreshes scene count label (not persisted). */
   chainSyncNonce?: number;
 };
@@ -223,6 +225,23 @@ export default function NodeStoryboard(props: NodeProps<NodeStoryboardData>) {
           />
         </div>
       </div>
+
+      <label className="nodrag mt-3 flex cursor-pointer items-center gap-2 text-sm text-foreground/80">
+        <input
+          type="checkbox"
+          className="nodrag rounded border border-foreground/30"
+          checked={data.skipClearing === true}
+          onChange={(e) => patchNodeData({ skipClearing: e.target.checked })}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            selectNode(id, e);
+          }}
+        />
+        <span>Skip clearing</span>
+      </label>
+      <p className="mt-0.5 pl-6 text-[11px] text-foreground/45">
+        When checked, run does not clear storyboard panels before generating.
+      </p>
 
       <div className="mt-3">
         <button
