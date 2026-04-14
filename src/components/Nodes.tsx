@@ -11,6 +11,7 @@ import ReactFlow, {
   type Edge,
   type Node,
   type NodeMouseHandler,
+  type Viewport,
   useReactFlow,
   useEdgesState,
   useNodesState,
@@ -64,6 +65,42 @@ const nodeTypes = {
 };
 
 const NODES_CLIPBOARD_PREFIX = "guerrilla-studio:nodes:v1:";
+const NODES_VIEWPORT_PREFIX = "guerrilla-studio:nodes:viewport:v1:";
+
+function getViewportStorageKey(projectId: string): string {
+  return `${NODES_VIEWPORT_PREFIX}${projectId}`;
+}
+
+function loadSavedViewport(projectId: string): Viewport | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(getViewportStorageKey(projectId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<Viewport>;
+    if (
+      typeof parsed?.x === "number" &&
+      Number.isFinite(parsed.x) &&
+      typeof parsed?.y === "number" &&
+      Number.isFinite(parsed.y) &&
+      typeof parsed?.zoom === "number" &&
+      Number.isFinite(parsed.zoom)
+    ) {
+      return { x: parsed.x, y: parsed.y, zoom: parsed.zoom };
+    }
+  } catch {
+    // ignore parse/storage errors
+  }
+  return null;
+}
+
+function saveViewport(projectId: string, viewport: Viewport): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(getViewportStorageKey(projectId), JSON.stringify(viewport));
+  } catch {
+    // ignore storage errors
+  }
+}
 
 function randomSixLetters(): string {
   const chars = "abcdefghijklmnopqrstuvwxyz";
@@ -296,6 +333,7 @@ function NodesInner({ projectId }: NodesProps) {
   const edgesRef = useRef(edges);
   edgesRef.current = edges;
   const storyboardRunLockRef = useRef(false);
+  const viewportRestoredRef = useRef(false);
 
   /** Resolves when extension posts `GROK_QUEUE_FINISHED` so Grok play / play-chain stay blocked until then. */
   const grokQueuePlayWaitRef = useRef<{ resolve: () => void; nodeId: string } | null>(null);
@@ -735,6 +773,10 @@ function NodesInner({ projectId }: NodesProps) {
   );
 
   useEffect(() => {
+    viewportRestoredRef.current = false;
+  }, [projectId]);
+
+  useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
@@ -757,6 +799,17 @@ function NodesInner({ projectId }: NodesProps) {
       cancelled = true;
     };
   }, [projectId, setEdges, setNodes]);
+
+  useEffect(() => {
+    if (!hydrated || viewportRestoredRef.current) return;
+    const saved = loadSavedViewport(projectId);
+    if (saved) {
+      rf.setViewport(saved, { duration: 0 });
+    } else {
+      rf.fitView({ padding: 0.4 });
+    }
+    viewportRestoredRef.current = true;
+  }, [hydrated, nodes.length, projectId, rf]);
 
   useEffect(() => {
     setNodes((prev) =>
@@ -1059,6 +1112,13 @@ function NodesInner({ projectId }: NodesProps) {
     [setEdges]
   );
 
+  const onMoveEnd = useCallback(
+    (_event: MouseEvent | TouchEvent | null, viewport: Viewport) => {
+      saveViewport(projectId, viewport);
+    },
+    [projectId]
+  );
+
   const handleRenameNode = useCallback(() => {
     if (!menuState) return;
     setRenamingNodeId(menuState.nodeId);
@@ -1113,9 +1173,8 @@ function NodesInner({ projectId }: NodesProps) {
           onPaneClick={() => setMenuState(null)}
           onPaneContextMenu={handlePaneContextMenu}
           onNodeContextMenu={handleNodeContextMenu}
+          onMoveEnd={onMoveEnd}
           zoomOnDoubleClick={false}
-          fitView
-          fitViewOptions={{ padding: 0.4 }}
           style={{ width: "100%", height: "100%" }}
           className="bg-background text-foreground"
         >
