@@ -34,6 +34,7 @@ export interface StoryboardPanelPersisted {
   promptVideo: string;
   mode: "image" | "video";
   referenceImages: { url: string }[];
+  referenceDataKeys?: string[];
 }
 
 export interface StoryboardStatePersisted {

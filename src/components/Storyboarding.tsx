@@ -69,6 +69,19 @@ async function fetchUrlAsBase64(url: string): Promise<string> {
   });
 }
 
+function normalizeDataRefKey(ref: string): string {
+  const trimmed = ref.trim();
+  return trimmed.startsWith("data.") ? trimmed.slice(5).trim() : trimmed;
+}
+
+function extractSceneReferenceDataKeys(sceneObj: Record<string, unknown> | null): string[] {
+  const refEntries =
+    sceneObj && "references" in sceneObj && Array.isArray(sceneObj.references)
+      ? (sceneObj.references as unknown[]).filter((r): r is string => typeof r === "string")
+      : [];
+  return refEntries.map(normalizeDataRefKey).filter(Boolean);
+}
+
 function resizeTextarea(el: HTMLTextAreaElement | null) {
   if (!el) return;
   el.style.height = "auto";
@@ -88,6 +101,7 @@ interface PanelItem {
   promptVideo: string;
   mode: PanelMode;
   referenceImages: RefImage[];
+  referenceDataKeys: string[];
   generating: boolean;
 }
 
@@ -97,6 +111,7 @@ const defaultPanel: PanelItem = {
   promptVideo: "",
   mode: "image",
   referenceImages: [],
+  referenceDataKeys: [],
   generating: false,
 };
 
@@ -109,6 +124,9 @@ function persistedToPanel(p: StoryboardPanelPersisted & { prompt?: string; image
     referenceImages: p.referenceImages.map((r) => ({
       url: normalizePublicAssetUrl(r.url) ?? r.url,
     })),
+    referenceDataKeys: Array.isArray(p.referenceDataKeys)
+      ? p.referenceDataKeys.filter((k): k is string => typeof k === "string" && k.trim() !== "")
+      : [],
     generating: false,
   };
 }
@@ -120,6 +138,7 @@ function panelToPersisted(panel: PanelItem): StoryboardPanelPersisted {
     promptVideo: panel.promptVideo,
     mode: panel.mode,
     referenceImages: panel.referenceImages.map((r) => ({ url: r.url })),
+    referenceDataKeys: panel.referenceDataKeys,
   };
 }
 
@@ -320,38 +339,12 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
                     : sceneObj && "description" in sceneObj
                       ? String(sceneObj.description ?? "")
                       : "";
-            const referenceImages: RefImage[] = [];
-            const refEntries = sceneObj && "references" in sceneObj && Array.isArray(sceneObj.references)
-              ? (sceneObj.references as unknown[]).filter((r): r is string => typeof r === "string")
-              : [];
-            for (const ref of refEntries) {
-              const key = ref.startsWith("data.") ? ref.slice(5).trim() : ref.trim();
-              if (!key) continue;
-              const pathValue = getData(projectId, key);
-              if (typeof pathValue !== "string" || !pathValue.trim()) continue;
-              let url = pathValue.trim();
-              if (url.startsWith("file://")) {
-                try {
-                  const res = await fetch("/api/upload-from-path", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ projectId, filePath: url }),
-                  });
-                  const data = await res.json();
-                  if (res.ok && typeof data?.filePath === "string") {
-                    url = normalizePublicAssetUrl(data.filePath) ?? data.filePath;
-                  }
-                } catch {
-                  // skip this reference on upload failure
-                }
-              }
-              referenceImages.push({ url });
-            }
+            const referenceDataKeys = extractSceneReferenceDataKeys(sceneObj);
             return {
               ...defaultPanel,
               promptImage: imageGenerationPrompt || prompt,
               promptVideo: "",
-              referenceImages,
+              referenceDataKeys,
             };
           })
         );
@@ -540,6 +533,48 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
     });
   }
 
+  async function resolveDataReferenceToUrl(dataKey: string): Promise<string | null> {
+    const pathValue = getData(projectId, dataKey);
+    if (typeof pathValue !== "string" || !pathValue.trim()) return null;
+    let url = pathValue.trim();
+    if (url.startsWith("file://")) {
+      try {
+        const res = await fetch("/api/upload-from-path", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectId, filePath: url }),
+        });
+        const data = await res.json();
+        if (res.ok && typeof data?.filePath === "string") {
+          url = data.filePath;
+          // Persist converted path so this data key becomes previewable in future renders.
+          addData(projectId, dataKey, url);
+        } else {
+          return null;
+        }
+      } catch {
+        return null;
+      }
+    }
+    return normalizePublicAssetUrl(url) ?? url;
+  }
+
+  async function getAttachedImagesForPanel(
+    panel: PanelItem
+  ): Promise<{ fileName: string; base64: string }[] | undefined> {
+    const fromUrls = panel.referenceImages.map((r) => r.url);
+    const fromDataKeys = await Promise.all(panel.referenceDataKeys.map(resolveDataReferenceToUrl));
+    const resolvedDataUrls = fromDataKeys.filter((u): u is string => Boolean(u));
+    const urls = [...fromUrls, ...resolvedDataUrls];
+    if (urls.length === 0) return undefined;
+    return Promise.all(
+      urls.map(async (url, i) => ({
+        fileName: `ref-${i}.png`,
+        base64: await fetchUrlAsBase64(url),
+      }))
+    );
+  }
+
   async function handleGenerateImage(panelIndex: number) {
     const currentPanels = panelsRef.current;
     const panel = currentPanels[panelIndex];
@@ -601,15 +636,7 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
     );
     updatePanel(panelIndex, { generating: true });
     try {
-      const attachedImages =
-        panel.referenceImages.length > 0
-          ? await Promise.all(
-              panel.referenceImages.map(async (ref, i) => ({
-                fileName: `ref-${i}.png`,
-                base64: await fetchUrlAsBase64(ref.url),
-              }))
-            )
-          : undefined;
+      const attachedImages = await getAttachedImagesForPanel(panel);
       const fileName = `panel-${panelIndex}`;
       const imagePath = await generateImage(
         promptTrimmed,
@@ -745,38 +772,12 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
                         : sceneObj && "description" in sceneObj
                           ? String(sceneObj.description ?? "")
                           : "";
-                const referenceImages: RefImage[] = [];
-                const refEntries = sceneObj && "references" in sceneObj && Array.isArray(sceneObj.references)
-                  ? (sceneObj.references as unknown[]).filter((r): r is string => typeof r === "string")
-                  : [];
-                for (const ref of refEntries) {
-                  const key = ref.startsWith("data.") ? ref.slice(5).trim() : ref.trim();
-                  if (!key) continue;
-                  const pathValue = getData(projectId, key);
-                  if (typeof pathValue !== "string" || !pathValue.trim()) continue;
-                  let url = pathValue.trim();
-                  if (url.startsWith("file://")) {
-                    try {
-                      const res = await fetch("/api/upload-from-path", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ projectId, filePath: url }),
-                      });
-                      const data = await res.json();
-                      if (res.ok && typeof data?.filePath === "string") {
-                        url = normalizePublicAssetUrl(data.filePath) ?? data.filePath;
-                      }
-                    } catch {
-                      // skip this reference on upload failure
-                    }
-                  }
-                  referenceImages.push({ url });
-                }
+                const referenceDataKeys = extractSceneReferenceDataKeys(sceneObj);
                 return {
                   ...defaultPanel,
                   promptImage: imageGenerationPrompt || prompt,
                   promptVideo: "",
-                  referenceImages,
+                  referenceDataKeys,
                 };
               })
             );
@@ -1106,7 +1107,7 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
                 <div className="flex items-center gap-1">
                   {panel.mode === "image" && (
                     <>
-                      {panel.referenceImages.length > 0 && (
+                      {(panel.referenceImages.length > 0 || panel.referenceDataKeys.length > 0) && (
                         <div className="flex items-center gap-0.5">
                           {panel.referenceImages.map((ref, refIndex) => (
                             <div key={refIndex} className="relative">
@@ -1125,6 +1126,28 @@ export default function Storyboarding({ projectId }: StoryboardingProps) {
                               </button>
                             </div>
                           ))}
+                          {panel.referenceDataKeys.map((dataKey, keyIndex) => {
+                            const raw = getData(projectId, dataKey);
+                            const hasValue = typeof raw === "string" && raw.trim() !== "";
+                            const value = hasValue ? raw.trim() : "";
+                            const canPreview = hasValue && !value.startsWith("file://");
+                            const previewUrl = canPreview ? (normalizePublicAssetUrl(value) ?? value) : null;
+                            return (
+                              <div
+                                key={`data-ref-${keyIndex}-${dataKey}`}
+                                className="relative"
+                                title={previewUrl ? `data.${dataKey}` : `data.${dataKey} (missing)`}
+                              >
+                                {previewUrl ? (
+                                  <img src={previewUrl} alt="" className="h-7 w-7 rounded object-cover ring-1 ring-accent/30" />
+                                ) : (
+                                  <div className="flex h-7 w-7 items-center justify-center rounded bg-foreground/10 text-xs font-semibold text-foreground/70 ring-1 ring-foreground/20">
+                                    ?
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                       <div className="relative">
